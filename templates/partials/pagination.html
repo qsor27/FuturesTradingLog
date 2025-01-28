@@ -1,0 +1,48 @@
+<!-- Pagination Controls -->
+<div class="pagination-controls">
+    <div class="page-size-control">
+        <label for="page-size">Trades per page:</label>
+        <select id="page-size" onchange="updatePageSize(this)">
+            {% for size in [10, 25, 50, 100] %}
+            <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <div class="pagination-info">
+        Showing {{ trades|length }} of {{ total_count }} trades
+    </div>
+    
+    <div class="pagination-buttons">
+        <button 
+            class="pagination-button" 
+            onclick="goToPage(1)"
+            {% if current_page == 1 %}disabled{% endif %}
+        >⟨⟨</button>
+        
+        <button 
+            class="pagination-button" 
+            onclick="goToPage({{ current_page - 1 }})"
+            {% if current_page == 1 %}disabled{% endif %}
+        >⟨</button>
+        
+        {% for p in range(max(1, current_page - 2), min(total_pages + 1, current_page + 3)) %}
+        <button 
+            class="pagination-button {% if p == current_page %}active{% endif %}" 
+            onclick="goToPage({{ p }})"
+        >{{ p }}</button>
+        {% endfor %}
+        
+        <button 
+            class="pagination-button" 
+            onclick="goToPage({{ current_page + 1 }})"
+            {% if current_page == total_pages %}disabled{% endif %}
+        >⟩</button>
+        
+        <button 
+            class="pagination-button" 
+            onclick="goToPage({{ total_pages }})"
+            {% if current_page == total_pages %}disabled{% endif %}
+        >⟩⟩</button>
+    </div>
+</div>

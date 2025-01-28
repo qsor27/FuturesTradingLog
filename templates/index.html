@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Trading Log{% endblock %}
+
+{% block extra_head %}
+<script>
+    function toggleRow(checkbox) {
+        const row = checkbox.closest('tr');
+        row.classList.toggle('selected', checkbox.checked);
+        updateDeleteButton();
+    }
+    
+    function toggleSelectAll(checkbox) {
+        const rows = document.querySelectorAll('tbody input[type="checkbox"]');
+        rows.forEach(row => {
+            row.checked = checkbox.checked;
+            toggleRow(row);
+        });
+    }
+    
+    function updateDeleteButton() {
+        const selectedCount = document.querySelectorAll('tbody input[type="checkbox"]:checked').length;
+        const deleteBtn = document.getElementById('deleteBtn');
+        const selectedCountSpan = document.getElementById('selectedCount');
+        
+        deleteBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
+        selectedCountSpan.textContent = selectedCount;
+    }
+    
+    function deleteSelected() {
+        if (!confirm('Are you sure you want to delete the selected trades?')) {
+            return;
+        }
+        
+        const selectedRows = document.querySelectorAll('tbody input[type="checkbox"]:checked');
+        const tradeIds = Array.from(selectedRows).map(checkbox => checkbox.value);
+        
+        fetch('{{ url_for("trades.delete_trades") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({trade_ids: tradeIds}),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                selectedRows.forEach(checkbox => checkbox.closest('tr').remove());
+                updateDeleteButton();
+                alert('Trades deleted successfully');
+            } else {
+                alert('Error deleting trades');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error deleting trades');
+        });
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<!-- Header Section -->
+<div class="header">
+    <h1>Trading Log</h1>
+    <a href="{{ url_for('statistics.statistics') }}" class="btn stats-btn">View Statistics</a>
+</div>
+
+{% include 'components/import_section.html' %}
+{% include 'components/filter_section.html' %}
+
+<!-- Trade Count Display -->
+<div class="trade-count">
+    Showing {{ trades|length }} trades
+</div>
+
+<!-- Actions Section -->
+<div class="actions">
+    <label class="select-all-label">
+        <input type="checkbox" onclick="toggleSelectAll(this)"> Select All
+    </label>
+    <button id="deleteBtn" class="btn delete-btn" onclick="deleteSelected()">
+        Delete Selected (<span id="selectedCount">0</span>) Trades
+    </button>
+</div>
+
+{% include 'components/pagination.html' %}
+{% include 'trade_table.html' %}
+{% include 'components/pagination.html' %}
+
+{% endblock %}

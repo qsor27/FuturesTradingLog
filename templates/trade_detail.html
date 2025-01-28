@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Trade Details{% endblock %}
+
+{% block extra_head %}
+<script>
+    function saveChanges() {
+        const chartUrl = document.getElementById('chartUrl').value;
+        const notes = document.getElementById('notes').value;
+        const tradeId = {{ trade.id }};
+        
+        fetch(`{{ url_for('trades.update_trade', trade_id=trade.id) }}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                chart_url: chartUrl,
+                notes: notes
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const msg = document.getElementById('successMessage');
+                msg.style.display = 'block';
+                setTimeout(() => {
+                    msg.style.display = 'none';
+                }, 3000);
+            } else {
+                alert('Error saving changes');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error saving changes');
+        });
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('trades.index') }}" class="back-link">← Back to Trade Log</a>
+<h1>Trade Details</h1>
+
+<div class="trade-detail">
+    <div class="detail-row">
+        <span class="label">ID:</span>
+        <span class="value">{{ trade.id }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Instrument:</span>
+        <span class="value">{{ trade.instrument }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Side:</span>
+        <span class="value {{ 'long' if trade.side_of_market == 'Long' else 'short' }}">{{ trade.side_of_market }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Quantity:</span>
+        <span class="value">{{ trade.quantity }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Entry Time:</span>
+        <span class="value">{{ trade.entry_time }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Entry Price:</span>
+        <span class="value">{{ "%.2f"|format(trade.entry_price) }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Exit Time:</span>
+        <span class="value">{{ trade.exit_time }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Exit Price:</span>
+        <span class="value">{{ "%.2f"|format(trade.exit_price) }}</span>
+    </div>
+    <div class="detail-row">
+        <span class="label">P&L:</span>
+        <span class="value {{ 'positive' if trade.dollars_gain_loss > 0 else 'negative' }}">
+            ${{ "%.2f"|format(trade.dollars_gain_loss) }}
+        </span>
+    </div>
+    <div class="detail-row">
+        <span class="label">Commission:</span>
+        <span class="value">${{ "%.2f"|format(trade.commission) }}</span>
+    </div>
+</div>
+
+<h2>Additional Details</h2>
+<div>
+    <label for="chartUrl">TradingView Chart URL:</label>
+    <input type="text" id="chartUrl" value="{{ trade.chart_url or '' }}" placeholder="Paste TradingView chart URL here">
+</div>
+
+<div>
+    <label for="notes">Notes:</label>
+    <textarea id="notes" placeholder="Add your trade notes here">{{ trade.notes or '' }}</textarea>
+</div>
+
+<button onclick="saveChanges()">Save Changes</button>
+<div id="successMessage" class="success-message">Changes saved successfully!</div>
+{% endblock %}

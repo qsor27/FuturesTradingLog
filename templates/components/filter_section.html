@@ -1,0 +1,40 @@
+<!-- Filter Section -->
+<div class="filter-section">
+    <h2 class="filter-title">Filters</h2>
+    <form id="filterForm" action="{{ url_for('trades.index') }}" method="get">
+        <input type="hidden" name="sort_by" value="{{ sort_by }}">
+        <input type="hidden" name="sort_order" value="{{ sort_order }}">
+        
+        <div class="filter-group">
+            <label for="account">Account:</label>
+            <select name="account" id="account" onchange="this.form.submit()">
+                <option value="">All Accounts</option>
+                {% for account in accounts %}
+                <option value="{{ account }}" {% if selected_account == account %}selected{% endif %}>
+                    {{ account }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="side">Side:</label>
+            <select name="side" id="side" onchange="this.form.submit()">
+                <option value="">All Sides</option>
+                <option value="Long" {% if selected_side == 'Long' %}selected{% endif %}>Long</option>
+                <option value="Short" {% if selected_side == 'Short' %}selected{% endif %}>Short</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="trade_result">Trade Result:</label>
+            <select name="trade_result" id="trade_result" onchange="this.form.submit()">
+                <option value="">All Trades</option>
+                <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning Trades</option>
+                <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing Trades</option>
+            </select>
+        </div>
+        
+        <button type="button" class="btn reset-btn" onclick="window.location.href='{{ url_for('trades.index') }}'">Reset Filters</button>
+    </form>
+</div>

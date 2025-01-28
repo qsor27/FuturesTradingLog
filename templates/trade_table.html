@@ -1,0 +1,47 @@
+<!-- Trades Table -->
+<table>
+    <thead>
+        <tr>
+            <th><input type="checkbox" onclick="toggleSelectAll(this)"></th>
+            <th class="sortable" onclick="updateSort('id')">ID</th>
+            <th>Instrument</th>
+            <th>Side</th>
+            <th>Quantity</th>
+            <th class="sortable" onclick="updateSort('entry_time')">Entry Time</th>
+            <th>Entry Price</th>
+            <th>Exit Time</th>
+            <th>Exit Price</th>
+            <th>Points</th>
+            <th>P&L ($)</th>
+            <th>Commission</th>
+            <th>Account</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for trade in trades %}
+        <tr class="{{ 'positive' if trade.dollars_gain_loss is not none and trade.dollars_gain_loss > 0 else 'negative' }}">
+            <td>
+                <input type="checkbox" value="{{ trade.id }}" onclick="toggleRow(this)">
+            </td>
+            <td>
+                <a href="{{ url_for('trades.trade_detail', trade_id=trade.id) }}" class="trade-link">
+                    {{ trade.id }}
+                </a>
+            </td>
+            <td>{{ trade.instrument or 'N/A' }}</td>
+            <td class="{{ 'long' if trade.side_of_market == 'Long' else 'short' }}">
+                {{ trade.side_of_market or 'N/A' }}
+            </td>
+            <td>{{ trade.quantity or 'N/A' }}</td>
+            <td>{{ trade.entry_time or 'N/A' }}</td>
+            <td>{{ "%.2f"|format(trade.entry_price) if trade.entry_price is not none else 'N/A' }}</td>
+            <td>{{ trade.exit_time or 'N/A' }}</td>
+            <td>{{ "%.2f"|format(trade.exit_price) if trade.exit_price is not none else 'N/A' }}</td>
+            <td>{{ "%.2f"|format(trade.points_gain_loss) if trade.points_gain_loss is not none else 'N/A' }}</td>
+            <td>${{ "%.2f"|format(trade.dollars_gain_loss) if trade.dollars_gain_loss is not none else 'N/A' }}</td>
+            <td>${{ "%.2f"|format(trade.commission) if trade.commission is not none else 'N/A' }}</td>
+            <td>{{ trade.account or 'N/A' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
