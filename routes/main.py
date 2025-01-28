@@ -9,7 +9,7 @@ def index():
     # Get all query parameters with defaults
     sort_by = request.args.get('sort_by', 'entry_time')
     sort_order = request.args.get('sort_order', 'DESC')
-    account_filter = request.args.get('account')
+    account_filters = request.args.getlist('accounts')
     trade_result = request.args.get('trade_result')
     side_filter = request.args.get('side')
     
@@ -33,7 +33,7 @@ def index():
             page=page,
             sort_by=sort_by,
             sort_order=sort_order,
-            account=account_filter,
+            account=account_filters,
             trade_result=trade_result,
             side=side_filter
         )
@@ -46,7 +46,7 @@ def index():
             page_size=page_size,
             sort_by=sort_by,
             sort_order=sort_order,
-            account=account_filter,
+            account=account_filters,
             trade_result=trade_result,
             side=side_filter
         ))
@@ -57,7 +57,7 @@ def index():
         sort_by=sort_by,
         sort_order=sort_order,
         accounts=accounts,
-        selected_account=account_filter,
+        selected_accounts=account_filters,
         selected_result=trade_result,
         selected_side=side_filter,
         current_page=page,

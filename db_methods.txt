@@ -1,0 +1,70 @@
+    def link_trades(self, trade_ids: List[int], chart_url: str = None, notes: str = None) -> bool:
+        """Link multiple trades together in a group."""
+        try:
+            # Create a new link group
+            self.cursor.execute("""
+                INSERT INTO linked_trade_groups (chart_url, notes)
+                VALUES (?, ?)
+            """, (chart_url, notes))
+            
+            group_id = self.cursor.lastrowid
+            
+            # Update all trades with the group ID
+            placeholders = ','.join('?' * len(trade_ids))
+            self.cursor.execute(f"""
+                UPDATE trades
+                SET link_group_id = ?
+                WHERE id IN ({placeholders})
+            """, [group_id] + trade_ids)
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error linking trades: {e}")
+            self.conn.rollback()
+            return False
+    
+    def get_linked_trades(self, group_id: int) -> Dict[str, Any]:
+        """Get all trades in a link group along with group details."""
+        try:
+            # Get group details
+            self.cursor.execute("""
+                SELECT *
+                FROM linked_trade_groups
+                WHERE id = ?
+            """, (group_id,))
+            group = dict(self.cursor.fetchone())
+            
+            # Get all trades in the group
+            self.cursor.execute("""
+                SELECT *
+                FROM trades
+                WHERE link_group_id = ?
+                ORDER BY account, entry_time
+            """, (group_id,))
+            trades = [dict(row) for row in self.cursor.fetchall()]
+            
+            return {
+                'group': group,
+                'trades': trades,
+                'total_pnl': sum(trade['dollars_gain_loss'] for trade in trades),
+                'total_commission': sum(trade['commission'] for trade in trades)
+            }
+        except Exception as e:
+            print(f"Error getting linked trades: {e}")
+            return None
+    
+    def unlink_trade(self, trade_id: int) -> bool:
+        """Remove a trade from its link group."""
+        try:
+            self.cursor.execute("""
+                UPDATE trades
+                SET link_group_id = NULL
+                WHERE id = ?
+            """, (trade_id,))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error unlinking trade: {e}")
+            self.conn.rollback()
+            return False

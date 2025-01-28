@@ -1,3 +1,13 @@
+<!-- Action Buttons -->
+<div class="table-actions mb-4">
+    <button id="linkSelectedBtn" class="btn btn-primary" style="display: none;" onclick="linkSelectedTrades()">
+        Link Selected (<span class="selectedCount">0</span>) Trades
+    </button>
+    <button id="deleteBtn" class="btn btn-danger" style="display: none;" onclick="deleteSelected()">
+        Delete Selected (<span class="selectedCount">0</span>) Trades
+    </button>
+</div>
+
 <!-- Trades Table -->
 <table>
     <thead>
@@ -9,17 +19,18 @@
             <th>Quantity</th>
             <th class="sortable" onclick="updateSort('entry_time')">Entry Time</th>
             <th>Entry Price</th>
-            <th>Exit Time</th>
+            <th class="sortable" onclick="updateSort('exit_time')">Exit Time</th>
             <th>Exit Price</th>
             <th>Points</th>
             <th>P&L ($)</th>
             <th>Commission</th>
             <th>Account</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
         {% for trade in trades %}
-        <tr class="{{ 'positive' if trade.dollars_gain_loss is not none and trade.dollars_gain_loss > 0 else 'negative' }}">
+        <tr class="{{ 'positive' if trade.dollars_gain_loss is not none and trade.dollars_gain_loss > 0 else 'negative' if trade.dollars_gain_loss is not none else '' }}">
             <td>
                 <input type="checkbox" value="{{ trade.id }}" onclick="toggleRow(this)">
             </td>
@@ -29,7 +40,7 @@
                 </a>
             </td>
             <td>{{ trade.instrument or 'N/A' }}</td>
-            <td class="{{ 'long' if trade.side_of_market == 'Long' else 'short' }}">
+            <td class="side-{{ trade.side_of_market.lower() if trade.side_of_market else '' }}">
                 {{ trade.side_of_market or 'N/A' }}
             </td>
             <td>{{ trade.quantity or 'N/A' }}</td>
@@ -38,10 +49,77 @@
             <td>{{ trade.exit_time or 'N/A' }}</td>
             <td>{{ "%.2f"|format(trade.exit_price) if trade.exit_price is not none else 'N/A' }}</td>
             <td>{{ "%.2f"|format(trade.points_gain_loss) if trade.points_gain_loss is not none else 'N/A' }}</td>
-            <td>${{ "%.2f"|format(trade.dollars_gain_loss) if trade.dollars_gain_loss is not none else 'N/A' }}</td>
+            <td class="pnl-cell">{{ "$%.2f"|format(trade.dollars_gain_loss) if trade.dollars_gain_loss is not none else 'N/A' }}</td>
             <td>${{ "%.2f"|format(trade.commission) if trade.commission is not none else 'N/A' }}</td>
             <td>{{ trade.account or 'N/A' }}</td>
+            <td>
+                {% if trade.link_group_id %}
+                    <a href="{{ url_for('trades.linked_trades', group_id=trade.link_group_id) }}" class="link-group">Group #{{ trade.link_group_id }}</a>
+                    <button onclick="unlinkTrade({{ trade.id }})" class="btn-unlink">×</button>
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+
+<style>
+/* Button Styles */
+.btn {
+    display: inline-block;
+    padding: 8px 16px;
+    margin-right: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+}
+
+.table-actions {
+    margin-bottom: 20px;
+}
+
+/* Link group styles */
+.link-group {
+    color: #007bff;
+    text-decoration: none;
+    margin-right: 8px;
+}
+
+.btn-unlink {
+    padding: 0 6px;
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.btn-unlink:hover {
+    background-color: #c82333;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
+</style>

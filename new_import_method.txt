@@ -1,0 +1,76 @@
+    def import_csv(self, filepath: str) -> bool:
+        """Import trades from a CSV file."""
+        try:
+            # Read CSV file
+            df = pd.read_csv(filepath)
+            
+            # Rename columns to match database schema
+            column_mapping = {
+                'Instrument': 'instrument',
+                'Side of Market': 'side_of_market',
+                'Quantity': 'quantity',
+                'Entry Price': 'entry_price',
+                'Entry Time': 'entry_time',
+                'Exit Time': 'exit_time',
+                'Exit Price': 'exit_price',
+                'Result Gain/Loss in Points': 'points_gain_loss',
+                'Gain/Loss in Dollars': 'dollars_gain_loss',
+                'ID': 'id',
+                'Commission': 'commission',
+                'Account': 'account'
+            }
+            df = df.rename(columns=column_mapping)
+            
+            # Convert timestamps
+            for col in ['entry_time', 'exit_time']:
+                df[col] = pd.to_datetime(df[col])
+                df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            # Get existing trades from database for matching
+            self.cursor.execute("""
+                SELECT id, account, entry_time, exit_time, instrument, quantity
+                FROM trades
+            """)
+            existing_trades = {}
+            for trade in self.cursor.fetchall():
+                # Create a unique key for each trade based on its identifying attributes
+                key = f"{trade['account']}_{trade['entry_time']}_{trade['exit_time']}_{trade['instrument']}_{trade['quantity']}"
+                existing_trades[key] = trade['id']
+            
+            # Process each trade
+            for _, row in df.iterrows():
+                # Clean NaN values and create dict
+                trade = {k: v for k, v in row.items() if pd.notna(v)}
+                
+                # Create a unique key for this trade
+                key = f"{trade['account']}_{trade['entry_time']}_{trade['exit_time']}_{trade['instrument']}_{trade['quantity']}"
+                
+                # If this trade exists, use its ID
+                if key in existing_trades:
+                    trade['id'] = existing_trades[key]
+                
+                # Build dynamic insert query with UPSERT logic
+                columns = list(trade.keys())
+                values = list(trade.values())
+                placeholders = ['?'] * len(columns)
+                
+                # Use INSERT OR REPLACE to handle both new and existing trades
+                query = f"""
+                    INSERT OR REPLACE INTO trades ({', '.join(columns)})
+                    VALUES ({', '.join(placeholders)})
+                """
+                
+                try:
+                    print(f"Processing trade: {key}")  # Debug output
+                    self.cursor.execute(query, values)
+                except Exception as e:
+                    print(f"Error inserting row {key}: {e}")  # Debug output
+                    continue
+            
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error importing CSV: {e}")
+            self.conn.rollback()
+            return False

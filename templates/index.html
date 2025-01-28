@@ -1,92 +1,335 @@
 {% extends "base.html" %}
 
-{% block title %}Trading Log{% endblock %}
-
 {% block extra_head %}
-<script>
-    function toggleRow(checkbox) {
-        const row = checkbox.closest('tr');
-        row.classList.toggle('selected', checkbox.checked);
-        updateDeleteButton();
-    }
-    
-    function toggleSelectAll(checkbox) {
-        const rows = document.querySelectorAll('tbody input[type="checkbox"]');
-        rows.forEach(row => {
-            row.checked = checkbox.checked;
-            toggleRow(row);
-        });
-    }
-    
-    function updateDeleteButton() {
-        const selectedCount = document.querySelectorAll('tbody input[type="checkbox"]:checked').length;
-        const deleteBtn = document.getElementById('deleteBtn');
-        const selectedCountSpan = document.getElementById('selectedCount');
-        
-        deleteBtn.style.display = selectedCount > 0 ? 'inline-block' : 'none';
-        selectedCountSpan.textContent = selectedCount;
-    }
-    
-    function deleteSelected() {
-        if (!confirm('Are you sure you want to delete the selected trades?')) {
-            return;
-        }
-        
-        const selectedRows = document.querySelectorAll('tbody input[type="checkbox"]:checked');
-        const tradeIds = Array.from(selectedRows).map(checkbox => checkbox.value);
-        
-        fetch('{{ url_for("trades.delete_trades") }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({trade_ids: tradeIds}),
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                selectedRows.forEach(checkbox => checkbox.closest('tr').remove());
-                updateDeleteButton();
-                alert('Trades deleted successfully');
-            } else {
-                alert('Error deleting trades');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Error deleting trades');
-        });
-    }
-</script>
+<style>
+.filters {
+    margin-bottom: 20px;
+}
+
+.account-select {
+    margin-bottom: 10px;
+}
+
+.account-select select {
+    min-width: 200px;
+    padding: 5px;
+    height: 150px;
+}
+
+.account-select label {
+    display: block;
+    margin-bottom: 5px;
+}
+</style>
 {% endblock %}
 
 {% block content %}
-<!-- Header Section -->
-<div class="header">
-    <h1>Trading Log</h1>
-    <a href="{{ url_for('statistics.statistics') }}" class="btn stats-btn">View Statistics</a>
+<div class="container mx-auto px-4 py-8">
+    <!-- Filters Section -->
+    <div class="mb-8 bg-white shadow rounded-lg p-6">
+        <form method="get" class="space-y-4">
+            <div class="filters">
+                <div class="account-select">
+                    <label>Filter by Accounts:</label>
+                    <select name="accounts" multiple onchange="this.form.submit()">
+                        {% for account in accounts %}
+                        <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                <!-- Trade Result Filter -->
+                <div>
+                    <label for="trade_result" class="block text-sm font-medium text-gray-700">Trade Result</label>
+                    <select name="trade_result" id="trade_result" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        <option value="">All Results</option>
+                        <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning</option>
+                        <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing</option>
+                    </select>
+                </div>
+
+                <!-- Side Filter -->
+                <div>
+                    <label for="side" class="block text-sm font-medium text-gray-700">Side</label>
+                    <select name="side" id="side" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        <option value="">All Sides</option>
+                        <option value="Long" {% if selected_side == 'Long' %}selected{% endif %}>Long</option>
+                        <option value="Short" {% if selected_side == 'Short' %}selected{% endif %}>Short</option>
+                    </select>
+                </div>
+
+                <!-- Page Size -->
+                <div>
+                    <label for="page_size" class="block text-sm font-medium text-gray-700">Trades per Page</label>
+                    <select name="page_size" id="page_size" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                        {% for size in [10, 25, 50, 100] %}
+                        <option value="{{ size }}" {% if size == page_size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Apply Filters
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Trades Table Section -->
+    <div class="bg-white shadow rounded-lg p-6">
+        <div class="mb-4 flex justify-between items-center">
+            <h2 class="text-xl font-bold">Trades</h2>
+            <div class="space-x-2">
+                <a href="{{ url_for('upload.upload_form') }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Upload Trades
+                </a>
+                <button onclick="linkSelectedTrades()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Link Selected Trades
+                </button>
+                <button onclick="deleteSelectedTrades()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                    Delete Selected Trades
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full table-auto">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="px-4 py-2">
+                            <input type="checkbox" id="select-all" onchange="toggleAllTrades(this)">
+                        </th>
+                        <th class="px-4 py-2">Trade ID</th>
+                        <th class="px-4 py-2">Instrument</th>
+                        <th class="px-4 py-2">Side</th>
+                        <th class="px-4 py-2">Quantity</th>
+                        <th class="px-4 py-2">Entry Price</th>
+                        <th class="px-4 py-2">Exit Price</th>
+                        <th class="px-4 py-2">P&L Points</th>
+                        <th class="px-4 py-2">P&L $</th>
+                        <th class="px-4 py-2">Commission</th>
+                        <th class="px-4 py-2">Account</th>
+                        <th class="px-4 py-2">Entry Time</th>
+                        <th class="px-4 py-2">Exit Time</th>
+                        <th class="px-4 py-2">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in trades %}
+                    <tr class="border-t hover:bg-gray-50">
+                        <td class="px-4 py-2">
+                            <input type="checkbox" class="trade-checkbox" value="{{ trade.id }}" data-account="{{ trade.account }}">
+                        </td>
+                        <td class="px-4 py-2">
+                            <a href="{{ url_for('trades.trade_detail', trade_id=trade.id) }}" class="text-blue-500 hover:text-blue-700">
+                                {{ trade.id }}
+                            </a>
+                        </td>
+                        <td class="px-4 py-2">{{ trade.instrument }}</td>
+                        <td class="px-4 py-2">{{ trade.side_of_market }}</td>
+                        <td class="px-4 py-2">{{ trade.quantity }}</td>
+                        <td class="px-4 py-2">${{ "%.2f"|format(trade.entry_price) }}</td>
+                        <td class="px-4 py-2">${{ "%.2f"|format(trade.exit_price) }}</td>
+                        <td class="px-4 py-2">{{ "%.1f"|format(trade.points_gain_loss) }}</td>
+                        <td class="px-4 py-2 {% if trade.dollars_gain_loss > 0 %}text-green-600{% elif trade.dollars_gain_loss < 0 %}text-red-600{% endif %}">
+                            ${{ "%.2f"|format(trade.dollars_gain_loss) }}
+                        </td>
+                        <td class="px-4 py-2">${{ "%.2f"|format(trade.commission) }}</td>
+                        <td class="px-4 py-2">{{ trade.account }}</td>
+                        <td class="px-4 py-2">{{ trade.entry_time }}</td>
+                        <td class="px-4 py-2">{{ trade.exit_time }}</td>
+                        <td class="px-4 py-2">
+                            <div class="flex space-x-2">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if trade.validated %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    Validated
+                                </span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {% if trade.reviewed %}bg-blue-100 text-blue-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    Reviewed
+                                </span>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="mt-4 flex justify-between items-center">
+            <div>
+                Showing {{ ((current_page - 1) * page_size) + 1 }} to {{ min(current_page * page_size, total_count) }} of {{ total_count }} trades
+            </div>
+            <div class="flex space-x-2">
+                {% if current_page > 1 %}
+                <a href="{{ url_for('trades.index', page=current_page-1, page_size=page_size, accounts=selected_accounts, trade_result=selected_result, side=selected_side) }}" class="bg-gray-200 hover:bg-gray-300 text-gray-600 font-bold py-2 px-4 rounded">
+                    Previous
+                </a>
+                {% endif %}
+                
+                {% if current_page < total_pages %}
+                <a href="{{ url_for('trades.index', page=current_page+1, page_size=page_size, accounts=selected_accounts, trade_result=selected_result, side=selected_side) }}" class="bg-gray-200 hover:bg-gray-300 text-gray-600 font-bold py-2 px-4 rounded">
+                    Next
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </div>
 
-{% include 'components/import_section.html' %}
-{% include 'components/filter_section.html' %}
-
-<!-- Trade Count Display -->
-<div class="trade-count">
-    Showing {{ trades|length }} trades
+<!-- Link Trades Dialog -->
+<div id="linkTradesDialog" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-lg p-6 w-full max-w-lg">
+        <h3 class="text-lg font-bold mb-4">Link Selected Trades</h3>
+        
+        <div class="space-y-4">
+            <div>
+                <label for="chartUrl" class="block text-sm font-medium text-gray-700">Chart URL</label>
+                <input type="text" id="chartUrl" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+            
+            <div>
+                <label for="notes" class="block text-sm font-medium text-gray-700">Notes</label>
+                <textarea id="notes" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></textarea>
+            </div>
+        </div>
+        
+        <div class="mt-6 flex justify-end space-x-3">
+            <button onclick="closeLinkDialog()" class="bg-gray-200 hover:bg-gray-300 text-gray-600 font-bold py-2 px-4 rounded">
+                Cancel
+            </button>
+            <button onclick="submitLinkTrades()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                Link Trades
+            </button>
+        </div>
+    </div>
 </div>
 
-<!-- Actions Section -->
-<div class="actions">
-    <label class="select-all-label">
-        <input type="checkbox" onclick="toggleSelectAll(this)"> Select All
-    </label>
-    <button id="deleteBtn" class="btn delete-btn" onclick="deleteSelected()">
-        Delete Selected (<span id="selectedCount">0</span>) Trades
-    </button>
-</div>
+<script>
+let selectedTrades = new Set();
 
-{% include 'components/pagination.html' %}
-{% include 'trade_table.html' %}
-{% include 'components/pagination.html' %}
+function toggleAllTrades(checkbox) {
+    const tradeCheckboxes = document.querySelectorAll('.trade-checkbox');
+    tradeCheckboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        if (checkbox.checked) {
+            selectedTrades.add(parseInt(cb.value));
+        } else {
+            selectedTrades.delete(parseInt(cb.value));
+        }
+    });
+}
 
+function getSelectedTradeIds() {
+    return Array.from(selectedTrades);
+}
+
+function deleteSelectedTrades() {
+    const tradeIds = getSelectedTradeIds();
+    if (tradeIds.length === 0) {
+        alert('Please select trades to delete');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${tradeIds.length} trades?`)) {
+        return;
+    }
+
+    fetch('/delete-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            trade_ids: tradeIds
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error deleting trades');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting trades');
+    });
+}
+
+function linkSelectedTrades() {
+    const tradeIds = getSelectedTradeIds();
+    if (tradeIds.length === 0) {
+        alert('Please select trades to link');
+        return;
+    }
+
+    // Check if all selected trades are from different accounts
+    const selectedAccounts = new Set();
+    tradeIds.forEach(id => {
+        const checkbox = document.querySelector(`.trade-checkbox[value="${id}"]`);
+        selectedAccounts.add(checkbox.dataset.account);
+    });
+
+    if (selectedAccounts.size !== tradeIds.length) {
+        alert('Please select only one trade per account');
+        return;
+    }
+
+    document.getElementById('linkTradesDialog').classList.remove('hidden');
+}
+
+function closeLinkDialog() {
+    document.getElementById('linkTradesDialog').classList.add('hidden');
+    document.getElementById('chartUrl').value = '';
+    document.getElementById('notes').value = '';
+}
+
+function submitLinkTrades() {
+    const tradeIds = getSelectedTradeIds();
+    const chartUrl = document.getElementById('chartUrl').value;
+    const notes = document.getElementById('notes').value;
+
+    fetch('/link-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            trade_ids: tradeIds,
+            chart_url: chartUrl,
+            notes: notes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.href = `/linked-trades/${data.group_id}`;
+        } else {
+            alert('Error linking trades');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error linking trades');
+    });
+}
+
+// Initialize trade selection
+document.querySelectorAll('.trade-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', function() {
+        const tradeId = parseInt(this.value);
+        if (this.checked) {
+            selectedTrades.add(tradeId);
+        } else {
+            selectedTrades.delete(tradeId);
+        }
+    });
+});
+</script>
 {% endblock %}

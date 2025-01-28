@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="linked-trades-container">
+    <h1>Linked Trade Group #{{ group.id }}</h1>
+    
+    {% if group.notes or group.chart_url %}
+    <div class="group-details">
+        {% if group.notes %}
+        <div class="notes">
+            <h3>Group Notes:</h3>
+            <p>{{ group.notes }}</p>
+        </div>
+        {% endif %}
+        
+        {% if group.chart_url %}
+        <div class="chart">
+            <h3>Group Chart:</h3>
+            <img src="{{ group.chart_url }}" alt="Trade Group Chart">
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
+    <div class="group-summary">
+        <h3>Group Summary</h3>
+        <div class="summary-stats">
+            <div class="stat">
+                <label>Total P&L:</label>
+                <span class="{{ 'positive' if total_pnl > 0 else 'negative' }}">
+                    ${{ "%.2f"|format(total_pnl) }}
+                </span>
+            </div>
+            <div class="stat">
+                <label>Total Commission:</label>
+                <span>${{ "%.2f"|format(total_commission) }}</span>
+            </div>
+            <div class="stat">
+                <label>Net P&L:</label>
+                <span class="{{ 'positive' if (total_pnl - total_commission) > 0 else 'negative' }}">
+                    ${{ "%.2f"|format(total_pnl - total_commission) }}
+                </span>
+            </div>
+            <div class="stat">
+                <label>Number of Trades:</label>
+                <span>{{ trades|length }}</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="linked-trades">
+        <h3>Trades in this Group</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Instrument</th>
+                    <th>Side</th>
+                    <th>Quantity</th>
+                    <th>Entry Time</th>
+                    <th>Entry Price</th>
+                    <th>Exit Time</th>
+                    <th>Exit Price</th>
+                    <th>Points</th>
+                    <th>P&L ($)</th>
+                    <th>Commission</th>
+                    <th>Account</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for trade in trades %}
+                <tr class="{{ 'positive' if trade.dollars_gain_loss > 0 else 'negative' }}">
+                    <td>
+                        <a href="{{ url_for('trades.trade_detail', trade_id=trade.id) }}" class="trade-link">
+                            {{ trade.id }}
+                        </a>
+                    </td>
+                    <td>{{ trade.instrument }}</td>
+                    <td class="side-{{ trade.side_of_market.lower() }}">{{ trade.side_of_market }}</td>
+                    <td>{{ trade.quantity }}</td>
+                    <td>{{ trade.entry_time }}</td>
+                    <td>{{ "%.2f"|format(trade.entry_price) }}</td>
+                    <td>{{ trade.exit_time }}</td>
+                    <td>{{ "%.2f"|format(trade.exit_price) }}</td>
+                    <td>{{ "%.2f"|format(trade.points_gain_loss) }}</td>
+                    <td class="pnl-cell">${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
+                    <td>${{ "%.2f"|format(trade.commission) }}</td>
+                    <td>{{ trade.account }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.linked-trades-container {
+    padding: 20px;
+}
+
+.group-details {
+    margin: 20px 0;
+    padding: 15px;
+    background: #f5f5f5;
+    border-radius: 5px;
+}
+
+.group-summary {
+    margin: 20px 0;
+}
+
+.summary-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.stat {
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.stat label {
+    font-weight: bold;
+    margin-right: 8px;
+}
+
+.positive {
+    color: green;
+}
+
+.negative {
+    color: red;
+}
+
+.linked-trades table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.linked-trades th,
+.linked-trades td {
+    padding: 8px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.linked-trades th {
+    background: #f5f5f5;
+}
+
+.trade-link {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.trade-link:hover {
+    text-decoration: underline;
+}
+</style>
+{% endblock %}

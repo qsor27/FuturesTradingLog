@@ -1,268 +1,305 @@
 {% extends "base.html" %}
 
-{% block title %}Trading Statistics{% endblock %}
-
 {% block extra_head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
 <script>
-    function showTab(timeframe) {
-        document.querySelectorAll('.tab-content').forEach(tab => {
-            tab.style.display = 'none';
-        });
-        
-        document.getElementById(timeframe + '-tab').style.display = 'block';
-        
-        document.querySelectorAll('.tab-button').forEach(button => {
-            button.classList.remove('active');
-        });
-        document.querySelector(`[onclick="showTab('${timeframe}')"]`).classList.add('active');
+function switchView(period) {
+    // Hide all views
+    var views = document.querySelectorAll('[id$="-stats"]');
+    views.forEach(function(view) {
+        view.style.display = 'none';
+    });
+    
+    // Show selected view
+    var selectedView = document.getElementById(period + '-stats');
+    if (selectedView) {
+        selectedView.style.display = 'block';
     }
     
-    document.addEventListener('DOMContentLoaded', function() {
-        showTab('daily');
-        
-        // Account filter functionality
-        const accountFilter = document.getElementById('account-filter');
-        accountFilter.addEventListener('change', function() {
-            const selectedAccounts = Array.from(accountFilter.selectedOptions).map(option => option.value);
-            
-            // Create query string with selected accounts
-            const queryString = selectedAccounts.map(account => `account=${encodeURIComponent(account)}`).join('&');
-            
-            // Reload page with selected accounts
-            window.location.href = `${window.location.pathname}?${queryString}`;
-        });
-        
-        // Set initial selections based on URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const selectedAccounts = urlParams.getAll('account');
-        
-        if (selectedAccounts.length > 0) {
-            // Deselect all options first
-            Array.from(accountFilter.options).forEach(option => option.selected = false);
-            
-            // Select only the accounts from URL parameters
-            selectedAccounts.forEach(account => {
-                const option = Array.from(accountFilter.options).find(opt => opt.value === account);
-                if (option) option.selected = true;
-            });
+    // Update button states
+    var buttons = document.querySelectorAll('.tab-button');
+    buttons.forEach(function(button) {
+        if (button.getAttribute('data-period') === period) {
+            button.classList.add('active');
+        } else {
+            button.classList.remove('active');
         }
     });
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Set initial view
+    switchView('daily');
+});
 </script>
 {% endblock %}
 
 {% block content %}
-<div class="header">
-    <h1>Trading Statistics</h1>
-    <div class="header-controls">
-        <div class="account-select">
-            <label for="account-filter">Show Accounts:</label>
-            <select id="account-filter" multiple>
-                {% for account in accounts %}
-                <option value="{{ account }}" selected>{{ account }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <a href="{{ url_for('trades.index') }}" class="back-link">← Back to Trade Log</a>
+<div class="statistics-container">
+    <div class="navigation-link">
+        <a href="/" class="back-link">← Back to Trading Log</a>
     </div>
-</div>
 
-<div class="tabs">
-    <button class="tab-button active" onclick="showTab('daily')">Daily</button>
-    <button class="tab-button" onclick="showTab('weekly')">Weekly</button>
-    <button class="tab-button" onclick="showTab('monthly')">Monthly</button>
-</div>
+    <div class="filters">
+        <form id="stats-filter-form" method="GET">
+            <div class="account-select">
+                <label>Filter by Accounts:</label>
+                <select name="accounts" multiple onchange="this.form.submit()">
+                    {% for account in accounts %}
+                    <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+    </div>
 
-{% for timeframe in ['daily', 'weekly', 'monthly'] %}
-<div id="{{ timeframe }}-tab" class="tab-content" style="display: none;">
-    {% if stats[timeframe] and stats[timeframe]|length > 0 %}
-        <div class="mb-4" style="height: 400px; position: relative;">
-            <canvas id="pnl-graph-{{ timeframe }}"></canvas>
-        </div>
-        <script>
-            (function() {
-                const data = {{ stats[timeframe]|tojson|safe }};
-                const ctx = document.getElementById('pnl-graph-{{ timeframe }}').getContext('2d');
-                
-                // Process data for the chart
-                const chartData = data.map(item => ({
-                    x: item.period,
-                    y: item.total_pnl
-                })).reverse();
+    <div class="statistics-tabs">
+        <button type="button" class="tab-button" data-period="daily" onclick="switchView('daily')">Daily</button>
+        <button type="button" class="tab-button" data-period="weekly" onclick="switchView('weekly')">Weekly</button>
+        <button type="button" class="tab-button" data-period="monthly" onclick="switchView('monthly')">Monthly</button>
+    </div>
 
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        datasets: [{
-                            label: 'Profit/Loss',
-                            data: chartData,
-                            backgroundColor: function(context) {
-                                const value = context.raw.y;
-                                return value >= 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)';
-                            },
-                            borderColor: function(context) {
-                                const value = context.raw.y;
-                                return value >= 0 ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)';
-                            },
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: {
-                                type: 'category',
-                                title: {
-                                    display: true,
-                                    text: 'Period'
-                                },
-                                ticks: {
-                                    maxRotation: 45,
-                                    minRotation: 45
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Profit/Loss ($)'
-                                },
-                                ticks: {
-                                    callback: function(value) {
-                                        return '$' + value.toLocaleString();
-                                    }
-                                }
-                            }
-                        },
-                        plugins: {
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        return 'P&L: $' + context.raw.y.toLocaleString();
-                                    }
-                                }
-                            },
-                            title: {
-                                display: true,
-                                text: 'Profit/Loss Over Time (' + '{{ timeframe }}' + ')',
-                                font: {
-                                    size: 16
-                                }
-                            }
-                        }
-                    }
-                });
-            })();
-        </script>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">Win Rate</div>
-                <div class="stat-value">
-                    {% if stats[timeframe][0] and stats[timeframe][0].win_rate is not none %}
-                        {{ "%.2f"|format(stats[timeframe][0].win_rate) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-title">Long Win Rate</div>
-                <div class="stat-value">
-                    {% if stats[timeframe][0] and stats[timeframe][0].long_win_rate is not none %}
-                        {{ "%.2f"|format(stats[timeframe][0].long_win_rate) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-title">Short Win Rate</div>
-                <div class="stat-value">
-                    {% if stats[timeframe][0] and stats[timeframe][0].short_win_rate is not none %}
-                        {{ "%.2f"|format(stats[timeframe][0].short_win_rate) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-title">Total P&L</div>
-                <div class="stat-value {% if stats[timeframe][0] and stats[timeframe][0].total_pnl %}{{ 'positive' if stats[timeframe][0].total_pnl > 0 else 'negative' }}{% endif %}">
-                    {% if stats[timeframe][0] and stats[timeframe][0].total_pnl is not none %}
-                        ${{ "%.2f"|format(stats[timeframe][0].total_pnl) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-title">Total Points</div>
-                <div class="stat-value {% if stats[timeframe][0] and stats[timeframe][0].total_points %}{{ 'positive' if stats[timeframe][0].total_points > 0 else 'negative' }}{% endif %}">
-                    {% if stats[timeframe][0] and stats[timeframe][0].total_points is not none %}
-                        {{ "%.2f"|format(stats[timeframe][0].total_points) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-title">Winning/Losing Days</div>
-                <div class="stat-value">
-                    {% if stats[timeframe][0] %}
-                        {{ stats[timeframe][0].winning_days|default(0) }}/{{ stats[timeframe][0].losing_days|default(0) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        
-        <table class="history-table">
+    <div id="daily-stats" style="display: none;">
+        <h2>Daily Statistics</h2>
+        {% if stats.daily %}
+        <table class="statistics-table">
             <thead>
                 <tr>
                     <th>Period</th>
-                    <th>Long:Short</th>
-                    <th>Win:Total</th>
-                    <th>Total P&L</th>
+                    <th>Total Trades</th>
+                    <th>Valid Trades</th>
+                    <th>Valid %</th>
+                    <th>Win Rate</th>
                     <th>Total Points</th>
-                    <th>Win/Loss Days</th>
+                    <th>Net Profit</th>
+                    <th>Avg Win</th>
+                    <th>Avg Loss</th>
+                    <th>R:R Ratio</th>
+                    <th>Commission</th>
+                    <th>Instruments</th>
                 </tr>
             </thead>
             <tbody>
-                {% for period in stats[timeframe] %}
+                {% for stat in stats.daily %}
                 <tr>
-                    <td>{{ period.period }}</td>
-                    <td>{{ period.long_trades|default(0) }}:{{ period.short_trades|default(0) }}</td>
-                    <td>{{ period.winning_trades|default(0) }}:{{ period.total_trades|default(0) }}</td>
-                    <td class="{{ 'positive' if period.total_pnl and period.total_pnl > 0 else 'negative' if period.total_pnl else '' }}">
-                        {% if period.total_pnl is not none %}
-                            ${{ "%.2f"|format(period.total_pnl) }}
-                        {% else %}
-                            N/A
-                        {% endif %}
-                    </td>
-                    <td class="{{ 'positive' if period.total_points and period.total_points > 0 else 'negative' if period.total_points else '' }}">
-                        {% if period.total_points is not none %}
-                            {{ "%.2f"|format(period.total_points) }}
-                        {% else %}
-                            N/A
-                        {% endif %}
-                    </td>
-                    <td>{{ period.winning_days|default(0) }}/{{ period.losing_days|default(0) }}</td>
+                    <td>{{ stat.period_display }}</td>
+                    <td>{{ stat.total_trades }}</td>
+                    <td>{{ stat.valid_trades }}</td>
+                    <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
+                    <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
+                    <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
+                    <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
+                    <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                    <td>{{ stat.instruments_traded }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-    {% else %}
-        <div class="no-data">
-            No trading data available for {{ timeframe }} view
-        </div>
-    {% endif %}
+        {% else %}
+        <p class="no-data">No trading data available for this period.</p>
+        {% endif %}
+    </div>
+
+    <div id="weekly-stats" style="display: none;">
+        <h2>Weekly Statistics</h2>
+        {% if stats.weekly %}
+        <table class="statistics-table">
+            <thead>
+                <tr>
+                    <th>Period</th>
+                    <th>Total Trades</th>
+                    <th>Valid Trades</th>
+                    <th>Valid %</th>
+                    <th>Win Rate</th>
+                    <th>Total Points</th>
+                    <th>Net Profit</th>
+                    <th>Avg Win</th>
+                    <th>Avg Loss</th>
+                    <th>R:R Ratio</th>
+                    <th>Commission</th>
+                    <th>Instruments</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in stats.weekly %}
+                <tr>
+                    <td>{{ stat.period_display }}</td>
+                    <td>{{ stat.total_trades }}</td>
+                    <td>{{ stat.valid_trades }}</td>
+                    <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
+                    <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
+                    <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
+                    <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
+                    <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                    <td>{{ stat.instruments_traded }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-data">No trading data available for this period.</p>
+        {% endif %}
+    </div>
+
+    <div id="monthly-stats" style="display: none;">
+        <h2>Monthly Statistics</h2>
+        {% if stats.monthly %}
+        <table class="statistics-table">
+            <thead>
+                <tr>
+                    <th>Period</th>
+                    <th>Total Trades</th>
+                    <th>Valid Trades</th>
+                    <th>Valid %</th>
+                    <th>Win Rate</th>
+                    <th>Total Points</th>
+                    <th>Net Profit</th>
+                    <th>Avg Win</th>
+                    <th>Avg Loss</th>
+                    <th>R:R Ratio</th>
+                    <th>Commission</th>
+                    <th>Instruments</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in stats.monthly %}
+                <tr>
+                    <td>{{ stat.period_display }}</td>
+                    <td>{{ stat.total_trades }}</td>
+                    <td>{{ stat.valid_trades }}</td>
+                    <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
+                    <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
+                    <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
+                    <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
+                    <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
+                    <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                    <td>{{ stat.instruments_traded }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-data">No trading data available for this period.</p>
+        {% endif %}
+    </div>
 </div>
-{% endfor %}
+
+<style>
+.statistics-container {
+    padding: 20px;
+}
+
+.navigation-link {
+    margin-bottom: 20px;
+}
+
+.back-link {
+    display: inline-block;
+    padding: 8px 16px;
+    color: #007bff;
+    text-decoration: none;
+    border: 1px solid #007bff;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.back-link:hover {
+    background: #007bff;
+    color: white;
+}
+
+.filters {
+    margin-bottom: 20px;
+}
+
+.account-select {
+    margin-bottom: 10px;
+}
+
+.account-select select {
+    min-width: 200px;
+    padding: 5px;
+}
+
+.btn {
+    padding: 8px 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background-color: #0056b3;
+}
+
+.statistics-tabs {
+    margin-bottom: 20px;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    margin-right: 8px;
+    border: 1px solid #ddd;
+    background: #f8f9fa;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.tab-button.active {
+    background: #007bff;
+    color: white;
+    border-color: #0056b3;
+}
+
+.tab-button:hover {
+    background: #e9ecef;
+}
+
+.tab-button.active:hover {
+    background: #0056b3;
+}
+
+.statistics-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.statistics-table th,
+.statistics-table td {
+    padding: 8px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.statistics-table th {
+    background: #f8f9fa;
+    white-space: nowrap;
+}
+
+.statistics-table tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+.statistics-table-container {
+    overflow-x: auto;
+    margin-top: 20px;
+}
+
+.no-data {
+    color: #666;
+    font-style: italic;
+}
+</style>
 {% endblock %}

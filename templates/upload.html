@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="bg-white shadow rounded-lg p-6">
+        <div class="mb-4 flex justify-between items-center">
+            <h1 class="text-2xl font-bold">Upload Trades</h1>
+            <a href="{{ url_for('trades.index') }}" class="text-blue-500 hover:text-blue-700">
+                Back to Trades
+            </a>
+        </div>
+
+        <form id="uploadForm" class="space-y-4">
+            <div>
+                <label for="csvFile" class="block text-sm font-medium text-gray-700">Select CSV File</label>
+                <input type="file" id="csvFile" name="file" accept=".csv" 
+                    class="mt-1 block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100">
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Upload
+                </button>
+            </div>
+        </form>
+
+        <div id="uploadStatus" class="mt-4 hidden">
+            <div class="flex items-center">
+                <div class="spinner mr-3"></div>
+                <span>Uploading...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.spinner {
+    border: 3px solid #f3f3f3;
+    border-radius: 50%;
+    border-top: 3px solid #3498db;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData();
+    const fileInput = document.getElementById('csvFile');
+    const statusDiv = document.getElementById('uploadStatus');
+    
+    if (fileInput.files.length === 0) {
+        alert('Please select a file');
+        return;
+    }
+    
+    formData.append('file', fileInput.files[0]);
+    statusDiv.classList.remove('hidden');
+    
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.ok) {
+            window.location.href = '/';
+        } else {
+            return response.text().then(text => {
+                throw new Error(text);
+            });
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        statusDiv.classList.add('hidden');
+    });
+});
+</script>
+{% endblock %}

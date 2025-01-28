@@ -47,20 +47,20 @@
     </thead>
     <tbody>
         {% for trade in trades %}
-        <tr class="{{ 'positive' if trade.dollars_gain_loss > 0 else 'negative' }}">
+        <tr class="{{ get_row_class(trade.dollars_gain_loss) }}">
             <td>
                 <input type="checkbox" value="{{ trade.id }}" onclick="toggleRow(this)">
             </td>
-            <td><a href="{{ url_for('trade.trade_detail', trade_id=trade.id) }}" class="trade-link">{{ trade.id }}</a></td>
+            <td><a href="{{ url_for('trades.trade_detail', trade_id=trade.id) }}" class="trade-link">{{ trade.id }}</a></td>
             <td>{{ trade.instrument }}</td>
-            <td>{{ trade.side_of_market }}</td>
+            <td class="{{ get_side_class(trade.side_of_market) }}">{{ trade.side_of_market }}</td>
             <td>{{ trade.quantity }}</td>
             <td>{{ trade.entry_time }}</td>
             <td>${{ "%.2f"|format(trade.entry_price) }}</td>
             <td>{{ trade.exit_time }}</td>
             <td>${{ "%.2f"|format(trade.exit_price) }}</td>
             <td>{{ "%.2f"|format(trade.points_gain_loss) }}</td>
-            <td>${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
+            <td class="pnl-cell">${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
             <td>${{ "%.2f"|format(trade.commission) }}</td>
             <td>{{ trade.account }}</td>
         </tr>

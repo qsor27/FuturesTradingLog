@@ -1,0 +1,14 @@
+        <div class="mb-4 flex justify-between items-center">
+            <h2 class="text-xl font-bold">Trades</h2>
+            <div class="space-x-2">
+                <a href="{{ url_for('upload.upload_form') }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Upload Trades
+                </a>
+                <button onclick="linkSelectedTrades()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Link Selected Trades
+                </button>
+                <button onclick="deleteSelectedTrades()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                    Delete Selected Trades
+                </button>
+            </div>
+        </div>
