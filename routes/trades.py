@@ -14,9 +14,12 @@ def update_notes(trade_id):
     data = request.get_json()
     notes = data.get('notes', '')
     chart_url = data.get('chart_url', '')
+    validated = data.get('validated', False)
+    reviewed = data.get('reviewed', False)
     
     with FuturesDB() as db:
-        success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes)
+        success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes,
+                                         confirmed_valid=validated, reviewed=reviewed)
     
     return jsonify({'success': success})
 

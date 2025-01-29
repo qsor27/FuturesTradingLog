@@ -6,6 +6,9 @@
     <button id="linkSelectedBtn" class="btn btn-primary" onclick="linkSelectedTrades()">
         Link Copied Trades Together
     </button>
+    <button id="deleteSelectedBtn" class="btn btn-danger" onclick="deleteSelectedTrades()">
+        Delete Selected Trades
+    </button>
 </div>
 
 <!-- Trades Table -->
@@ -229,6 +232,41 @@ function linkSelectedTrades() {
     .catch(error => {
         console.error('Error:', error);
         alert('Error linking trades');
+    });
+}
+
+function deleteSelectedTrades() {
+    const tradeIds = Array.from(selectedTrades).map(Number);
+    
+    if (tradeIds.length === 0) {
+        alert('Please select at least one trade to delete');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${tradeIds.length} selected trade(s)? This action cannot be undone.`)) {
+        return;
+    }
+
+    fetch('/delete-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            trade_ids: tradeIds
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.message || 'Error deleting trades');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting trades');
     });
 }
 

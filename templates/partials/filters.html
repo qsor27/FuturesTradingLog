@@ -1,44 +1,50 @@
 <!-- Filter Section -->
 <div class="filters">
-    <form id="filterForm" method="GET">
-        <div class="account-select">
-            <label>Filter by Accounts:</label>
-            <select name="accounts" multiple onchange="this.form.submit()">
-                {% for account in accounts %}
-                <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
-                {% endfor %}
-            </select>
-        </div>
-    </form>
-</div>
+    <form id="filterForm" class="filter-form" method="GET">
+        <div class="filter-container">
+            <div class="account-select">
+                <label>Filter by Accounts:</label>
+                <select name="accounts" multiple onchange="this.form.submit()">
+                    {% for account in accounts %}
+                    <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-<div class="additional-filters">
-    <form id="additionalFilters" method="GET">
-        {% if selected_accounts %}
-            {% for account in selected_accounts %}
-                <input type="hidden" name="accounts" value="{{ account }}">
-            {% endfor %}
-        {% endif %}
-        
-        <div class="filter-group">
-            <label for="side">Side:</label>
-            <select name="side" id="side">
-                <option value="">All Sides</option>
-                <option value="Long" {% if selected_side == 'Long' %}selected{% endif %}>Long</option>
-                <option value="Short" {% if selected_side == 'Short' %}selected{% endif %}>Short</option>
-            </select>
+            <div class="vertical-divider"></div>
+            
+            <div class="additional-filters">
+                {% if selected_accounts %}
+                    {% for account in selected_accounts %}
+                        <input type="hidden" name="accounts" value="{{ account }}">
+                    {% endfor %}
+                {% endif %}
+                
+                <div class="filter-controls">
+                    <div class="filter-group">
+                        <label for="side">Side:</label>
+                        <select name="side" id="side">
+                            <option value="">All Sides</option>
+                            <option value="Long" {% if selected_side == 'Long' %}selected{% endif %}>Long</option>
+                            <option value="Short" {% if selected_side == 'Short' %}selected{% endif %}>Short</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="trade_result">Trade Result:</label>
+                        <select name="trade_result" id="trade_result">
+                            <option value="">All Trades</option>
+                            <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning Trades</option>
+                            <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing Trades</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="filter-buttons">
+                    <button type="submit" class="btn">Apply Filters</button>
+                    <button type="button" class="btn reset-btn" onclick="window.location.href='/'">Reset All</button>
+                </div>
+            </div>
         </div>
-        
-        <div class="filter-group">
-            <label for="trade_result">Trade Result:</label>
-            <select name="trade_result" id="trade_result">
-                <option value="">All Trades</option>
-                <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning Trades</option>
-                <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing Trades</option>
-            </select>
-        </div>
-        
-        <button type="submit" class="btn">Apply Additional Filters</button>
-        <button type="button" class="btn reset-btn" onclick="window.location.href='/'">Reset All Filters</button>
     </form>
 </div>

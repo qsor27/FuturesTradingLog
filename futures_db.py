@@ -43,7 +43,8 @@ class FuturesDB:
         self.conn.commit()
         return self
 
-    def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None) -> bool:
+    def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None, 
+                           confirmed_valid: Optional[bool] = None, reviewed: Optional[bool] = None) -> bool:
         """Update the notes and/or chart URL for a trade."""
         try:
             updates = []
@@ -56,6 +57,14 @@ class FuturesDB:
             if notes is not None:
                 updates.append("notes = ?")
                 params.append(notes)
+                
+            if confirmed_valid is not None:
+                updates.append("validated = ?")
+                params.append(confirmed_valid)
+                
+            if reviewed is not None:
+                updates.append("reviewed = ?")
+                params.append(reviewed)
             
             if not updates:
                 return True
@@ -338,3 +347,93 @@ class FuturesDB:
                 'total_commission': 0,
                 'trade_count': 0
             }
+
+    def delete_trades(self, trade_ids: List[int]) -> bool:
+        """Delete multiple trades by their IDs."""
+        try:
+            # Create placeholders for the SQL query
+            placeholders = ','.join('?' for _ in trade_ids)
+            
+            # Execute the delete query
+            self.cursor.execute(f"""
+                DELETE FROM trades 
+                WHERE id IN ({placeholders})
+            """, trade_ids)
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error deleting trades: {e}")
+            self.conn.rollback()
+            return False
+
+    def import_csv(self, csv_path: str) -> bool:
+        """Import trades from a CSV file."""
+        try:
+            # Read CSV file using pandas
+            df = pd.read_csv(csv_path)
+            
+            # Define column name mappings
+            column_mappings = {
+                'Instrument': 'instrument',
+                'Side of Market': 'side_of_market',
+                'Quantity': 'quantity',
+                'Entry Price': 'entry_price',
+                'Entry Time': 'entry_time',
+                'Exit Time': 'exit_time',
+                'Exit Price': 'exit_price',
+                'Result Gain/Loss in Points': 'points_gain_loss',
+                'Gain/Loss in Dollars': 'dollars_gain_loss',
+                'Commission': 'commission',
+                'Account': 'account',
+                'ID': 'external_id'  # We'll store this but won't use it in the insert
+            }
+            
+            # Rename columns based on mappings
+            df = df.rename(columns=column_mappings)
+            
+            # Ensure required columns exist
+            required_columns = {
+                'instrument', 'side_of_market', 'quantity', 'entry_price',
+                'entry_time', 'exit_time', 'exit_price', 'points_gain_loss',
+                'dollars_gain_loss', 'commission', 'account'
+            }
+            
+            missing_columns = required_columns - set(df.columns)
+            if missing_columns:
+                print(f"Missing required columns: {missing_columns}")
+                return False
+
+            # Convert datetime columns to ISO format strings
+            for col in ['entry_time', 'exit_time']:
+                df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            # Insert each row into the database
+            for _, row in df.iterrows():
+                self.cursor.execute("""
+                    INSERT INTO trades (
+                        instrument, side_of_market, quantity, entry_price,
+                        entry_time, exit_time, exit_price, points_gain_loss,
+                        dollars_gain_loss, commission, account
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['instrument'],
+                    row['side_of_market'],
+                    row['quantity'],
+                    row['entry_price'],
+                    row['entry_time'],
+                    row['exit_time'],
+                    row['exit_price'],
+                    row['points_gain_loss'],
+                    row['dollars_gain_loss'],
+                    row['commission'],
+                    row['account']
+                ))
+            
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error importing CSV: {e}")
+            self.conn.rollback()
+            return False

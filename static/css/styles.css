@@ -36,19 +36,35 @@
 body {
     background-color: var(--bg-color);
     color: var(--text-color);
+    margin: 0;
+    padding: 20px;
 }
 
 /* Filters */
 .filters {
+    width: 100%;
     margin-bottom: 20px;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.filter-form {
+    padding: 20px;
+}
+
+.filter-container {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
 }
 
 .account-select {
-    margin-bottom: 10px;
+    flex: 0 0 250px;
 }
 
 .account-select select {
-    min-width: 200px;
+    width: 100%;
     padding: 5px;
     height: 150px;
     background-color: var(--bg-color);
@@ -59,29 +75,52 @@ body {
 .account-select label {
     display: block;
     margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.vertical-divider {
+    width: 1px;
+    height: 150px;
+    background-color: var(--border-color);
+    margin: 0 10px;
 }
 
 .additional-filters {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border-color);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 150px;
+}
+
+.filter-controls {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 10px;
 }
 
 .filter-group {
-    margin-bottom: 15px;
+    flex: 1;
 }
 
 .filter-group label {
     display: block;
     margin-bottom: 5px;
+    font-weight: bold;
 }
 
 .filter-group select {
-    padding: 5px;
-    min-width: 150px;
+    width: 100%;
+    padding: 8px;
     background-color: var(--bg-color);
     color: var(--text-color);
     border: 1px solid var(--border-color);
+}
+
+.filter-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: auto;
 }
 
 .btn {
@@ -175,7 +214,6 @@ input, select, textarea {
     color: var(--text-color);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 8px;
 }
 
 input:focus, select:focus, textarea:focus {
