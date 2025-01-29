@@ -43,6 +43,35 @@ class FuturesDB:
         self.conn.commit()
         return self
 
+    def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None) -> bool:
+        """Update the notes and/or chart URL for a trade."""
+        try:
+            updates = []
+            params = []
+            
+            if chart_url is not None:
+                updates.append("chart_url = ?")
+                params.append(chart_url)
+            
+            if notes is not None:
+                updates.append("notes = ?")
+                params.append(notes)
+            
+            if not updates:
+                return True
+            
+            query = f"UPDATE trades SET {', '.join(updates)} WHERE id = ?"
+            params.append(trade_id)
+            
+            self.cursor.execute(query, params)
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error updating trade details: {e}")
+            self.conn.rollback()
+            return False
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Close database connection when exiting context"""
         if self.conn:
