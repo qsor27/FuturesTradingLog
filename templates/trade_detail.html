@@ -205,7 +205,7 @@
         const chartUrl = document.getElementById('chartUrl').value;
         const notes = document.getElementById('notes').value;
         
-        fetch(`{{ url_for('trades.update_trade', trade_id=trade.id) }}`, {
+        fetch(`{{ url_for('trades.update_notes', trade_id=trade.id) }}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

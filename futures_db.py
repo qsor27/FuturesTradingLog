@@ -61,6 +61,23 @@ class FuturesDB:
             print(f"Error getting unique accounts: {e}")
             return []
 
+    def get_trade_by_id(self, trade_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single trade by its ID."""
+        try:
+            self.cursor.execute("""
+                SELECT * FROM trades
+                WHERE id = ?
+            """, (trade_id,))
+            row = self.cursor.fetchone()
+            
+            if row:
+                return dict(row)
+            return None
+            
+        except Exception as e:
+            print(f"Error getting trade by ID: {e}")
+            return None
+
     def get_recent_trades(
         self, 
         page_size: int = 50, 
@@ -212,3 +229,83 @@ class FuturesDB:
         except Exception as e:
             print(f"Error getting statistics: {e}")
             return []
+
+    def link_trades(self, trade_ids: List[int]) -> Tuple[bool, Optional[int]]:
+        """Link multiple trades together in a group."""
+        try:
+            # Get the next available group ID
+            self.cursor.execute("SELECT MAX(link_group_id) FROM trades")
+            result = self.cursor.fetchone()
+            next_group_id = (result[0] or 0) + 1
+            
+            # Update all selected trades with the new group ID
+            placeholders = ','.join('?' for _ in trade_ids)
+            self.cursor.execute(f"""
+                UPDATE trades 
+                SET link_group_id = ? 
+                WHERE id IN ({placeholders})
+            """, [next_group_id] + trade_ids)
+            
+            self.conn.commit()
+            return True, next_group_id
+        except Exception as e:
+            print(f"Error linking trades: {e}")
+            self.conn.rollback()
+            return False, None
+
+    def unlink_trades(self, trade_ids: List[int]) -> bool:
+        """Remove trades from their link group."""
+        try:
+            placeholders = ','.join('?' for _ in trade_ids)
+            self.cursor.execute(f"""
+                UPDATE trades 
+                SET link_group_id = NULL 
+                WHERE id IN ({placeholders})
+            """, trade_ids)
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error unlinking trades: {e}")
+            self.conn.rollback()
+            return False
+
+    def get_linked_trades(self, group_id: int) -> List[Dict[str, Any]]:
+        """Get all trades in a link group."""
+        try:
+            self.cursor.execute("""
+                SELECT * FROM trades 
+                WHERE link_group_id = ?
+                ORDER BY entry_time
+            """, (group_id,))
+            
+            return [dict(row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            print(f"Error getting linked trades: {e}")
+            return []
+
+    def get_group_statistics(self, group_id: int) -> Dict[str, Any]:
+        """Get statistics for a linked trade group."""
+        try:
+            self.cursor.execute("""
+                SELECT 
+                    SUM(dollars_gain_loss) as total_pnl,
+                    SUM(commission) as total_commission,
+                    COUNT(*) as trade_count
+                FROM trades 
+                WHERE link_group_id = ?
+            """, (group_id,))
+            
+            result = self.cursor.fetchone()
+            return {
+                'total_pnl': result['total_pnl'] or 0,
+                'total_commission': result['total_commission'] or 0,
+                'trade_count': result['trade_count'] or 0
+            }
+        except Exception as e:
+            print(f"Error getting group statistics: {e}")
+            return {
+                'total_pnl': 0,
+                'total_commission': 0,
+                'trade_count': 0
+            }

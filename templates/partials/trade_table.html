@@ -3,6 +3,9 @@
     <label class="select-all-label">
         <input type="checkbox" onclick="toggleSelectAll(this)"> Select All
     </label>
+    <button id="linkSelectedBtn" class="btn link-btn" onclick="linkSelectedTrades()">
+        Link Copied Trades Together
+    </button>
     <button id="deleteBtn" class="btn delete-btn" onclick="deleteSelected()">
         Delete Selected (<span id="selectedCount">0</span>) Trades
     </button>
@@ -43,6 +46,7 @@
             <th>P&L ($)</th>
             <th>Commission</th>
             <th>Account</th>
+            <th>Link Groups</th>
         </tr>
     </thead>
     <tbody>
@@ -63,7 +67,197 @@
             <td class="pnl-cell">${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
             <td>${{ "%.2f"|format(trade.commission) }}</td>
             <td>{{ trade.account }}</td>
+            <td>
+                {% if trade.link_group_id %}
+                    <a href="{{ url_for('trade_links.linked_trades', group_id=trade.link_group_id) }}" class="link-group">
+                        Group #{{ trade.link_group_id }}
+                    </a>
+                    <button onclick="unlinkTrade({{ trade.id }})" class="btn-unlink">×</button>
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+
+<style>
+.actions {
+    margin: 1rem 0;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.link-btn {
+    background-color: #0d6efd;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    background-color: #0b5ed7;
+}
+
+.delete-btn {
+    background-color: #dc3545;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.delete-btn:hover {
+    background-color: #bb2d3b;
+}
+
+.link-group {
+    color: #0d6efd;
+    text-decoration: none;
+    margin-right: 8px;
+}
+
+.btn-unlink {
+    padding: 0 6px;
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.btn-unlink:hover {
+    background-color: #bb2d3b;
+}
+</style>
+
+<script>
+let selectedTrades = new Set();
+
+function toggleRow(checkbox) {
+    if (checkbox.checked) {
+        selectedTrades.add(checkbox.value);
+    } else {
+        selectedTrades.delete(checkbox.value);
+    }
+    updateSelectedCount();
+}
+
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('tbody input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        if (checkbox.checked) {
+            selectedTrades.add(cb.value);
+        } else {
+            selectedTrades.delete(cb.value);
+        }
+    });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    document.getElementById('selectedCount').textContent = selectedTrades.size;
+}
+
+function linkSelectedTrades() {
+    const tradeIds = Array.from(selectedTrades).map(Number);
+    
+    if (tradeIds.length < 2) {
+        alert('Please select at least 2 trades to link together');
+        return;
+    }
+
+    fetch('/link-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            trade_ids: tradeIds
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.message || 'Error linking trades');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error linking trades');
+    });
+}
+
+function unlinkTrade(tradeId) {
+    if (!confirm('Are you sure you want to unlink this trade from its group?')) {
+        return;
+    }
+    
+    fetch('/unlink-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            trade_ids: [tradeId]
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Error unlinking trade');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error unlinking trade');
+    });
+}
+
+function deleteSelected() {
+    const tradeIds = Array.from(selectedTrades);
+    if (!tradeIds.length) {
+        alert('No trades selected');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${tradeIds.length} trades?`)) {
+        return;
+    }
+    
+    fetch('/delete-trades', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            trade_ids: tradeIds
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.message || 'Error deleting trades');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting trades');
+    });
+}
+</script>
