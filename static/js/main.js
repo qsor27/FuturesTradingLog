@@ -7,17 +7,6 @@ function updatePageSize(select) {
 
 function goToPage(page) {
     const urlParams = new URLSearchParams(window.location.search);
-    
-    // Get all selected accounts
-    const selectedAccounts = Array.from(document.querySelectorAll('.account-select select option:checked'))
-        .map(option => option.value);
-    
-    // Remove existing account parameter and add all selected accounts
-    urlParams.delete('accounts');
-    selectedAccounts.forEach(account => {
-        urlParams.append('accounts', account);
-    });
-    
     urlParams.set('page', page);
     window.location.search = urlParams.toString();
 }
@@ -37,6 +26,65 @@ function updateSort(column) {
     
     window.location.search = urlParams.toString();
 }
+
+// Debounce function to prevent too many rapid filter submissions
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function submitFilterForm() {
+    const form = document.getElementById('filterForm');
+    if (form) {
+        const selectedAccounts = Array.from(document.querySelectorAll('#accountSelect option:checked'))
+            .map(option => option.value);
+        
+        // Create URLSearchParams object
+        const params = new URLSearchParams(window.location.search);
+        
+        // Clear existing accounts parameters
+        params.delete('accounts');
+        
+        // Add selected accounts
+        selectedAccounts.forEach(account => {
+            params.append('accounts', account);
+        });
+        
+        // Add other form parameters
+        const formData = new FormData(form);
+        for (let [key, value] of formData.entries()) {
+            if (key !== 'accounts' && value) {
+                params.set(key, value);
+            }
+        }
+        
+        // Reset to page 1 when applying new filters
+        params.set('page', '1');
+        
+        // Update URL
+        window.location.search = params.toString();
+    }
+}
+
+// Create debounced version of submitFilterForm
+const debouncedSubmitFilterForm = debounce(submitFilterForm, 300);
+
+// Add event listener when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) {
+        filterForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+        });
+    }
+});
 
 function toggleRow(checkbox) {
     const row = checkbox.closest('tr');

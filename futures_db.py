@@ -36,7 +36,8 @@ class FuturesDB:
                 validated BOOLEAN DEFAULT 0,
                 reviewed BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                link_group_id INTEGER
+                link_group_id INTEGER,
+                entry_execution_id TEXT UNIQUE
             )
         """)
         
@@ -386,7 +387,7 @@ class FuturesDB:
                 'Gain/Loss in Dollars': 'dollars_gain_loss',
                 'Commission': 'commission',
                 'Account': 'account',
-                'ID': 'external_id'  # We'll store this but won't use it in the insert
+                'ID': 'entry_execution_id'
             }
             
             # Rename columns based on mappings
@@ -396,7 +397,7 @@ class FuturesDB:
             required_columns = {
                 'instrument', 'side_of_market', 'quantity', 'entry_price',
                 'entry_time', 'exit_time', 'exit_price', 'points_gain_loss',
-                'dollars_gain_loss', 'commission', 'account'
+                'dollars_gain_loss', 'commission', 'account', 'entry_execution_id'
             }
             
             missing_columns = required_columns - set(df.columns)
@@ -408,14 +409,30 @@ class FuturesDB:
             for col in ['entry_time', 'exit_time']:
                 df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            # Insert each row into the database
+            trades_added = 0
+            trades_skipped = 0
+
+            # Process each row, checking for duplicates
             for _, row in df.iterrows():
+                # Check if this trade already exists by entry execution ID
+                self.cursor.execute("""
+                    SELECT COUNT(*) FROM trades
+                    WHERE entry_execution_id = ?
+                """, (str(row['entry_execution_id']),))
+                
+                count = self.cursor.fetchone()[0]
+                if count > 0:
+                    trades_skipped += 1
+                    print(f"Skipping duplicate trade: Entry={row['entry_time']}, ExecID={row['entry_execution_id']}, Account={row['account']}")
+                    continue
+
+                # Insert if not a duplicate
                 self.cursor.execute("""
                     INSERT INTO trades (
                         instrument, side_of_market, quantity, entry_price,
                         entry_time, exit_time, exit_price, points_gain_loss,
-                        dollars_gain_loss, commission, account
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        dollars_gain_loss, commission, account, entry_execution_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     row['instrument'],
                     row['side_of_market'],
@@ -427,10 +444,13 @@ class FuturesDB:
                     row['points_gain_loss'],
                     row['dollars_gain_loss'],
                     row['commission'],
-                    row['account']
+                    row['account'],
+                    str(row['entry_execution_id'])
                 ))
+                trades_added += 1
             
             self.conn.commit()
+            print(f"Import complete: {trades_added} trades added, {trades_skipped} duplicates skipped")
             return True
             
         except Exception as e:

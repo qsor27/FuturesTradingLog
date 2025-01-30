@@ -1,6 +1,8 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from futures_db import FuturesDB
 import os
+import time
+import shutil
 
 main_bp = Blueprint('main', __name__)
 
@@ -107,3 +109,109 @@ def upload_file():
             return 'Error importing file', 500
     
     return 'Invalid file type', 400
+
+def safe_move_file(src, dst, max_attempts=5, delay=1):
+    """Move a file with retry mechanism"""
+    for i in range(max_attempts):
+        try:
+            # Release any potential file handles
+            import gc
+            gc.collect()
+            time.sleep(delay)
+            
+            # Force Python to close any open file handles
+            if os.path.exists(src):
+                with open(src, 'r') as _:
+                    pass
+            
+            shutil.move(src, dst)
+            return True
+        except Exception as e:
+            if i == max_attempts - 1:
+                print(f"Failed to move {src} to {dst} after {max_attempts} attempts: {str(e)}")
+                return False
+            time.sleep(delay)
+    return False
+
+@main_bp.route('/process-nt-executions', methods=['POST'])
+def process_nt_executions():
+    """Process NinjaTrader execution exports"""
+    temp_dir = "temp_processing"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'No file uploaded'})
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No file selected'})
+        
+        if not file.filename.endswith('.csv'):
+            return jsonify({'success': False, 'message': 'Invalid file type. Please upload a CSV file.'})
+        
+        # Save to temporary directory
+        temp_file_path = os.path.join(temp_dir, 'upload.csv')
+        try:
+            file.save(temp_file_path)
+            file.close()
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'Error saving file: {str(e)}'})
+        
+        # Give system time to release file handle
+        time.sleep(1)
+        
+        try:
+            # Change working directory to temp_dir
+            original_dir = os.getcwd()
+            os.chdir(temp_dir)
+            
+            # Copy required files for processing
+            shutil.copy2('upload.csv', 'NinjaTrader.csv')
+            shutil.copy2(os.path.join(original_dir, 'instrument_multipliers.json'), 'instrument_multipliers.json')
+            
+            # Import and run the ExecutionProcessing script
+            import ExecutionProcessing
+            success = ExecutionProcessing.main()
+            
+            # Change back to original directory
+            os.chdir(original_dir)
+            
+            # Copy the TradeLog.csv back if successful
+            if success:
+                temp_tradelog = os.path.join(temp_dir, 'TradeLog.csv')
+                if os.path.exists(temp_tradelog):
+                    shutil.copy2(temp_tradelog, 'TradeLog.csv')
+            
+            time.sleep(1)  # Give time for file operations to complete
+            
+            # Clean up
+            try:
+                import gc
+                gc.collect()
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception as cleanup_error:
+                print(f"Cleanup warning: {cleanup_error}")
+                
+            if success:
+                return jsonify({'success': True, 'message': 'NT Executions processed successfully'})
+            else:
+                return jsonify({'success': False, 'message': 'Error processing NT executions'})
+            
+        except Exception as e:
+            # Change back to original directory on error
+            if original_dir != os.getcwd():
+                os.chdir(original_dir)
+            return jsonify({'success': False, 'message': f'Processing error: {str(e)}'})
+            
+    except Exception as e:
+        # Clean up on error
+        try:
+            import gc
+            gc.collect()
+            time.sleep(1)
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'})

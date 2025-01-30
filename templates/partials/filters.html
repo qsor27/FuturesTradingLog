@@ -4,7 +4,7 @@
         <div class="filter-container">
             <div class="account-select">
                 <label>Filter by Accounts:</label>
-                <select name="accounts" multiple onchange="this.form.submit()">
+                <select name="accounts" multiple id="accountSelect" onchange="submitFilterForm()">
                     {% for account in accounts %}
                     <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
                     {% endfor %}
@@ -14,16 +14,10 @@
             <div class="vertical-divider"></div>
             
             <div class="additional-filters">
-                {% if selected_accounts %}
-                    {% for account in selected_accounts %}
-                        <input type="hidden" name="accounts" value="{{ account }}">
-                    {% endfor %}
-                {% endif %}
-                
                 <div class="filter-controls">
                     <div class="filter-group">
                         <label for="side">Side:</label>
-                        <select name="side" id="side">
+                        <select name="side" id="side" onchange="submitFilterForm()">
                             <option value="">All Sides</option>
                             <option value="Long" {% if selected_side == 'Long' %}selected{% endif %}>Long</option>
                             <option value="Short" {% if selected_side == 'Short' %}selected{% endif %}>Short</option>
@@ -32,7 +26,7 @@
                     
                     <div class="filter-group">
                         <label for="trade_result">Trade Result:</label>
-                        <select name="trade_result" id="trade_result">
+                        <select name="trade_result" id="trade_result" onchange="submitFilterForm()">
                             <option value="">All Trades</option>
                             <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning Trades</option>
                             <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing Trades</option>
@@ -41,7 +35,6 @@
                 </div>
                 
                 <div class="filter-buttons">
-                    <button type="submit" class="btn">Apply Filters</button>
                     <button type="button" class="btn reset-btn" onclick="window.location.href='/'">Reset All</button>
                 </div>
             </div>

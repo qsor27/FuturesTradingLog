@@ -9,6 +9,19 @@ def trade_detail(trade_id):
         trade = db.get_trade_by_id(trade_id)
     return render_template('trade_detail.html', trade=trade)
 
+@trades_bp.route('/delete-trades', methods=['POST'])
+def delete_trades():
+    data = request.get_json()
+    trade_ids = data.get('trade_ids', [])
+    
+    if not trade_ids:
+        return jsonify({'success': False, 'error': 'No trade IDs provided'})
+    
+    with FuturesDB() as db:
+        success = db.delete_trades(trade_ids)
+    
+    return jsonify({'success': success})
+
 @trades_bp.route('/update-notes/<int:trade_id>', methods=['POST'])
 def update_notes(trade_id):
     data = request.get_json()
