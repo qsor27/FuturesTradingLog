@@ -125,29 +125,34 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block content %}
 <div class="statistics-container">
-    <!-- Chart Section -->
-    <div class="chart-section mb-8">
-        <div class="rounded-lg bg-white p-4 shadow-sm" style="height: 400px;">
-            <canvas id="stats-chart"></canvas>
-        </div>
-    </div>
-    
-    <!-- Statistics Section -->
-    <div class="navigation-link">
-        <a href="/" class="back-link">← Back to Trading Log</a>
-    </div>
-
-    <div class="filters">
-        <form id="stats-filter-form" method="GET">
-            <div class="account-select">
-                <label>Filter by Accounts:</label>
-                <select name="accounts" multiple onchange="this.form.submit()">
-                    {% for account in accounts %}
-                    <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
-                    {% endfor %}
-                </select>
+    <!-- Top Section with Chart and Filters -->
+    <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+        <!-- Chart Section -->
+        <div style="flex: 1;">
+            <div class="rounded-lg bg-white p-4 shadow-sm" style="height: 400px;">
+                <canvas id="stats-chart"></canvas>
             </div>
-        </form>
+        </div>
+        
+        <!-- Side Panel with Navigation and Filters -->
+        <div style="flex: 0 0 250px;">
+            <div class="navigation-link" style="margin-bottom: 20px;">
+                <a href="/" class="back-link">← Back to Trading Log</a>
+            </div>
+
+            <div class="filters">
+                <form id="stats-filter-form" method="GET">
+                    <div class="account-select">
+                        <label>Filter by Accounts:</label>
+                        <select name="accounts" multiple onchange="this.form.submit()">
+                            {% for account in accounts %}
+                            <option value="{{ account }}" {% if account in selected_accounts %}selected{% endif %}>{{ account }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <div class="statistics-tabs">
@@ -362,11 +367,13 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .account-select select {
+    width: 100%;
     min-width: 200px;
-    padding: 5px;
+    padding: 8px;
     background-color: var(--bg-color);
     color: var(--text-color);
     border: 1px solid var(--border-color);
+    border-radius: 4px;
 }
 
 .statistics-tabs {
