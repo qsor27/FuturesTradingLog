@@ -15,15 +15,14 @@
     <div class="header">
         <h1>Futures Trades Log</h1>
         <div class="header-buttons">
-            <a href="{{ url_for('main.upload_file') }}" class="btn import-btn">Import Trades</a>
             <a href="{{ url_for('statistics.statistics') }}" class="btn stats-btn">View Statistics</a>
         </div>
     </div>
     
     <!-- Import Section -->
     <div class="import-section">
-        <div class="import-steps">
-            <div class="import-step">
+        <div class="import-steps" style="display: flex; gap: 20px; justify-content: flex-start;">
+            <div class="import-step" style="flex: 0 1 auto;">
                 <h2>Step 1: Process NT Executions</h2>
                 <p>Process your NinjaTrader execution exports into a trade log.</p>
                 <form id="processForm" class="space-y-4">
@@ -41,7 +40,7 @@
                 </form>
             </div>
             
-            <div class="import-step">
+            <div class="import-step" style="flex: 0 1 auto;">
                 <h2>Step 2: Import Trade Log</h2>
                 <p>Import your processed trade log into the database.</p>
                 <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data" class="space-y-4">
@@ -60,7 +59,7 @@
             </div>
         </div>
         
-        <div id="processStatus" class="mt-4 hidden">
+        <div id="processStatus" class="mt-4 hidden" style="margin-left: 20px;">
             <div class="flex items-center">
                 <div class="spinner mr-3"></div>
                 <span id="statusText">Processing...</span>

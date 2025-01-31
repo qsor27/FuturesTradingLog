@@ -1,8 +1,95 @@
 {% extends "base.html" %}
 
 {% block extra_head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
+// Initialize statistics data
+const allStats = {{ stats|tojson|safe }};
+console.log('Available stats:', allStats);
+</script>
+
+<script>
+let statsChart;
+
+function createChart(period) {
+    const data = allStats[period];
+    if (!data || !data.length) {
+        console.log('No data available for period:', period);
+        return;
+    }
+
+    // Sort data chronologically and reverse it
+    const sortedData = [...data].reverse();
+
+    const chartData = {
+        labels: sortedData.map(d => d.period_display),
+        datasets: [
+            {
+                label: 'Net Profit',
+                data: sortedData.map(d => parseFloat(d.net_profit)),
+                borderColor: '#2563eb',
+                yAxisID: 'profit'
+            },
+            {
+                label: 'Win Rate',
+                data: sortedData.map(d => parseFloat(d.win_rate)),
+                borderColor: '#16a34a',
+                yAxisID: 'winRate'
+            }
+        ]
+    };
+
+    const config = {
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                profit: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Net Profit ($)'
+                    }
+                },
+                winRate: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Win Rate (%)'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                }
+            }
+        }
+    };
+
+    const ctx = document.getElementById('stats-chart').getContext('2d');
+    
+    // Destroy existing chart if it exists
+    if (statsChart) {
+        statsChart.destroy();
+    }
+    
+    // Create new chart
+    statsChart = new Chart(ctx, config);
+}
+
 function switchView(period) {
+    console.log('Switching to period:', period);
+    
+    // Update chart
+    createChart(period);
     // Hide all views
     var views = document.querySelectorAll('[id$="-stats"]');
     views.forEach(function(view) {
@@ -28,7 +115,9 @@ function switchView(period) {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    // Set initial view
+    console.log('Page loaded, initializing...');
+    // Initialize chart and set initial view
+    switchView('daily');
     switchView('daily');
 });
 </script>
@@ -36,6 +125,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 {% block content %}
 <div class="statistics-container">
+    <!-- Chart Section -->
+    <div class="chart-section mb-8">
+        <div class="rounded-lg bg-white p-4 shadow-sm" style="height: 400px;">
+            <canvas id="stats-chart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Statistics Section -->
     <div class="navigation-link">
         <a href="/" class="back-link">← Back to Trading Log</a>
     </div>
