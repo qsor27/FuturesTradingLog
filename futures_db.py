@@ -10,6 +10,12 @@ class FuturesDB:
         self.get_db()
         self._ensure_tables_exist()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close_db()
+
     def get_db(self):
         if 'db' not in g:
             db_path = current_app.config['DATABASE_PATH']
