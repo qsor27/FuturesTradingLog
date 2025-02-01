@@ -1,7 +1,9 @@
 import os
 import sqlite3
-from flask import current_app, g
 import pandas as pd
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Union, Tuple
+from flask import current_app, g
 
 class FuturesDB:
     def __init__(self):
@@ -27,39 +29,36 @@ class FuturesDB:
     def _ensure_tables_exist(self):
         db = self.get_db()
         
-        # Create trades table
-        db.execute('''
+        # Create trades table with all needed columns
+        db.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                time TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                side TEXT NOT NULL,
-                quantity REAL NOT NULL,
-                price REAL NOT NULL,
-                pnl REAL,
+                instrument TEXT,
+                side_of_market TEXT,
+                quantity INTEGER,
+                entry_price REAL,
+                entry_time TIMESTAMP,
+                exit_time TIMESTAMP,
+                exit_price REAL,
+                points_gain_loss REAL,
+                dollars_gain_loss REAL,
                 commission REAL,
-                net_pnl REAL,
-                trade_group INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                account TEXT,
+                chart_url TEXT,
+                notes TEXT,
+                validated BOOLEAN DEFAULT 0,
+                reviewed BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                link_group_id INTEGER,
+                entry_execution_id TEXT
             )
-        ''')
+        """)
 
-        # Create trade_links table
-        db.execute('''
-            CREATE TABLE IF NOT EXISTS trade_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trade_id INTEGER,
-                linked_trade_id INTEGER,
-                FOREIGN KEY (trade_id) REFERENCES trades (id),
-                FOREIGN KEY (linked_trade_id) REFERENCES trades (id)
-            )
-        ''')
-
-        # Add indexes for performance
-        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date)')
-        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)')
-        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_group ON trades(trade_group)')
+        # Create indexes for performance
+        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(entry_time)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_instrument ON trades(instrument)')
+        db.execute('CREATE INDEX IF NOT EXISTS idx_trades_group ON trades(link_group_id)')
         
         db.commit()
 
@@ -76,3 +75,17 @@ class FuturesDB:
         db.execute("PRAGMA analysis_limit=1000")
         db.execute("PRAGMA automatic_index=true")
         db.commit()
+
+    # [Your existing methods here - they stay the same but use self.get_db() instead of self.cursor]
+    # Including:
+    # - update_trade_details
+    # - get_unique_accounts
+    # - get_trade_by_id
+    # - get_recent_trades
+    # - get_statistics
+    # - link_trades
+    # - unlink_trades
+    # - get_linked_trades
+    # - get_group_statistics
+    # - delete_trades
+    # - import_csv
