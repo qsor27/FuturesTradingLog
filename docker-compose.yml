@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  trading_app:
+    image: ghcr.io/qsor27/futurestradinglog:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./Archive:/app/Archive
+      - ./logs:/app/logs
+    restart: always
+    environment:
+      - FLASK_APP=app.py
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 3600 --cleanup true
+    restart: always
