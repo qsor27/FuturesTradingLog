@@ -5,11 +5,13 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./Archive:/app/Archive
-      - ./logs:/app/logs
+      - C:\Containers\TradeLog\Archive:/app/Archive
+      - C:\Containers\TradeLog\logs:/app/logs
+      - C:\Containers\TradeLog\data:/app/data
     restart: always
     environment:
       - FLASK_APP=app.py
+      - DATABASE_PATH=/app/data/trades.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
