@@ -10,6 +10,15 @@ def upload_form():
 
 @upload_bp.route('/upload', methods=['POST'])
 def upload_file():
+    # Debug: Check database structure
+    with FuturesDB() as db:
+        db.cursor.execute("SELECT * FROM sqlite_master WHERE type='table' AND name='trades'")
+        table_info = db.cursor.fetchone()
+        if table_info:
+            print(f"Table structure:\n{table_info['sql']}")
+        else:
+            print("Table 'trades' not found!")
+            
     if 'file' not in request.files:
         return 'No file uploaded', 400
     

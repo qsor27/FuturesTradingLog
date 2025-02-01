@@ -16,6 +16,25 @@ class FuturesDB:
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
         
+        # Verify database structure
+        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'")
+        table_exists = self.cursor.fetchone() is not None
+        
+        if not table_exists:
+            print("Creating trades table...")
+        else:
+            print("Verifying trades table structure...")
+            self.cursor.execute("PRAGMA table_info(trades)")
+            columns = {row[1] for row in self.cursor.fetchall()}
+            print(f"Existing columns: {columns}")
+            
+            # Add missing entry_execution_id column if it doesn't exist
+            if 'entry_execution_id' not in columns:
+                print("Adding missing entry_execution_id column...")
+                self.cursor.execute("ALTER TABLE trades ADD COLUMN entry_execution_id TEXT")
+                self.conn.commit()
+                print("Added entry_execution_id column successfully")
+        
         # Create trades table if it doesn't exist
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS trades (
@@ -37,7 +56,7 @@ class FuturesDB:
                 reviewed BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 link_group_id INTEGER,
-                entry_execution_id TEXT UNIQUE
+                entry_execution_id TEXT
             )
         """)
         
@@ -371,9 +390,14 @@ class FuturesDB:
     def import_csv(self, csv_path: str) -> bool:
         """Import trades from a CSV file."""
         try:
+            print(f"\nImporting trades from {csv_path}...")
+            
             # Read CSV file using pandas
             df = pd.read_csv(csv_path)
-            
+            print(f"Read {len(df)} rows from CSV")
+            print(f"CSV columns: {list(df.columns)}")
+
+
             # Define column name mappings
             column_mappings = {
                 'Instrument': 'instrument',
@@ -387,11 +411,12 @@ class FuturesDB:
                 'Gain/Loss in Dollars': 'dollars_gain_loss',
                 'Commission': 'commission',
                 'Account': 'account',
-                'ID': 'entry_execution_id'
+                'ID': 'entry_execution_id'  # Map the 'ID' column from CSV to 'entry_execution_id' in DB
             }
             
             # Rename columns based on mappings
             df = df.rename(columns=column_mappings)
+            print(f"Columns after mapping: {list(df.columns)}")
             
             # Ensure required columns exist
             required_columns = {
@@ -403,28 +428,78 @@ class FuturesDB:
             missing_columns = required_columns - set(df.columns)
             if missing_columns:
                 print(f"Missing required columns: {missing_columns}")
+                print(f"Available columns: {df.columns}")
                 return False
 
             # Convert datetime columns to ISO format strings
             for col in ['entry_time', 'exit_time']:
                 df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
 
+            # Convert to records and verify structure
+            df = df.copy()  # Create an explicit copy
+            records = [{
+                'instrument': str(row['instrument']),
+                'side_of_market': str(row['side_of_market']),
+                'quantity': int(row['quantity']),
+                'entry_price': float(row['entry_price']),
+                'entry_time': str(row['entry_time']),
+                'exit_time': str(row['exit_time']),
+                'exit_price': float(row['exit_price']),
+                'points_gain_loss': float(row['points_gain_loss']),
+                'dollars_gain_loss': float(row['dollars_gain_loss']),
+                'commission': float(row['commission']),
+                'account': str(row['account']),
+                'entry_execution_id': str(row['entry_execution_id'])
+            } for _, row in df.iterrows()]
+            
+            if len(records) > 0:
+                print("Sample record:")
+                for key, value in records[0].items():
+                    print(f"{key}: {value} (type: {type(value).__name__})")
+            print(f"Processing {len(records)} trades...")
+            
             trades_added = 0
             trades_skipped = 0
 
-            # Process each row, checking for duplicates
-            for _, row in df.iterrows():
-                # Check if this trade already exists by entry execution ID
-                self.cursor.execute("""
-                    SELECT COUNT(*) FROM trades
-                    WHERE entry_execution_id = ?
-                """, (str(row['entry_execution_id']),))
-                
-                count = self.cursor.fetchone()[0]
-                if count > 0:
-                    trades_skipped += 1
-                    print(f"Skipping duplicate trade: Entry={row['entry_time']}, ExecID={row['entry_execution_id']}, Account={row['account']}")
-                    continue
+            for row in records:
+                try:
+                    # Debug: Print SQL parameters
+                    print(f"SQL Parameters for duplicate check:")
+                    print(f"Account: {str(row['account'])}")
+                    print(f"Entry Execution ID: {str(row['entry_execution_id'])}")
+                    
+                    # Debug info
+                    print(f"Processing record with keys: {list(row.keys())}")
+                    
+                    # Check for duplicate
+                    account = str(row['account'])
+                    exec_id = str(row['entry_execution_id'])
+                    
+                    # First verify columns exist
+                    self.cursor.execute("PRAGMA table_info(trades)")
+                    columns = {row[1] for row in self.cursor.fetchall()}
+                    
+                    if 'entry_execution_id' not in columns:
+                        print("Error: entry_execution_id column not found in trades table!")
+                        return False
+                        
+                    self.cursor.execute("""
+                        SELECT COUNT(*) FROM trades
+                        WHERE account = ? AND entry_execution_id = ?
+                    """, (account, exec_id))
+                    
+                    count = self.cursor.fetchone()[0]
+                    if count > 0:
+                        trades_skipped += 1
+                        print(f"Skipping duplicate trade: Entry={row['entry_time']}, ExecID={exec_id}, Account={account}")
+                        continue
+                except KeyError as e:
+                    print(f"Error accessing columns: {e}")
+                    print(f"Available columns: {list(row.index)}")
+                    return False
+                except Exception as e:
+                    print(f"Error checking for duplicates: {str(e)}")
+                    return False
 
                 # Insert if not a duplicate
                 self.cursor.execute("""

@@ -93,13 +93,14 @@ def is_duplicate_trade(new_trade, existing_trades_df):
 
 def process_trades(df, multipliers, existing_trades_df):
     """Process trades from a NinjaTrader DataFrame"""
-    print("\nStarting trade processing...")
-    print_dataframe_info(df, "Input")
+    print('\nStarting trade processing...')
+    print_dataframe_info(df, 'Input')
 
+    # Create an explicit copy
     ninja_trades_df = df.copy()
     
-    # Convert Commission to float
-    ninja_trades_df['Commission'] = ninja_trades_df['Commission'].str.replace('$', '').astype(float)
+    # Convert Commission to float, removing '$' if present
+    ninja_trades_df['Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
 
     # Sort by Time
     ninja_trades_df['Time'] = pd.to_datetime(ninja_trades_df['Time'])
@@ -112,14 +113,18 @@ def process_trades(df, multipliers, existing_trades_df):
     processed_trades = []
     skipped_trades = 0
 
-    print(f"\nProcessing {len(entries)} potential trades...")
+    print(f'\nProcessing {len(entries)} potential trades...')
 
     for _, entry in entries.iterrows():
         try:
-            # Find matching exit
-            matching_exits = exits[exits['Time'] > entry['Time']]
+            # Find matching exit by time and quantity
+            matching_exits = exits[
+                (exits['Time'] > entry['Time']) & 
+                (exits['Quantity'] == entry['Quantity'])
+            ]
+            
             if len(matching_exits) == 0:
-                print(f"No matching exit found for entry at {entry['Time']}")
+                print(f'No matching exit found for entry at {entry["Time"]} with quantity {entry["Quantity"]}')
                 continue
             
             matching_exit = matching_exits.iloc[0]
@@ -133,7 +138,7 @@ def process_trades(df, multipliers, existing_trades_df):
                 points_pl = float(entry['Price']) - float(matching_exit['Price'])
             
             multiplier = float(multipliers[entry['Instrument']])
-            commission = float(entry['Commission']) * 2
+            commission = float(entry['Commission']) + float(matching_exit['Commission'])
             dollar_pl = (points_pl * multiplier * float(entry['Quantity'])) - commission
             
             # Create trade record
@@ -148,90 +153,108 @@ def process_trades(df, multipliers, existing_trades_df):
                 'Result Gain/Loss in Points': round(points_pl, 2),
                 'Gain/Loss in Dollars': round(dollar_pl, 2),
                 'Commission': round(commission, 2),
-                'Account': str(entry['Account'])
+                'Account': str(entry['Account']),
+                'ID': entry['ID']
             }
             
-            print(f"\nChecking potential new trade:")
-            print(f"Entry Time: {trade['Entry Time']}")
-            print(f"Exit Time: {trade['Exit Time']}")
-            print(f"Account: {trade['Account']}")
+            print(f'\nProcessed trade:')
+            print(f'Entry Time: {trade["Entry Time"]}')
+            print(f'Exit Time: {trade["Exit Time"]}')
+            print(f'Account: {trade["Account"]}')
+            print(f'Points: {trade["Result Gain/Loss in Points"]}')
+            print(f'P&L: ${trade["Gain/Loss in Dollars"]}')
             
             if not is_duplicate_trade(trade, existing_trades_df):
                 processed_trades.append(trade)
-                print("Trade added to processing list")
+                print('Trade added to processing list')
             else:
                 skipped_trades += 1
-                print("Trade skipped as duplicate")
+                print('Trade skipped as duplicate')
                 
         except Exception as e:
-            print(f"Error processing trade: {str(e)}")
+            print(f'Error processing trade: {str(e)}')
+            import traceback
+            traceback.print_exc()
 
-    print(f"\nProcessing complete:")
-    print(f"Processed trades: {len(processed_trades)}")
-    print(f"Skipped duplicates: {skipped_trades}")
+    print(f'\nProcessing complete:')
+    print(f'Processed trades: {len(processed_trades)}')
+    print(f'Skipped duplicates: {skipped_trades}')
     
     return processed_trades
 
 def main():
-    create_archive_folder()
+    try:
+        print("\nStarting execution processing...")
+        create_archive_folder()
 
-    # Load multipliers
-    with open('instrument_multipliers.json', 'r') as f:
-        multipliers = json.load(f)
+        # Load multipliers
+        print("\nLoading instrument multipliers...")
+        with open('instrument_multipliers.json', 'r') as f:
+            multipliers = json.load(f)
+        print(f"Loaded multipliers for instruments: {list(multipliers.keys())}")
 
-    # Load existing trades
-    existing_trades_df = load_existing_trades()
+        # Load existing trades
+        existing_trades_df = load_existing_trades()
 
-    # Find files to process
-    ninja_files = glob.glob('NinjaTrader*.csv')
-    if not ninja_files:
-        print("No files to process")
-        return
+        # Find files to process
+        ninja_files = glob.glob('NinjaTrader*.csv')
+        if not ninja_files:
+            print("\nNo files to process")
+            return True
 
-    all_processed_trades = []
+        print(f"\nFound {len(ninja_files)} files to process: {ninja_files}")
+        all_processed_trades = []
 
-    # Process each file
-    for ninja_file in ninja_files:
-        print(f"\nProcessing {ninja_file}...")
-        df = pd.read_csv(ninja_file)
+        # Process each file
+        for ninja_file in ninja_files:
+            print(f"\nProcessing {ninja_file}...")
+            df = pd.read_csv(ninja_file)
+            
+            # Process trades
+            processed_trades = process_trades(df, multipliers, existing_trades_df)
+            if processed_trades:
+                all_processed_trades.extend(processed_trades)
+            
+            # Move to archive
+            archive_path = os.path.join('Archive', ninja_file)
+            shutil.move(ninja_file, archive_path)
+            print(f"Moved {ninja_file} to Archive")
+
+        if len(all_processed_trades) == 0:
+            print("\nNo new unique trades to add")
+            return True
+
+        # Final duplicate check before saving
+        final_trades = []
+        print("\nPerforming final duplicate check...")
         
-        # Process trades
-        processed_trades = process_trades(df, multipliers, existing_trades_df)
-        if processed_trades:
-            all_processed_trades.extend(processed_trades)
+        for trade in all_processed_trades:
+            if not is_duplicate_trade(trade, existing_trades_df):
+                final_trades.append(trade)
+
+        if len(final_trades) == 0:
+            print("\nAll trades were duplicates - nothing to add")
+            return True
+
+        # Save to CSV
+        new_trades_df = pd.DataFrame(final_trades)
         
-        # Move to archive
-        archive_path = os.path.join('Archive', ninja_file)
-        shutil.move(ninja_file, archive_path)
-        print(f"Moved {ninja_file} to Archive")
+        if len(existing_trades_df) > 0:
+            combined_df = pd.concat([existing_trades_df, new_trades_df], ignore_index=True)
+            combined_df = combined_df.sort_values('Entry Time')
+            combined_df.to_csv('TradeLog.csv', index=False)
+            print(f"\nAdded {len(final_trades)} new trades to TradeLog.csv")
+        else:
+            new_trades_df.to_csv('TradeLog.csv', index=False)
+            print(f"\nCreated new TradeLog.csv with {len(new_trades_df)} trades")
 
-    if len(all_processed_trades) == 0:
-        print("\nNo new unique trades to add")
-        return
+        return True
 
-    # Final duplicate check before saving
-    final_trades = []
-    print("\nPerforming final duplicate check...")
-    
-    for trade in all_processed_trades:
-        if not is_duplicate_trade(trade, existing_trades_df):
-            final_trades.append(trade)
-
-    if len(final_trades) == 0:
-        print("\nAll trades were duplicates - nothing to add")
-        return
-
-    # Save to CSV
-    new_trades_df = pd.DataFrame(final_trades)
-    
-    if len(existing_trades_df) > 0:
-        combined_df = pd.concat([existing_trades_df, new_trades_df], ignore_index=True)
-        combined_df = combined_df.sort_values('Entry Time')
-        combined_df.to_csv('TradeLog.csv', index=False)
-        print(f"\nAdded {len(final_trades)} new trades to TradeLog.csv")
-    else:
-        new_trades_df.to_csv('TradeLog.csv', index=False)
-        print(f"\nCreated new TradeLog.csv with {len(new_trades_df)} trades")
+    except Exception as e:
+        print(f"\nError in main execution: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 if __name__ == "__main__":
     main()

@@ -170,9 +170,19 @@ def process_nt_executions():
             shutil.copy2('upload.csv', 'NinjaTrader.csv')
             shutil.copy2(os.path.join(original_dir, 'instrument_multipliers.json'), 'instrument_multipliers.json')
             
-            # Import and run the ExecutionProcessing script
-            import ExecutionProcessing
-            success = ExecutionProcessing.main()
+            # Import and run the ExecutionProcessing script from scripts directory
+            import sys
+            scripts_dir = os.path.join(original_dir, 'scripts')
+            sys.path.insert(0, scripts_dir)
+            
+            try:
+                import ExecutionProcessing
+                success = ExecutionProcessing.main()
+                if not success:
+                    print('ExecutionProcessing.main() returned False')
+            except Exception as exec_error:
+                print(f'Error executing ExecutionProcessing: {str(exec_error)}')
+                raise
             
             # Change back to original directory
             os.chdir(original_dir)
@@ -182,6 +192,17 @@ def process_nt_executions():
                 temp_tradelog = os.path.join(temp_dir, 'TradeLog.csv')
                 if os.path.exists(temp_tradelog):
                     shutil.copy2(temp_tradelog, 'TradeLog.csv')
+                
+                # Create Archive directory if it doesn't exist
+                archive_dir = os.path.join(original_dir, 'Archive')
+                os.makedirs(archive_dir, exist_ok=True)
+                
+                # Move the original uploaded file to Archive
+                timestamp = time.strftime('%Y-%m-%d %H-%M %p')
+                archive_filename = f'NinjaTrader Grid {timestamp}.csv'
+                archive_path = os.path.join(archive_dir, archive_filename)
+                original_file = os.path.join(temp_dir, 'upload.csv')
+                shutil.copy2(original_file, archive_path)
             
             time.sleep(1)  # Give time for file operations to complete
             
