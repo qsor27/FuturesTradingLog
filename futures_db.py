@@ -1,70 +1,97 @@
-    def get_statistics(self, period_type: str = None, accounts: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Calculate detailed trading statistics with validation metrics"""
-        db = self.get_db()
-        
-        # Base query with validation metrics
-        base_query = """
-            SELECT 
-                COUNT(*) as total_trades,
-                SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
-                SUM(CASE WHEN dollars_gain_loss < 0 THEN 1 ELSE 0 END) as losing_trades,
-                SUM(CASE WHEN validated = 1 THEN 1 ELSE 0 END) as valid_trades,
-                CAST(SUM(CASE WHEN validated = 1 THEN 1 ELSE 0 END) AS FLOAT) / 
-                    NULLIF(COUNT(*), 0) * 100 as valid_trade_percentage,
-                ROUND(SUM(dollars_gain_loss), 2) as total_pnl,
-                ROUND(SUM(CASE WHEN dollars_gain_loss > 0 THEN dollars_gain_loss ELSE 0 END), 2) as gross_profits,
-                ROUND(SUM(CASE WHEN dollars_gain_loss < 0 THEN dollars_gain_loss ELSE 0 END), 2) as gross_losses,
-                ROUND(AVG(CASE WHEN dollars_gain_loss > 0 THEN dollars_gain_loss END), 2) as avg_winner,
-                ROUND(AVG(CASE WHEN dollars_gain_loss < 0 THEN dollars_gain_loss END), 2) as avg_loser,
-                ROUND(AVG(CASE WHEN dollars_gain_loss > 0 AND validated = 1 THEN dollars_gain_loss END), 2) as avg_valid_winner,
-                ROUND(AVG(CASE WHEN dollars_gain_loss < 0 AND validated = 1 THEN dollars_gain_loss END), 2) as avg_valid_loser
-            FROM trades
-            WHERE 1=1
-        """
-        
-        params: List[Any] = []
-        
-        # Add time period filter
-        if period_type:
-            if period_type == 'daily':
-                base_query += " AND date(entry_time) = date('now')"
-            elif period_type == 'weekly':
-                base_query += " AND entry_time >= date('now', '-7 days')"
-            elif period_type == 'monthly':
-                base_query += " AND entry_time >= date('now', '-30 days')"
-        
-        # Add account filter
-        if accounts and len(accounts) > 0:
-            placeholders = ','.join('?' * len(accounts))
-            base_query += f" AND account IN ({placeholders})"
-            params.extend(accounts)
+    def import_csv(self, csv_path: str) -> bool:
+        """Import trades from a CSV file with duplicate checking"""
+        try:
+            print(f"\nImporting trades from {csv_path}...")
             
-        results = db.execute(base_query, params).fetchone()
-        
-        # Calculate derived statistics
-        stats = dict(results)
-        if stats['total_trades'] > 0:
-            stats['win_rate'] = round((stats['winning_trades'] / stats['total_trades']) * 100, 2)
-        else:
-            stats['win_rate'] = 0.0
+            # Read CSV file using pandas
+            df = pd.read_csv(csv_path)
+            print(f"Read {len(df)} rows from CSV")
+            print(f"CSV columns: {list(df.columns)}")
+
+            # Define column name mappings
+            column_mappings = {
+                'Instrument': 'instrument',
+                'Side of Market': 'side_of_market',
+                'Quantity': 'quantity',
+                'Entry Price': 'entry_price',
+                'Entry Time': 'entry_time',
+                'Exit Time': 'exit_time',
+                'Exit Price': 'exit_price',
+                'Result Gain/Loss in Points': 'points_gain_loss',
+                'Gain/Loss in Dollars': 'dollars_gain_loss',
+                'Commission': 'commission',
+                'Account': 'account',
+                'ID': 'entry_execution_id'
+            }
             
-        if stats['avg_loser'] and stats['avg_winner']:
-            stats['profit_factor'] = round(abs(stats['avg_winner'] / stats['avg_loser']), 2)
-        else:
-            stats['profit_factor'] = 0.0
+            # Rename columns based on mappings
+            df = df.rename(columns=column_mappings)
+            print(f"Columns after mapping: {list(df.columns)}")
             
-        # Calculate valid trade metrics
-        stats['valid_win_rate'] = 0.0
-        if stats['valid_trades'] > 0:
-            valid_winners = db.execute("""
-                SELECT COUNT(*) as count
-                FROM trades
-                WHERE validated = 1 AND dollars_gain_loss > 0
-                AND entry_time IS NOT NULL
-                """ + 
-                (f" AND account IN ({','.join('?' * len(accounts))})" if accounts else ""),
-                params
-            ).fetchone()['count']
-            stats['valid_win_rate'] = round((valid_winners / stats['valid_trades']) * 100, 2)
+            # Ensure required columns exist
+            required_columns = {
+                'instrument', 'side_of_market', 'quantity', 'entry_price',
+                'entry_time', 'exit_time', 'exit_price', 'points_gain_loss',
+                'dollars_gain_loss', 'commission', 'account', 'entry_execution_id'
+            }
             
-        return stats
+            missing_columns = required_columns - set(df.columns)
+            if missing_columns:
+                print(f"Missing required columns: {missing_columns}")
+                return False
+
+            # Convert datetime columns
+            for col in ['entry_time', 'exit_time']:
+                df[col] = pd.to_datetime(df[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            db = self.get_db()
+            trades_added = 0
+            trades_skipped = 0
+
+            for _, row in df.iterrows():
+                try:
+                    # Check for duplicate based on account and execution ID
+                    count = db.execute("""
+                        SELECT COUNT(*) as count FROM trades
+                        WHERE account = ? AND entry_execution_id = ?
+                    """, (str(row['account']), str(row['entry_execution_id']))).fetchone()['count']
+                    
+                    if count > 0:
+                        trades_skipped += 1
+                        print(f"Skipping duplicate trade: Entry={row['entry_time']}, ExecID={row['entry_execution_id']}, Account={row['account']}")
+                        continue
+
+                    # Insert if not a duplicate
+                    db.execute("""
+                        INSERT INTO trades (
+                            instrument, side_of_market, quantity, entry_price,
+                            entry_time, exit_time, exit_price, points_gain_loss,
+                            dollars_gain_loss, commission, account, entry_execution_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        str(row['instrument']),
+                        str(row['side_of_market']),
+                        int(row['quantity']),
+                        float(row['entry_price']),
+                        str(row['entry_time']),
+                        str(row['exit_time']),
+                        float(row['exit_price']),
+                        float(row['points_gain_loss']),
+                        float(row['dollars_gain_loss']),
+                        float(row['commission']),
+                        str(row['account']),
+                        str(row['entry_execution_id'])
+                    ))
+                    trades_added += 1
+                    
+                except (ValueError, KeyError) as e:
+                    print(f"Error processing row: {e}")
+                    continue
+            
+            db.commit()
+            print(f"Import complete: {trades_added} trades added, {trades_skipped} duplicates skipped")
+            return True
+            
+        except Exception as e:
+            print(f"Error importing CSV: {e}")
+            return False
