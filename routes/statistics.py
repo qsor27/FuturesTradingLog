@@ -15,9 +15,9 @@ def statistics():
         
         # Get statistics for different time periods
         stats = {
-            'daily': db.get_statistics('daily', accounts=selected_accounts if selected_accounts else None),
-            'weekly': db.get_statistics('weekly', accounts=selected_accounts if selected_accounts else None),
-            'monthly': db.get_statistics('monthly', accounts=selected_accounts if selected_accounts else None)
+            'daily': db.get_statistics(period_type='daily', accounts=selected_accounts if selected_accounts else None),
+            'weekly': db.get_statistics(period_type='weekly', accounts=selected_accounts if selected_accounts else None),
+            'monthly': db.get_statistics(period_type='monthly', accounts=selected_accounts if selected_accounts else None)
         }
     
     return render_template('statistics.html',
