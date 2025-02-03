@@ -5,10 +5,13 @@ from datetime import datetime
 import glob
 import shutil
 
+from config import config
+
 def create_archive_folder():
     """Create Archive folder if it doesn't exist"""
-    if not os.path.exists('Archive'):
-        os.makedirs('Archive')
+    archive_path = config.data_dir / 'archive'
+    if not archive_path.exists():
+        archive_path.mkdir(parents=True)
 
 def process_trades(df, multipliers):
     """Process trades from a NinjaTrader DataFrame"""
@@ -74,15 +77,30 @@ def process_trades(df, multipliers):
     return processed_trades
 
 def main():
+    # Change to the script's directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    print(f"Script directory: {script_dir}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Data directory from config: {config.data_dir}")
+    print(f"Data directory exists: {os.path.exists(str(config.data_dir))}")
+    
+    # Ensure data directory exists
+    os.makedirs(str(config.data_dir), exist_ok=True)
+    
     # Create Archive folder
     create_archive_folder()
 
     # Read the instrument multipliers
-    with open('instrument_multipliers.json', 'r') as f:
+    with open(config.instrument_config, 'r') as f:
         multipliers = json.load(f)
 
-    # Find all NinjaTrader grid files
-    ninja_files = glob.glob('NinjaTrader*.csv')
+    # Get glob pattern with full path
+    ninja_files = []
+    pattern = os.path.join(str(config.data_dir), 'NinjaTrader*.csv')
+    for file in glob.glob(pattern):
+        ninja_files.append(os.path.basename(file))
     
     if not ninja_files:
         print("No NinjaTrader files found for processing")
@@ -95,23 +113,29 @@ def main():
         print(f"Processing {ninja_file}...")
         
         # Read the trades CSV
-        df = pd.read_csv(ninja_file)
+        full_path = os.path.join(str(config.data_dir), ninja_file)
+        df = pd.read_csv(full_path)
         
         # Process the trades
         processed_trades = process_trades(df, multipliers)
         all_processed_trades.extend(processed_trades)
         
         # Move processed file to Archive folder
-        archive_path = os.path.join('Archive', ninja_file)
-        shutil.move(ninja_file, archive_path)
+        archive_path = config.data_dir / 'archive' / os.path.basename(ninja_file)
+        shutil.move(full_path, str(archive_path))
         print(f"Moved {ninja_file} to Archive folder")
 
     # Convert processed trades to DataFrame
     new_trades_df = pd.DataFrame(all_processed_trades)
 
-    # If TradeLog.csv exists, append to it; otherwise create new
-    if os.path.exists('TradeLog.csv'):
-        existing_trades_df = pd.read_csv('TradeLog.csv')
+    trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+
+    print(f"Data directory: {config.data_dir}")
+    print(f"Trade log path: {trade_log_path}")
+
+    # If trade log exists, append to it; otherwise create new
+    if os.path.exists(trade_log_path):
+        existing_trades_df = pd.read_csv(trade_log_path)
         # Convert datetime columns to consistent format
         datetime_columns = ['Entry Time', 'Exit Time']
         for col in datetime_columns:
@@ -127,11 +151,19 @@ def main():
         # Sort by Entry Time
         combined_trades_df = combined_trades_df.sort_values('Entry Time')
         
+        # Ensure trade_log.csv is in the data directory
+        trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+        
         # Save to CSV
-        combined_trades_df.to_csv('TradeLog.csv', index=False)
+        combined_trades_df.to_csv(trade_log_path, index=False)
     else:
         # Save new trades to CSV
-        new_trades_df.to_csv('TradeLog.csv', index=False)
+        print(f"Saving trade log to: {trade_log_path}")
+        new_trades_df.to_csv(trade_log_path, index=False)
+        print(f"Trade log saved successfully: {os.path.exists(trade_log_path)}")
+
+        # Verify file location
+        print(f"Actual file location: {os.path.realpath(trade_log_path)}")
 
     print(f"Processing complete. {len(all_processed_trades)} new trades have been added to TradeLog.csv")
 

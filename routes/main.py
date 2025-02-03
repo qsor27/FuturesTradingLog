@@ -187,14 +187,19 @@ def process_nt_executions():
             # Change back to original directory
             os.chdir(original_dir)
             
-            # Copy the TradeLog.csv back if successful
+            # Copy the TradeLog.csv to data directory if successful
             if success:
                 temp_tradelog = os.path.join(temp_dir, 'TradeLog.csv')
                 if os.path.exists(temp_tradelog):
-                    shutil.copy2(temp_tradelog, 'TradeLog.csv')
+                    from config import config
+                    tradelog_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+                    os.makedirs(os.path.dirname(tradelog_path), exist_ok=True)
+                    shutil.copy2(temp_tradelog, tradelog_path)
+                    print(f"Copied trade log to {tradelog_path}")
                 
-                # Create Archive directory if it doesn't exist
-                archive_dir = os.path.join(original_dir, 'Archive')
+                # Move archives to data/archive directory
+                from config import config
+                archive_dir = os.path.join(str(config.data_dir), 'archive')
                 os.makedirs(archive_dir, exist_ok=True)
                 
                 # Move the original uploaded file to Archive

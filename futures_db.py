@@ -5,8 +5,9 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 import os
 
 class FuturesDB:
-    def __init__(self, db_path: str = r'C:\TradingTest\backup\futures_trades.db'):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from config import config
+        self.db_path = db_path or config.db_path
         self.conn = None
         self.cursor = None
 
