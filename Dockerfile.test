@@ -28,5 +28,5 @@ COPY . .
 # Create data directories
 RUN mkdir -p /app/data/db /app/data/config /app/data/charts /app/data/logs /app/data/archive
 
-# Run tests
-CMD ["pytest", "--cov=.", "--cov-report=term-missing"]
+# Run tests with explicit path and configuration
+CMD ["pytest", "tests/", "-v", "--cov=.", "--cov-report=term-missing"]
