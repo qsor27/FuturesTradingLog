@@ -6,16 +6,22 @@ class Config:
     
     def __init__(self):
         # Get base data directory from environment or use default
-        self.data_dir = Path(os.getenv('DATA_DIR', 'C:/Containers/FuturesTradingLog/data'))
+        if os.getenv('FLASK_ENV') == 'testing':
+            # Use /app/data in Docker test environment
+            self.data_dir = Path('/app/data')
+        else:
+            # Use configured path for production
+            self.data_dir = Path(os.getenv('DATA_DIR', 'C:/Containers/FuturesTradingLog/data'))
         
         # Ensure all required directories exist
         self.db_dir = self.data_dir / 'db'
         self.config_dir = self.data_dir / 'config'
         self.charts_dir = self.data_dir / 'charts'
         self.logs_dir = self.data_dir / 'logs'
+        self.archive_dir = self.data_dir / 'archive'
         
         # Create directories if they don't exist
-        for directory in [self.db_dir, self.config_dir, self.charts_dir, self.logs_dir]:
+        for directory in [self.db_dir, self.config_dir, self.charts_dir, self.logs_dir, self.archive_dir]:
             directory.mkdir(parents=True, exist_ok=True)
         
         # Database path
@@ -40,7 +46,6 @@ class Config:
         """Get full path for a log file"""
         return self.logs_dir / filename
 
-# Create global config instance
     @property
     def flask_config(self) -> dict:
         """Return Flask configuration dictionary"""
