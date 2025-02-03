@@ -16,30 +16,51 @@ jobs:
     steps:
     - name: Checkout repository
       run: |
+        set -e
         git init
-        git remote add origin https://github.com/${{ github.repository }}
-        git fetch origin ${{ github.ref }}
-        git checkout FETCH_HEAD
+        git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+        git fetch --depth=1 origin "${GITHUB_REF}"
+        git checkout -b working FETCH_HEAD
+      shell: bash
     
     - name: Set up Docker
       run: |
-        docker info
-        docker buildx create --use
+        set -e
+        docker version
+        docker buildx version
+        if ! docker buildx inspect default > /dev/null 2>&1; then
+          docker buildx create --name default --use
+        fi
+      shell: bash
       
     - name: Log in to GitHub Container Registry
-      run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-        
-    - name: Build and push Docker image
       run: |
+        set -e
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      shell: bash
+        
+    - name: Build Docker image
+      run: |
+        set -e
         docker buildx build \
-          --cache-from=type=registry,ref=ghcr.io/${{ github.repository }}/futures-trading-log:buildcache \
-          --cache-to=type=registry,ref=ghcr.io/${{ github.repository }}/futures-trading-log:buildcache,mode=max \
-          --tag ghcr.io/${{ github.repository }}/futures-trading-log:latest \
-          --tag ghcr.io/${{ github.repository }}/futures-trading-log:${{ github.sha }} \
-          --push \
+          --platform linux/amd64 \
+          --tag "ghcr.io/${{ github.repository }}/futures-trading-log:latest" \
+          --tag "ghcr.io/${{ github.repository }}/futures-trading-log:${{ github.sha }}" \
+          --load \
           .
+      shell: bash
+
+    - name: Push Docker image
+      if: github.event_name != 'pull_request'
+      run: |
+        set -e
+        docker push "ghcr.io/${{ github.repository }}/futures-trading-log:latest"
+        docker push "ghcr.io/${{ github.repository }}/futures-trading-log:${{ github.sha }}"
+      shell: bash
         
     - name: Run Tests
       run: |
+        set -e
         docker build -t futures-trading-log-test -f Dockerfile.test .
-        docker run futures-trading-log-test
+        docker run --rm futures-trading-log-test
+      shell: bash
