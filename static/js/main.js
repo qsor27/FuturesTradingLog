@@ -27,6 +27,49 @@ function updateSort(column) {
     window.location.search = urlParams.toString();
 }
 
+function submitFilterForm() {
+    const form = document.getElementById('filterForm');
+    if (form) {
+        const selectedAccounts = Array.from(document.querySelectorAll('#accountSelect option:checked'))
+            .map(option => option.value);
+        
+        // Create URLSearchParams object
+        const params = new URLSearchParams();
+        
+        // Add selected accounts
+        if (selectedAccounts.length > 0) {
+            selectedAccounts.forEach(account => {
+                params.append('accounts', account);
+            });
+        }
+        
+        // Add other form parameters, excluding empty values
+        const formData = new FormData(form);
+        for (let [key, value] of formData.entries()) {
+            if (key !== 'accounts' && value.trim() !== '') {
+                params.set(key, value);
+            }
+        }
+        
+        // Preserve sorting parameters
+        const currentParams = new URLSearchParams(window.location.search);
+        ['sort_by', 'sort_order', 'page_size'].forEach(param => {
+            if (currentParams.has(param)) {
+                params.set(param, currentParams.get(param));
+            }
+        });
+        
+        // Reset to page 1 when applying filters
+        params.set('page', '1');
+        
+        // Update URL
+        window.location.search = params.toString();
+    }
+}
+
+// Create debounced version of submitFilterForm
+const debouncedSubmitFilterForm = debounce(submitFilterForm, 300);
+
 // Debounce function to prevent too many rapid filter submissions
 function debounce(func, wait) {
     let timeout;
@@ -39,42 +82,6 @@ function debounce(func, wait) {
         timeout = setTimeout(later, wait);
     };
 }
-
-function submitFilterForm() {
-    const form = document.getElementById('filterForm');
-    if (form) {
-        const selectedAccounts = Array.from(document.querySelectorAll('#accountSelect option:checked'))
-            .map(option => option.value);
-        
-        // Create URLSearchParams object
-        const params = new URLSearchParams(window.location.search);
-        
-        // Clear existing accounts parameters
-        params.delete('accounts');
-        
-        // Add selected accounts
-        selectedAccounts.forEach(account => {
-            params.append('accounts', account);
-        });
-        
-        // Add other form parameters
-        const formData = new FormData(form);
-        for (let [key, value] of formData.entries()) {
-            if (key !== 'accounts' && value) {
-                params.set(key, value);
-            }
-        }
-        
-        // Reset to page 1 when applying new filters
-        params.set('page', '1');
-        
-        // Update URL
-        window.location.search = params.toString();
-    }
-}
-
-// Create debounced version of submitFilterForm
-const debouncedSubmitFilterForm = debounce(submitFilterForm, 300);
 
 // Add event listener when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
@@ -98,17 +105,40 @@ function toggleSelectAll(checkbox) {
         row.checked = checkbox.checked;
         toggleRow(row);
     });
+    updateActionButtons();
 }
 
 function updateActionButtons() {
     const selectedCount = document.querySelectorAll('tbody input[type="checkbox"]:checked').length;
-    const deleteBtn = document.getElementById('deleteBtn');
-    const linkBtn = document.getElementById('linkSelectedBtn');
-    const selectedCountSpans = document.querySelectorAll('.selectedCount');
+    const actionButtons = document.getElementById('actionButtons');
+    if (actionButtons) {
+        actionButtons.style.display = selectedCount > 0 ? 'block' : 'none';
+    }
+}
+
+function deleteTrades() {
+    const selectedRows = document.querySelectorAll('tbody input[type="checkbox"]:checked');
+    const tradeIds = Array.from(selectedRows).map(checkbox => checkbox.value);
     
-    if (selectedCount > 0) {
-        deleteBtn.style.display = 'inline-block';
-    } else {
-        deleteBtn.style.display = 'none';
+    if (confirm(`Are you sure you want to delete ${tradeIds.length} trade(s)?`)) {
+        fetch('/delete-trades', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ trade_ids: tradeIds }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                window.location.reload();
+            } else {
+                alert('Failed to delete trades: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to delete trades: ' + error);
+        });
     }
 }

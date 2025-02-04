@@ -28,8 +28,8 @@
                         <label for="trade_result">Trade Result:</label>
                         <select name="trade_result" id="trade_result" onchange="submitFilterForm()">
                             <option value="">All Trades</option>
-                            <option value="winning" {% if selected_result == 'winning' %}selected{% endif %}>Winning Trades</option>
-                            <option value="losing" {% if selected_result == 'losing' %}selected{% endif %}>Losing Trades</option>
+                            <option value="win" {% if selected_result == 'win' %}selected{% endif %}>Winning Trades</option>
+                            <option value="loss" {% if selected_result == 'loss' %}selected{% endif %}>Losing Trades</option>
                         </select>
                     </div>
                 </div>
