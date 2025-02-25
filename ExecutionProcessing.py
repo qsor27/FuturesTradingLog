@@ -1,25 +1,22 @@
 import pandas as pd
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import glob
 import shutil
+from typing import Dict, List
 
 from config import config
-
-def create_archive_folder():
-    """Create Archive folder if it doesn't exist"""
-    archive_path = config.data_dir / 'archive'
-    if not archive_path.exists():
-        archive_path.mkdir(parents=True)
+from ninja_trader_api import NinjaTraderAPI
 
 def process_trades(df, multipliers):
-    """Process trades from a NinjaTrader DataFrame"""
+    """Process trades from NinjaTrader execution data"""
     # Create an explicit copy of the DataFrame
     ninja_trades_df = df.copy()
     
-    # Convert Commission to float, removing '$' if present
-    ninja_trades_df.loc[:, 'Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
+    # Convert Commission to float if it's a string
+    if isinstance(ninja_trades_df['Commission'].iloc[0], str):
+        ninja_trades_df.loc[:, 'Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
 
     # Remove duplicates based on ID while keeping the first occurrence
     ninja_trades_df = ninja_trades_df.drop_duplicates(subset=['ID'])
@@ -76,62 +73,94 @@ def process_trades(df, multipliers):
 
     return processed_trades
 
+def get_execution_data(nt_api: NinjaTraderAPI, start_date: datetime = None, account: str = None) -> pd.DataFrame:
+    """
+    Retrieve execution data from NinjaTrader API.
+    
+    Args:
+        nt_api: NinjaTrader API instance
+        start_date: Optional start date for data retrieval (defaults to 7 days ago)
+        account: Optional account name to filter by
+        
+    Returns:
+        DataFrame containing execution data
+    """
+    if start_date is None:
+        start_date = datetime.now() - timedelta(days=7)
+    
+    try:
+        return nt_api.get_executions(start_date=start_date, account=account)
+    except Exception as e:
+        print(f"Error retrieving execution data from NinjaTrader: {e}")
+        raise
+
 def main():
-    # Change to the script's directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
-    
-    print(f"Script directory: {script_dir}")
-    print(f"Current working directory: {os.getcwd()}")
-    print(f"Data directory from config: {config.data_dir}")
-    print(f"Data directory exists: {os.path.exists(str(config.data_dir))}")
-    
-    # Ensure data directory exists
-    os.makedirs(str(config.data_dir), exist_ok=True)
-    
-    # Create Archive folder
-    create_archive_folder()
+    print("Initializing NinjaTrader API...")
+    try:
+        nt_api = NinjaTraderAPI()
+    except Exception as e:
+        print(f"Failed to initialize NinjaTrader API: {e}")
+        print("Falling back to CSV file processing...")
+        nt_api = None
 
     # Read the instrument multipliers
     with open(config.instrument_config, 'r') as f:
         multipliers = json.load(f)
 
-    # Get glob pattern with full path
-    ninja_files = []
-    pattern = os.path.join(str(config.data_dir), 'NinjaTrader*.csv')
-    for file in glob.glob(pattern):
-        ninja_files.append(os.path.basename(file))
-    
-    if not ninja_files:
-        print("No NinjaTrader files found for processing")
-        return
+    # Try to get data directly from NinjaTrader API
+    if nt_api and nt_api.connected:
+        try:
+            df = get_execution_data(nt_api)
+            all_processed_trades = process_trades(df, multipliers)
+        except NotImplementedError:
+            print("Direct API access not implemented yet, falling back to CSV processing...")
+            nt_api = None
+        except Exception as e:
+            print(f"Error accessing NinjaTrader API: {e}")
+            print("Falling back to CSV file processing...")
+            nt_api = None
 
-    all_processed_trades = []
-    
-    # Process each NinjaTrader file
-    for ninja_file in ninja_files:
-        print(f"Processing {ninja_file}...")
+    # Fall back to CSV processing if API access fails
+    if not nt_api or not nt_api.connected:
+        # Get glob pattern with full path
+        ninja_files = []
+        pattern = os.path.join(str(config.data_dir), 'NinjaTrader*.csv')
+        for file in glob.glob(pattern):
+            ninja_files.append(os.path.basename(file))
         
-        # Read the trades CSV
-        full_path = os.path.join(str(config.data_dir), ninja_file)
-        df = pd.read_csv(full_path)
+        if not ninja_files:
+            print("No NinjaTrader files found for processing")
+            return
+
+        all_processed_trades = []
         
-        # Process the trades
-        processed_trades = process_trades(df, multipliers)
-        all_processed_trades.extend(processed_trades)
-        
-        # Move processed file to Archive folder
-        archive_path = config.data_dir / 'archive' / os.path.basename(ninja_file)
-        shutil.move(full_path, str(archive_path))
-        print(f"Moved {ninja_file} to Archive folder")
+        # Process each NinjaTrader file
+        for ninja_file in ninja_files:
+            print(f"Processing {ninja_file}...")
+            
+            # Read the trades CSV
+            full_path = os.path.join(str(config.data_dir), ninja_file)
+            df = pd.read_csv(full_path)
+            
+            # Process the trades
+            processed_trades = process_trades(df, multipliers)
+            all_processed_trades.extend(processed_trades)
+            
+            # Move processed file to Archive folder
+            archive_path = os.path.join(str(config.data_dir), 'archive', os.path.basename(ninja_file))
+            os.makedirs(os.path.dirname(archive_path), exist_ok=True)
+            shutil.move(full_path, archive_path)
+            print(f"Moved {ninja_file} to Archive folder")
 
     # Convert processed trades to DataFrame
     new_trades_df = pd.DataFrame(all_processed_trades)
 
-    trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+    # If no new trades were processed, exit
+    if len(all_processed_trades) == 0:
+        print("No new trades to process")
+        return
 
-    print(f"Data directory: {config.data_dir}")
-    print(f"Trade log path: {trade_log_path}")
+    trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
 
     # If trade log exists, append to it; otherwise create new
     if os.path.exists(trade_log_path):
@@ -151,21 +180,13 @@ def main():
         # Sort by Entry Time
         combined_trades_df = combined_trades_df.sort_values('Entry Time')
         
-        # Ensure trade_log.csv is in the data directory
-        trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
-        
         # Save to CSV
         combined_trades_df.to_csv(trade_log_path, index=False)
     else:
         # Save new trades to CSV
-        print(f"Saving trade log to: {trade_log_path}")
         new_trades_df.to_csv(trade_log_path, index=False)
-        print(f"Trade log saved successfully: {os.path.exists(trade_log_path)}")
 
-        # Verify file location
-        print(f"Actual file location: {os.path.realpath(trade_log_path)}")
-
-    print(f"Processing complete. {len(all_processed_trades)} new trades have been added to TradeLog.csv")
+    print(f"Processing complete. {len(all_processed_trades)} new trades have been added to trade_log.csv")
 
 if __name__ == "__main__":
     main()

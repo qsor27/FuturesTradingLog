@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 class Config:
@@ -29,6 +30,10 @@ class Config:
         
         # Config files
         self.instrument_config = self.config_dir / 'instrument_multipliers.json'
+        self.settings_config = self.config_dir / 'settings.json'
+        
+        # Load settings
+        self.settings = self._load_settings()
         
         # Trade log file
         self.trade_log = self.data_dir / 'trade_log.csv'
@@ -63,6 +68,34 @@ class Config:
     def port(self) -> int:
         """Return port to bind to"""
         return int(os.getenv('FLASK_PORT', 5000))
+        
+    def _load_settings(self):
+        """Load settings from JSON config file"""
+        try:
+            if self.settings_config.exists():
+                with open(self.settings_config) as f:
+                    return json.load(f)
+            else:
+                # Create default settings if file doesn't exist
+                default_settings = {
+                    "ninjatrader_path": str(Path.home() / 'Documents' / 'NinjaTrader 8' / 'db'),
+                    "default_timeframe": "1 Minute",
+                    "chart_settings": {
+                        "minutes_before": 60,
+                        "minutes_after": 60
+                    }
+                }
+                with open(self.settings_config, 'w') as f:
+                    json.dump(default_settings, f, indent=4)
+                return default_settings
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+            return {}
+
+    def get_ninjatrader_path(self) -> Path:
+        """Get NinjaTrader data path from settings"""
+        path = self.settings.get('ninjatrader_path') or str(Path.home() / 'Documents' / 'NinjaTrader 8' / 'db')
+        return Path(path)
 
 # Create global config instance
 config = Config()

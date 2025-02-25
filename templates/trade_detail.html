@@ -2,192 +2,156 @@
 
 {% block title %}Trade Details{% endblock %}
 
+{% block extra_head %}
+<!-- Load TradingView Lightweight Charts -->
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto px-4 py-8">
-    <a href="{{ url_for('main.index') }}" class="inline-block mb-6 text-blue-600 hover:text-blue-800">← Back to Trade List</a>
-    
-    <div class="bg-white shadow-lg rounded-lg p-6 mb-8">
-        <h1 class="text-2xl font-bold mb-6">Trade Details #{{ trade.id }}</h1>
+    <div class="bg-white rounded-lg shadow-lg p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold">Trade Details</h1>
+            <div class="flex space-x-4">
+                <a href="{{ url_for('trade_details.trade_detail', trade_id=trade.id) }}?edit=true" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+                    Edit Trade
+                </a>
+                <a href="{{ url_for('main.index') }}" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                    Back to Trades
+                </a>
+            </div>
+        </div>
 
         <!-- Trade Information -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div>
-                <div class="space-y-3 pt-2">
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Instrument:</span>
-                        <span class="font-medium">{{ trade.instrument }}</span>
-                    </div>
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Side:</span>
-                        <span class="font-medium {{ 'text-green-600' if trade.side_of_market == 'Long' else 'text-red-600' }}">
-                            {{ trade.side_of_market }}
-                        </span>
-                    </div>
-                    <!-- Add Review Checkboxes -->
-                    <div class="flex items-center space-x-4 mt-4">
-                        <label class="inline-flex items-center">
-                            <input type="checkbox" id="confirmedValid" 
-                                   class="form-checkbox h-5 w-5 text-blue-600"
-                                   {% if trade.validated %}checked{% endif %}>
-                            <span class="ml-2">Confirmed Valid</span>
-                        </label>
-                        <label class="inline-flex items-center">
-                            <input type="checkbox" id="reviewed" 
-                                   class="form-checkbox h-5 w-5 text-blue-600"
-                                   {% if trade.reviewed %}checked{% endif %}>
-                            <span class="ml-2">Reviewed</span>
-                        </label>
-                    </div>
+                <h2 class="text-lg font-semibold mb-4">Trade Information</h2>
+                <div class="space-y-3">
+                    <p><span class="font-semibold">Trade ID:</span> {{ trade.id }}</p>
+                    <p><span class="font-semibold">Date:</span> {{ trade.entry_time }}</p>
+                    <p><span class="font-semibold">Instrument:</span> {{ trade.instrument }}</p>
+                    <p><span class="font-semibold">Side:</span> {{ trade.side }}</p>
+                    <p><span class="font-semibold">Quantity:</span> {{ trade.quantity }}</p>
+                    <p><span class="font-semibold">Entry Price:</span> {{ trade.entry_price }}</p>
+                    <p><span class="font-semibold">Exit Price:</span> {{ trade.exit_price }}</p>
+                    <p><span class="font-semibold">Points:</span> {{ trade.points }}</p>
+                    <p><span class="font-semibold">Win/Loss:</span> {{ trade.win_loss }}</p>
+                    <p><span class="font-semibold">Status:</span> {{ trade.status }}</p>
                 </div>
             </div>
 
             <div>
-                <h2 class="text-lg font-semibold mb-4">Entry/Exit Details</h2>
+                <h2 class="text-lg font-semibold mb-4">Trade Details</h2>
                 <div class="space-y-3">
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Entry:</span>
-                        <div class="flex flex-col">
-                            <span class="font-medium">{{ trade.entry_time }}</span>
-                            <span class="font-medium">{{ trade.quantity }} @ {{ "%.2f"|format(trade.entry_price) }}</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Exit:</span>
-                        <div class="flex flex-col">
-                            <span class="font-medium">{{ trade.exit_time }}</span>
-                            <span class="font-medium">{{ trade.exit_quantity if trade.exit_quantity else trade.quantity }} @ {{ "%.2f"|format(trade.exit_price) }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div>
-                <h2 class="text-lg font-semibold mb-4">Performance</h2>
-                <div class="space-y-3">
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">P&L:</span>
-                        <span class="font-medium {{ 'text-green-600' if trade.dollars_gain_loss > 0 else 'text-red-600' }}">
-                            ${{ "%.2f"|format(trade.dollars_gain_loss) }}
-                        </span>
-                    </div>
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Points:</span>
-                        <span class="font-medium {{ 'text-green-600' if trade.points_gain_loss > 0 else 'text-red-600' }}">
-                            {{ "%.2f"|format(trade.points_gain_loss) }}
-                        </span>
-                    </div>
-                    <div class="flex items-center">
-                        <span class="w-32 text-gray-600">Commission:</span>
-                        <span class="font-medium">${{ "%.2f"|format(trade.commission) }}</span>
-                    </div>
+                    <p><span class="font-semibold">Entry Time:</span> {{ trade.entry_time }}</p>
+                    <p><span class="font-semibold">Exit Time:</span> {{ trade.exit_time }}</p>
+                    <p><span class="font-semibold">Duration:</span> {{ trade.duration }}</p>
+                    <p><span class="font-semibold">Account:</span> {{ trade.account }}</p>
+                    <p><span class="font-semibold">Setup:</span> {{ trade.setup }}</p>
+                    <p><span class="font-semibold">Mistake:</span> {{ trade.mistake }}</p>
+                    <p><span class="font-semibold">Emotions:</span> {{ trade.emotions }}</p>
                 </div>
             </div>
         </div>
 
-        <!-- Rest of the existing content... -->
-        {% if trade.link_group_id %}
-        <div class="mt-8 border-t pt-6">
-            <!-- ... existing linked trades section ... -->
+        <!-- Chart URL -->
+        <div class="mb-8">
+            <label for="chartUrl" class="block text-sm font-medium text-gray-700 mb-2">Chart URL</label>
+            <input type="text" id="chartUrl" name="chartUrl" value="{{ trade.chart_url }}"
+                class="w-full p-2 border rounded focus:ring-blue-500 focus:border-blue-500">
+        </div>
+
+        <!-- Chart Image -->
+        {% if trade.chart_url %}
+        <div class="mb-8">
+            <h2 class="text-lg font-semibold mb-4">Chart Image</h2>
+            <div class="image-wrapper relative overflow-hidden border rounded">
+                <img src="{{ trade.chart_url }}" alt="Trade Chart" class="w-full">
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <button onclick="adjustImageSize('larger')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded mr-2">Larger</button>
+                    <button onclick="adjustImageSize('smaller')"
+                        class="bg-blue-500 text-white px-3 py-1 rounded">Smaller</button>
+                </div>
+            </div>
         </div>
         {% endif %}
 
-        <!-- Chart URL and Notes Section -->
+        <!-- Price Chart Section -->
         <div class="mt-8 border-t pt-6">
-            <!-- Inputs Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <!-- Chart URL Input -->
-                <div class="relative">
-                    <label for="chartUrl" class="block text-sm font-medium text-gray-700 mb-2">Chart URL</label>
-                    <input type="text" id="chartUrl" name="chartUrl" 
-                           value="{{ trade.chart_url }}"
-                           class="w-full px-3 py-2 border rounded-md">
+            <h2 class="text-lg font-semibold mb-4">Price Chart</h2>
+            <div id="chart-container" class="w-full h-[500px] bg-white rounded-lg shadow-lg p-4 relative">
+                <div id="loading-indicator" class="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
+                    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
                 </div>
-
-                <!-- Notes Input -->
-                <div class="relative">
-                    <label for="notes" class="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-                    <textarea id="notes" name="notes" rows="1"
-                              class="w-full px-3 py-2 border rounded-md">{{ trade.notes }}</textarea>
+                <div id="chart-error" class="absolute inset-0 flex items-center justify-center bg-white hidden">
+                    <div class="text-red-500 text-center">
+                        <p class="font-semibold">Error loading chart data</p>
+                        <p id="chart-error-message" class="text-sm mt-2">Please try again later</p>
+                    </div>
+                </div>
+                <div class="absolute top-2 right-2 flex space-x-2">
+                    <button id="zoomInBtn" class="bg-gray-200 hover:bg-gray-300 p-2 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                    </button>
+                    <button id="zoomOutBtn" class="bg-gray-200 hover:bg-gray-300 p-2 rounded">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                        </svg>
+                    </button>
+                    <button id="fitContentBtn" class="bg-gray-200 hover:bg-gray-300 p-2 rounded text-xs">Fit</button>
                 </div>
             </div>
+        </div>
+        <!-- Notes Section -->
+        <div class="mt-8 border-t pt-6">
+            <h2 class="text-lg font-semibold mb-4">Notes</h2>
+            <textarea id="notes" name="notes" rows="4"
+                class="w-full p-2 border rounded focus:ring-blue-500 focus:border-blue-500">{{ trade.notes }}</textarea>
+        </div>
 
-            <!-- Chart Image -->
-            {% if trade.chart_url %}
-            <div class="chart-container relative">
-                <!-- Controls at the top -->
-                <div class="flex space-x-2 mb-2 justify-end">
-                    <button onclick="adjustImageSize('smaller')" 
-                            class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded shadow">
-                        Smaller
-                    </button>
-                    <button onclick="adjustImageSize('larger')" 
-                            class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded shadow">
-                        Larger
-                    </button>
+        <!-- Validation Section -->
+        <div class="mt-8 border-t pt-6">
+            <h2 class="text-lg font-semibold mb-4">Validation</h2>
+            <div class="space-y-4">
+                <div class="flex items-center">
+                    <input type="checkbox" id="confirmedValid" name="confirmedValid" {% if trade.confirmed_valid %}checked{% endif %}
+                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="confirmedValid" class="ml-2 block text-sm text-gray-900">
+                        Confirmed Valid Trade
+                    </label>
                 </div>
-                <!-- Image wrapper -->
-                <div class="image-wrapper transform-gpu">
-                    <img src="{{ trade.chart_url }}" alt="Trade Chart" 
-                         class="w-full h-auto rounded-lg shadow-md">
+                <div class="flex items-center">
+                    <input type="checkbox" id="reviewed" name="reviewed" {% if trade.reviewed %}checked{% endif %}
+                        class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="reviewed" class="ml-2 block text-sm text-gray-900">
+                        Reviewed
+                    </label>
                 </div>
             </div>
-            {% endif %}
         </div>
     </div>
 </div>
-
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-let currentScale = 0.7;
-
-function adjustImageSize(direction) {
+// Helper functions
+function adjustImageSize(action) {
     const wrapper = document.querySelector('.image-wrapper');
-    const img = wrapper ? wrapper.querySelector('img') : null;
-    const container = wrapper ? wrapper.closest('.chart-container') : null;
-    if (!img || !container) return;
+    const img = wrapper.querySelector('img');
     
-    if (direction === 'larger') {
-        currentScale = Math.min(currentScale + 0.1, 2.0);
-    } else if (direction === 'smaller') {
-        currentScale = Math.max(currentScale - 0.1, 0.5);
-    }
+    if (!img) return;
     
-    // Apply scale transform to the image wrapper only
-    wrapper.style.transform = `scale(${currentScale})`;
-    wrapper.style.transformOrigin = 'top center';
+    const currentWidth = img.clientWidth;
+    const newWidth = action === 'larger' ? currentWidth * 1.2 : currentWidth * 0.8;
     
-    // Update container height to accommodate scaled image
-    const originalHeight = img.naturalHeight;
-    const scaledHeight = originalHeight * currentScale;
-    container.style.height = `${scaledHeight + 50}px`; // Added padding for controls
+    img.style.width = `${newWidth}px`;
 }
 
-// Initialize the image size when the page loads
-document.addEventListener('DOMContentLoaded', function() {
-    const wrapper = document.querySelector('.image-wrapper');
-    const img = wrapper ? wrapper.querySelector('img') : null;
-    if (img) {
-        adjustImageSize('initial');
-    }
-});
-
-// Add event listeners for auto-save
-document.addEventListener('DOMContentLoaded', function() {
-    const chartUrl = document.getElementById('chartUrl');
-    const notes = document.getElementById('notes');
-    const confirmedValid = document.getElementById('confirmedValid');
-    const reviewed = document.getElementById('reviewed');
-
-    chartUrl.addEventListener('input', debounce(autoSaveChanges, 500));
-    notes.addEventListener('input', debounce(autoSaveChanges, 500));
-    confirmedValid.addEventListener('change', autoSaveChanges);
-    reviewed.addEventListener('change', autoSaveChanges);
-});
-
-// Debounce function to prevent too many saves
+// Debounce function to limit the rate at which a function can fire
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -198,38 +162,304 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
-};
+}
 
+// Auto-save changes function
 function autoSaveChanges() {
-    const chartUrl = document.getElementById('chartUrl').value;
-    const notes = document.getElementById('notes').value;
-    const confirmedValid = document.getElementById('confirmedValid').checked;
-    const reviewed = document.getElementById('reviewed').checked;
+    const formData = new FormData();
     
-    fetch(`{{ url_for('trades.update_notes', trade_id=trade.id) }}`, {
+    const chartUrl = document.getElementById('chartUrl');
+    const notes = document.getElementById('notes');
+    const confirmedValid = document.getElementById('confirmedValid');
+    const reviewed = document.getElementById('reviewed');
+    
+    if (chartUrl) formData.append('chart_url', chartUrl.value);
+    if (notes) formData.append('notes', notes.value);
+    if (confirmedValid) formData.append('confirmed_valid', confirmedValid.checked);
+    if (reviewed) formData.append('reviewed', reviewed.checked);
+    
+    fetch(`/trade/{{ trade.id }}/update`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            chart_url: chartUrl,
-            notes: notes,
-            validated: confirmedValid,
-            reviewed: reviewed
-        }),
+        body: formData
     })
     .then(response => response.json())
     .then(data => {
-        if (!data.success) {
-            console.error('Error saving changes');
+        if (data.error) {
+            console.error('Error saving changes:', data.error);
         }
     })
     .catch(error => {
-        console.error('Error:', error);
-        alert('Error saving changes');
+        console.error('Error saving changes:', error);
     });
 }
 
-// ... rest of existing functions ...
+// Chart initialization
+window.addEventListener('load', function() {
+    console.log('Starting chart initialization...');
+    const container = document.getElementById('chart-container');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    
+    if (!window.LightweightCharts) {
+        console.error('LightweightCharts library not loaded');
+        return;
+    }
+
+    // Create chart with dynamic sizing
+    const initialWidth = container.clientWidth;
+    const initialHeight = 500;
+
+    const chartOptions = {
+        width: initialWidth,
+        height: initialHeight,
+        layout: {
+            background: { type: 'solid', color: '#ffffff' },
+            textColor: '#333',
+            fontSize: 12,
+        },
+        grid: {
+            vertLines: { color: '#f0f0f0' },
+            horzLines: { color: '#f0f0f0' },
+        },
+        crosshair: {
+            mode: 'normal',
+            vertLine: {
+                color: '#758696',
+                width: 1,
+                style: 1,
+                labelBackgroundColor: '#758696',
+            },
+            horzLine: {
+                color: '#758696',
+                width: 1,
+                style: 1,
+                labelBackgroundColor: '#758696',
+            },
+        },
+        rightPriceScale: {
+            borderColor: '#dcddde',
+            autoScale: true,
+            scaleMargins: {
+                top: 0.1,
+                bottom: 0.1,
+            },
+            borderVisible: true,
+            entireTextOnly: true,
+        },
+        timeScale: {
+            borderColor: '#dcddde',
+            timeVisible: true,
+            secondsVisible: false,
+            rightOffset: 12,
+            barSpacing: 6,
+            fixLeftEdge: true,
+            fixRightEdge: true,
+            tickMarkFormatter: (time) => {
+                const date = new Date(time * 1000);
+                return date.getHours().toString().padStart(2, '0') + ':' +
+                       date.getMinutes().toString().padStart(2, '0');
+            },
+            borderVisible: true,
+        },
+        handleScroll: true,
+        handleScale: true,
+    };
+    
+    const chart = window.LightweightCharts.createChart(container, chartOptions);
+
+    const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350',
+        priceFormat: {
+            type: 'price',
+            precision: 2,
+            minMove: 0.25,
+        },
+    });
+
+    // Add a volume series below the price
+    const volumeSeries = chart.addHistogramSeries({
+        color: '#26a69a50',
+        priceFormat: {
+            type: 'volume',
+        },
+        priceScaleId: '',  // Set to empty string to create a new scale
+        scaleMargins: {
+            top: 0.8,  // Place at the bottom of the chart
+            bottom: 0,
+        },
+    });
+
+    // Initialize zoom controls
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const fitContentBtn = document.getElementById('fitContentBtn');
+
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => {
+            const timeScale = chart.timeScale();
+            timeScale.zoom(0.5);
+        });
+    }
+
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', () => {
+            const timeScale = chart.timeScale();
+            timeScale.zoom(-0.5);
+        });
+    }
+
+    if (fitContentBtn) {
+        fitContentBtn.addEventListener('click', () => {
+            chart.timeScale().fitContent();
+        });
+    }
+
+    // Make chart responsive
+    let resizeTimeout;
+    const resizeChart = () => {
+        if (resizeTimeout) {
+            clearTimeout(resizeTimeout);
+        }
+        resizeTimeout = setTimeout(() => {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            chart.resize(width, height);
+            chart.timeScale().fitContent();
+        }, 100);
+    };
+
+    window.addEventListener('resize', resizeChart);
+
+    // Load the market data
+    console.log('Fetching market data...');
+    fetch(`/trade/{{ trade.id }}/market-data`)
+        .then(response => response.json())
+        .then(data => {
+            console.log('Received market data:', data);
+            
+            if (data.error) {
+                console.error('Error loading market data:', data.error);
+                loadingIndicator.classList.add('hidden');
+                return;
+            }
+
+            if (!data.market_data || !data.market_data.length) {
+                console.error('No market data received');
+                loadingIndicator.classList.add('hidden');
+                return;
+            }
+
+            // Convert the market data to the format expected by lightweight-charts
+            const chartData = data.market_data.map(bar => {
+                const timestamp = new Date(bar.timestamp);
+                return {
+                    time: timestamp.getTime() / 1000,
+                    open: Number(bar.open),
+                    high: Number(bar.high),
+                    low: Number(bar.low),
+                    close: Number(bar.close),
+                    volume: Number(bar.volume || 0)
+                };
+            });
+
+            console.log('Processed chart data:', chartData);
+
+            // Sort by time and set data
+            chartData.sort((a, b) => a.time - b.time);
+            candlestickSeries.setData(chartData);
+
+            // Set volume data
+            const volumeData = chartData.map(bar => ({
+                time: bar.time,
+                value: bar.volume,
+                color: bar.close >= bar.open ? '#26a69a50' : '#ef535050'
+            }));
+            volumeSeries.setData(volumeData);
+
+            // Add trade marker with appropriate side coloring
+            const tradeTimestamp = new Date(data.trade_time).getTime() / 1000;
+            const tradeBar = chartData.find(bar => bar.time === tradeTimestamp) || chartData.find(bar => Math.abs(bar.time - tradeTimestamp) < 60);
+            
+            if (tradeBar) {
+                // Add trade entry marker
+                candlestickSeries.setMarkers([
+                    {
+                        time: tradeTimestamp,
+                        position: '{{ trade.side|lower }}' === 'buy' ? 'belowBar' : 'aboveBar',
+                        color: '{{ trade.side|lower }}' === 'buy' ? '#26a69a' : '#ef5350',
+                        shape: '{{ trade.side|lower }}' === 'buy' ? 'arrowUp' : 'arrowDown',
+                        text: 'TRADE {{ trade.side|upper }} @ {{ trade.entry_price }}'
+                    }
+                ]);
+
+                // Add price line at entry price
+                const priceLine = {
+                    price: {{ trade.entry_price|float }},
+                    color: '{{ trade.side|lower }}' === 'buy' ? '#26a69a' : '#ef5350',
+                    lineWidth: 2,
+                    lineStyle: 2, // Dashed line
+                    axisLabelVisible: true,
+                    title: '{{ trade.side|upper }} Entry @ {{ trade.entry_price }}'
+                };
+                candlestickSeries.createPriceLine(priceLine);
+
+                // Add exit price line if available
+                {% if trade.exit_price %}
+                const exitPriceLine = {
+                    price: {{ trade.exit_price|float }},
+                    color: '{{ trade.side|lower }}' === 'buy' ? '#ef5350' : '#26a69a',
+                    lineWidth: 2,
+                    lineStyle: 2, // Dashed line
+                    axisLabelVisible: true,
+                    title: 'Exit @ {{ trade.exit_price }}'
+                };
+                candlestickSeries.createPriceLine(exitPriceLine);
+                {% endif %}
+            }
+
+            // Fit content
+            chart.timeScale().fitContent();
+            
+            // Hide loading indicator
+            loadingIndicator.classList.add('hidden');
+        })
+        .catch(error => {
+            console.error('Error loading trade data:', error);
+            loadingIndicator.classList.add('hidden');
+            const errorDiv = document.getElementById('chart-error');
+            const errorMessage = document.getElementById('chart-error-message');
+            errorDiv.classList.remove('hidden');
+            errorMessage.textContent = error.message || 'Failed to load chart data';
+        });
+
+    // Initialize image size if image exists
+    const wrapper = document.querySelector('.image-wrapper');
+    const img = wrapper ? wrapper.querySelector('img') : null;
+    if (img) {
+        adjustImageSize('initial');
+    }
+
+    // Set up auto-save listeners
+    const chartUrl = document.getElementById('chartUrl');
+    const notes = document.getElementById('notes');
+    const confirmedValid = document.getElementById('confirmedValid');
+    const reviewed = document.getElementById('reviewed');
+
+    if (chartUrl) chartUrl.addEventListener('input', debounce(autoSaveChanges, 500));
+    if (notes) notes.addEventListener('input', debounce(autoSaveChanges, 500));
+    if (confirmedValid) confirmedValid.addEventListener('change', autoSaveChanges);
+    if (reviewed) reviewed.addEventListener('change', autoSaveChanges);
+    
+    // Handle window resize
+    window.addEventListener('resize', debounce(() => {
+        chart.applyOptions({
+            width: container.clientWidth,
+            height: container.clientHeight
+        });
+    }, 250));
+});
 </script>
 {% endblock %}

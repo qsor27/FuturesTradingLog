@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Union, Tuple
 import os
+from flask import g
 
 class FuturesDB:
     def __init__(self, db_path: str = None):
@@ -533,3 +534,16 @@ class FuturesDB:
             print(f"Error importing CSV: {e}")
             self.conn.rollback()
             return False
+            
+    def get_db():
+        """Get a database connection."""
+        if 'db' not in g:
+            g.db = sqlite3.connect('path_to_your_db.db')
+            g.db.row_factory = sqlite3.Row
+        return g.db
+
+    def close_db(e=None):
+        """Close the database connection."""
+        db = g.pop('db', None)
+        if db is not None:
+            db.close()

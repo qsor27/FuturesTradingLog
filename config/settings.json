@@ -1,0 +1,8 @@
+{
+    "ninjatrader_path": "C:\\Users\\qsoren\\Documents\\NinjaTrader 8",
+    "default_timeframe": "1 Minute",
+    "chart_settings": {
+        "minutes_before": 60,
+        "minutes_after": 60
+    }
+}

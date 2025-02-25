@@ -6,11 +6,41 @@
     <meta name="color-scheme" content="light dark">
     <title>{% block title %}Futures Trades{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ninja-trader.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     {% block extra_head %}{% endblock %}
+    <style>
+        .header {
+            padding: 8px 16px;
+            background-color: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .header-status {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .header {
+                background-color: #1e1e1e;
+                border-bottom-color: #333;
+            }
+        }
+    </style>
 </head>
 <body>
+    <div class="header">
+        <div class="header-status">
+            <span id="nt-status" class="nt-status status-disconnected">Checking NinjaTrader connection...</span>
+        </div>
+    </div>
     {% block content %}{% endblock %}
+    <script src="{{ url_for('static', filename='js/ninja-trader.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/price-chart.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

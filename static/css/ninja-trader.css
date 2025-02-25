@@ -1,0 +1,54 @@
+.nt-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    margin-left: 8px;
+}
+
+.nt-status::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+
+.status-connected {
+    background-color: rgba(0, 255, 0, 0.1);
+    color: #00c853;
+}
+
+.status-connected::before {
+    background-color: #00c853;
+}
+
+.status-disconnected {
+    background-color: rgba(255, 152, 0, 0.1);
+    color: #ff9800;
+}
+
+.status-disconnected::before {
+    background-color: #ff9800;
+}
+
+.status-error {
+    background-color: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+}
+
+.status-error::before {
+    background-color: #f44336;
+}
+
+.status-unavailable {
+    background-color: rgba(158, 158, 158, 0.1);
+    color: #9e9e9e;
+    cursor: help;
+}
+
+.status-unavailable::before {
+    background-color: #9e9e9e;
+}
