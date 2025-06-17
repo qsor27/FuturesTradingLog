@@ -833,8 +833,9 @@ class FuturesDB:
                 expected_next = current_ts + expected_interval
                 
                 if next_ts > expected_next:
+                    # Calculate gap end (last missing timestamp)
                     gap_end = next_ts - expected_interval
-                    if gap_end >= expected_next:  # Changed > to >= to include single-record gaps
+                    if gap_end >= expected_next:
                         gaps.append((expected_next, gap_end))
             
             # Check for gap at the end

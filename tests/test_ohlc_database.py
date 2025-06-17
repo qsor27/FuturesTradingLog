@@ -175,9 +175,9 @@ class TestOHLCDatabase:
     def test_find_ohlc_gaps(self, temp_db, sample_ohlc_data):
         """Test gap detection in OHLC data"""
         with FuturesDB(temp_db) as db:
-            # Insert data with gaps (skip every 3rd record)
+            # Insert data with gaps (skip 2 consecutive records every 5 records)
             for i, data in enumerate(sample_ohlc_data[:20]):
-                if i % 3 != 2:  # Skip every 3rd record
+                if i % 5 not in [2, 3]:  # Skip 2 consecutive records every 5
                     db.insert_ohlc_data(
                         data['instrument'],
                         data['timeframe'],
