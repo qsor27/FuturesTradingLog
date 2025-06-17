@@ -37,7 +37,7 @@ class Config:
     @property
     def debug(self) -> bool:
         """Return True if in debug mode"""
-        return os.getenv('FLASK_ENV') == 'development'
+        return os.getenv('FLASK_ENV') in ('development', 'test_local')
         
     def get_chart_path(self, filename: str) -> Path:
         """Get full path for a chart file"""
