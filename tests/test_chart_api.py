@@ -352,8 +352,21 @@ class TestChartAPI:
         # Verify database query was executed
         mock_cursor.execute.assert_called_once()
     
-    def test_chart_data_api_endpoints_exist(self, client):
+    @patch('routes.chart_data.ohlc_service')
+    @patch('routes.chart_data.FuturesDB')
+    def test_chart_data_api_endpoints_exist(self, mock_db_class, mock_service, client):
         """Test that all chart API endpoints exist"""
+        # Setup mocks
+        mock_service.get_chart_data.return_value = []
+        mock_service.update_recent_data.return_value = True
+        
+        mock_db = Mock()
+        mock_db.get_trade_by_id.return_value = {'id': 1, 'entry_time': '2022-01-01T10:00:00', 'entry_price': 100.0}
+        mock_db.get_ohlc_count.return_value = 100
+        mock_db.cursor = Mock()
+        mock_db.cursor.fetchall.return_value = [('MNQ',)]
+        mock_db_class.return_value.__enter__.return_value = mock_db
+        
         endpoints = [
             '/api/chart-data/MNQ',
             '/api/trade-markers/1', 

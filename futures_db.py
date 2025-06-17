@@ -738,6 +738,19 @@ class FuturesDB:
                         close_price: float, volume: int = None) -> bool:
         """Insert OHLC candle data with duplicate prevention."""
         try:
+            # Validate required parameters
+            if not instrument or not timeframe:
+                return False
+            
+            # Validate timestamp is an integer
+            if not isinstance(timestamp, int):
+                return False
+                
+            # Validate prices are numeric
+            for price in [open_price, high_price, low_price, close_price]:
+                if not isinstance(price, (int, float)):
+                    return False
+            
             self.cursor.execute("""
                 INSERT OR IGNORE INTO ohlc_data 
                 (instrument, timeframe, timestamp, open_price, high_price, low_price, close_price, volume)
@@ -804,7 +817,9 @@ class FuturesDB:
             
             # Check for gap at the beginning
             if existing_timestamps[0] > start_timestamp:
-                gaps.append((start_timestamp, existing_timestamps[0] - expected_interval))
+                gap_end = existing_timestamps[0] - expected_interval
+                if gap_end > start_timestamp:
+                    gaps.append((start_timestamp, gap_end))
             
             # Check for gaps between existing data
             for i in range(len(existing_timestamps) - 1):
@@ -813,11 +828,15 @@ class FuturesDB:
                 expected_next = current_ts + expected_interval
                 
                 if next_ts > expected_next:
-                    gaps.append((expected_next, next_ts - expected_interval))
+                    gap_end = next_ts - expected_interval
+                    if gap_end > expected_next:
+                        gaps.append((expected_next, gap_end))
             
             # Check for gap at the end
             if existing_timestamps[-1] < end_timestamp:
-                gaps.append((existing_timestamps[-1] + expected_interval, end_timestamp))
+                gap_start = existing_timestamps[-1] + expected_interval
+                if gap_start < end_timestamp:
+                    gaps.append((gap_start, end_timestamp))
             
             return gaps
         except Exception as e:

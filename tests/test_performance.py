@@ -256,9 +256,9 @@ class TestOHLCPerformance:
                 print(f"  {step}")
             
             # Should use index for the WHERE clause
-            plan_text = ' '.join([str(step) for step in query_plan])
+            plan_text = ' '.join([' '.join([str(col) for col in step]) for step in query_plan])
             assert 'idx_ohlc_instrument_timeframe_timestamp' in plan_text or 'USING INDEX' in plan_text.upper(), \
-                "Query should use index for performance"
+                f"Query should use index for performance. Plan: {plan_text}"
     
     def test_database_size_analysis(self, temp_db, large_dataset):
         """Analyze database size with indexes vs without"""
