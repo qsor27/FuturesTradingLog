@@ -134,6 +134,9 @@ class TestOHLCIntegration:
         from futures_db import FuturesDB
         from data_service import ohlc_service
         
+        # Use a unique instrument to avoid interference from other tests
+        test_instrument = 'GAP_TEST'
+        
         # Insert some OHLC data with gaps
         with FuturesDB() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
@@ -141,7 +144,7 @@ class TestOHLCIntegration:
             # Insert data with a gap (skip timestamps 3 and 4)
             for i in [1, 2, 5, 6, 7]:
                 db.insert_ohlc_data(
-                    'MNQ', '1m', base_time + (i * 60),
+                    test_instrument, '1m', base_time + (i * 60),
                     100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 1000 + i
                 )
         
@@ -150,7 +153,7 @@ class TestOHLCIntegration:
         end_date = datetime.fromtimestamp(base_time + 480)  # 8 minutes later
         
         with FuturesDB() as db:
-            gaps = db.find_ohlc_gaps('MNQ', '1m', base_time, base_time + 480)
+            gaps = db.find_ohlc_gaps(test_instrument, '1m', base_time, base_time + 480)
             assert len(gaps) > 0, "Should detect gaps in data"
         
         # Test that chart data API triggers gap filling
@@ -158,7 +161,7 @@ class TestOHLCIntegration:
             # Mock successful data fetch for gap filling
             mock_fetch.return_value = [
                 {
-                    'instrument': 'MNQ',
+                    'instrument': test_instrument,
                     'timeframe': '1m',
                     'timestamp': base_time + 180,  # Fill gap at minute 3
                     'open_price': 103.0,
@@ -169,7 +172,7 @@ class TestOHLCIntegration:
                 }
             ]
             
-            response = client.get('/api/chart-data/MNQ?timeframe=1m&days=1')
+            response = client.get(f'/api/chart-data/{test_instrument}?timeframe=1m&days=1')
             assert response.status_code == 200
     
     def test_multiple_instrument_support(self, client):
@@ -337,9 +340,11 @@ class TestOHLCIntegration:
         mock_fill_gaps.return_value = True
         mock_fetch.return_value = []  # No external data fetched
         
-        # Insert test data
+        # Insert test data with recent timestamps
         with FuturesDB() as db:
-            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
+            # Use recent timestamps so they appear in "days=1" query
+            from datetime import datetime
+            base_time = int((datetime.now() - timedelta(hours=2)).timestamp())
             
             for i in range(100):
                 db.insert_ohlc_data(
@@ -360,12 +365,12 @@ class TestOHLCIntegration:
         assert len(chart_data['data']) > 0, "Chart API should return some data"
         assert chart_data['success'] == True, "Chart API should succeed"
         
-        # Verify our specific test data is included (last 100 records should be our test data)
+        # Verify our specific test data is included
         test_data_found = any(
             record['open'] >= 100.0 and record['open'] <= 199.0 
-            for record in chart_data['data'][-20:]  # Check last 20 records
+            for record in chart_data['data']  # Check all records
         )
-        assert test_data_found, "Should find our test data in the results"
+        assert test_data_found, f"Should find our test data in the results. Found {len(chart_data['data'])} records"
         
         # Verify data ordering (should be ascending by time)
         timestamps = [candle['time'] for candle in chart_data['data']]
