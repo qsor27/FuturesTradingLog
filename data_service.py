@@ -215,7 +215,7 @@ class OHLCDataService:
             end_timestamp = int(end_date.timestamp())
             
             with FuturesDB() as db:
-                return db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp)
+                return db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
                 
         except Exception as e:
             self.logger.error(f"Error getting chart data: {e}")

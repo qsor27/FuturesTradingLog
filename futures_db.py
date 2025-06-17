@@ -781,14 +781,19 @@ class FuturesDB:
             
             where_clause = " AND ".join(where_conditions)
             
-            self.cursor.execute(f"""
+            query = f"""
                 SELECT instrument, timeframe, timestamp, open_price, high_price, 
                        low_price, close_price, volume
                 FROM ohlc_data 
                 WHERE {where_clause}
                 ORDER BY timestamp ASC
-                LIMIT ?
-            """, params + [limit])
+            """
+            
+            if limit is not None:
+                query += " LIMIT ?"
+                params.append(limit)
+            
+            self.cursor.execute(query, params)
             
             return [dict(row) for row in self.cursor.fetchall()]
         except Exception as e:
@@ -829,7 +834,7 @@ class FuturesDB:
                 
                 if next_ts > expected_next:
                     gap_end = next_ts - expected_interval
-                    if gap_end > expected_next:
+                    if gap_end >= expected_next:  # Changed > to >= to include single-record gaps
                         gaps.append((expected_next, gap_end))
             
             # Check for gap at the end

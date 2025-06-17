@@ -136,7 +136,7 @@ class TestOHLCIntegration:
         
         # Insert some OHLC data with gaps
         with FuturesDB() as db:
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             # Insert data with a gap (skip timestamps 3 and 4)
             for i in [1, 2, 5, 6, 7]:
@@ -180,7 +180,7 @@ class TestOHLCIntegration:
         
         # Insert data for multiple instruments
         with FuturesDB() as db:
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             for i, instrument in enumerate(instruments):
                 for j in range(5):  # 5 candles per instrument
@@ -218,7 +218,7 @@ class TestOHLCIntegration:
         
         # Insert data for different timeframes
         with FuturesDB() as db:
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             for i, timeframe in enumerate(timeframes):
                 for j in range(3):
@@ -263,7 +263,7 @@ class TestOHLCIntegration:
         # Setup test data
         with FuturesDB() as db:
             # Insert OHLC data
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             for i in range(10):
                 db.insert_ohlc_data(
                     'MNQ', '1m', base_time + (i * 60),
@@ -295,7 +295,7 @@ class TestOHLCIntegration:
         
         # Insert a substantial amount of test data
         with FuturesDB() as db:
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             # Insert 1440 minutes of data (1 day)
             for i in range(1440):
@@ -326,7 +326,7 @@ class TestOHLCIntegration:
         
         # Insert test data
         with FuturesDB() as db:
-            base_time = int(datetime.now().timestamp())
+            base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             for i in range(100):
                 db.insert_ohlc_data(
