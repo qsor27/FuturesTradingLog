@@ -8,7 +8,15 @@ from routes.trade_details import trade_details_bp
 from routes.trade_links import trade_links_bp
 from routes.chart_data import chart_data_bp
 from futures_db import FuturesDB
-from services.file_watcher import file_watcher
+
+# Import file watcher conditionally to avoid test import issues
+try:
+    from services.file_watcher import file_watcher
+    FILE_WATCHER_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: File watcher not available: {e}")
+    file_watcher = None
+    FILE_WATCHER_AVAILABLE = False
 
 app = Flask(__name__)
 
@@ -28,12 +36,15 @@ app.register_blueprint(chart_data_bp)  # Chart data API routes
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'file_watcher_running': file_watcher.is_running()
+        'file_watcher_running': file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False
     }), 200
 
 @app.route('/api/file-watcher/status')
 def file_watcher_status():
     """Get file watcher status"""
+    if not FILE_WATCHER_AVAILABLE:
+        return jsonify({'error': 'File watcher not available'}), 503
+    
     return jsonify({
         'running': file_watcher.is_running(),
         'check_interval': file_watcher.check_interval
@@ -42,6 +53,9 @@ def file_watcher_status():
 @app.route('/api/file-watcher/process-now', methods=['POST'])
 def process_files_now():
     """Manually trigger file processing"""
+    if not FILE_WATCHER_AVAILABLE:
+        return jsonify({'error': 'File watcher not available'}), 503
+    
     try:
         file_watcher.process_now()
         return jsonify({'message': 'File processing triggered successfully'}), 200
@@ -69,10 +83,12 @@ def utility_processor():
     }
 
 if __name__ == '__main__':
-    # Start the file watcher service if auto-import is enabled
-    if config.auto_import_enabled:
+    # Start the file watcher service if auto-import is enabled and available
+    if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
         file_watcher.start()
         print(f"File watcher started - checking every {config.auto_import_interval} seconds")
+    elif not FILE_WATCHER_AVAILABLE:
+        print("File watcher not available - skipping auto-import.")
     else:
         print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
     
@@ -80,5 +96,5 @@ if __name__ == '__main__':
         app.run(debug=config.debug, port=config.port, host=config.host)
     finally:
         # Stop the file watcher when the app shuts down
-        if config.auto_import_enabled:
+        if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
             file_watcher.stop()

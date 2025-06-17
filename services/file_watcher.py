@@ -11,7 +11,15 @@ from typing import List, Dict, Any
 
 from config import config
 from futures_db import FuturesDB
-from ExecutionProcessing import process_trades
+
+# Import ExecutionProcessing conditionally
+try:
+    from ExecutionProcessing import process_trades
+    EXECUTION_PROCESSING_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: ExecutionProcessing not available: {e}")
+    process_trades = None
+    EXECUTION_PROCESSING_AVAILABLE = False
 
 class FileWatcher:
     """
@@ -80,6 +88,10 @@ class FileWatcher:
         """Process a single NinjaTrader execution file"""
         try:
             self.logger.info(f"Processing file: {file_path.name}")
+            
+            if not EXECUTION_PROCESSING_AVAILABLE:
+                self.logger.error("ExecutionProcessing module not available")
+                return []
             
             # Read the CSV file
             df = pd.read_csv(file_path)
