@@ -518,6 +518,55 @@ class FuturesDB:
             self.conn.rollback()
             return False
 
+    def add_trade(self, trade_data: Dict[str, Any]) -> bool:
+        """Add a single trade to the database with duplicate checking."""
+        try:
+            # Check for duplicate using account + entry_execution_id
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM trades
+                WHERE account = ? AND entry_execution_id = ?
+            """, (trade_data.get('account'), trade_data.get('entry_execution_id')))
+            
+            if self.cursor.fetchone()[0] > 0:
+                print(f"Skipping duplicate trade: {trade_data.get('entry_execution_id')}")
+                return True  # Return True to indicate it was processed (already exists)
+            
+            # Convert datetime strings to proper format if needed
+            if isinstance(trade_data.get('entry_time'), str):
+                trade_data['entry_time'] = pd.to_datetime(trade_data['entry_time']).strftime('%Y-%m-%d %H:%M:%S')
+            if isinstance(trade_data.get('exit_time'), str):
+                trade_data['exit_time'] = pd.to_datetime(trade_data['exit_time']).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Insert the trade
+            self.cursor.execute("""
+                INSERT INTO trades (
+                    instrument, side_of_market, quantity, entry_price, entry_time,
+                    exit_time, exit_price, points_gain_loss, dollars_gain_loss,
+                    commission, account, entry_execution_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                str(trade_data.get('instrument', '')),
+                str(trade_data.get('side_of_market', '')),
+                int(trade_data.get('quantity', 0)),
+                float(trade_data.get('entry_price', 0.0)),
+                trade_data.get('entry_time'),
+                trade_data.get('exit_time'),
+                float(trade_data.get('exit_price', 0.0)),
+                float(trade_data.get('points_gain_loss', 0.0)),
+                float(trade_data.get('dollars_gain_loss', 0.0)),
+                float(trade_data.get('commission', 0.0)),
+                str(trade_data.get('account', '')),
+                str(trade_data.get('entry_execution_id', ''))
+            ))
+            
+            self.conn.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error adding trade: {e}")
+            self.conn.rollback()
+            return False
+
     def import_csv(self, csv_path: str) -> bool:
         """Import trades from a CSV file."""
         try:

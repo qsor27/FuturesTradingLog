@@ -65,5 +65,15 @@ class Config:
         """Return port to bind to"""
         return int(os.getenv('FLASK_PORT', 5000))
 
+    @property
+    def auto_import_enabled(self) -> bool:
+        """Return True if automatic import is enabled"""
+        return os.getenv('AUTO_IMPORT_ENABLED', 'true').lower() == 'true'
+
+    @property
+    def auto_import_interval(self) -> int:
+        """Return auto import check interval in seconds (default 5 minutes)"""
+        return int(os.getenv('AUTO_IMPORT_INTERVAL', 300))
+
 # Create global config instance
 config = Config()

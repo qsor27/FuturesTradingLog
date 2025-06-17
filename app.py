@@ -8,6 +8,7 @@ from routes.trade_details import trade_details_bp
 from routes.trade_links import trade_links_bp
 from routes.chart_data import chart_data_bp
 from futures_db import FuturesDB
+from services.file_watcher import file_watcher
 
 app = Flask(__name__)
 
@@ -25,7 +26,27 @@ app.register_blueprint(chart_data_bp)  # Chart data API routes
 
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy'}), 200
+    return jsonify({
+        'status': 'healthy',
+        'file_watcher_running': file_watcher.is_running()
+    }), 200
+
+@app.route('/api/file-watcher/status')
+def file_watcher_status():
+    """Get file watcher status"""
+    return jsonify({
+        'running': file_watcher.is_running(),
+        'check_interval': file_watcher.check_interval
+    })
+
+@app.route('/api/file-watcher/process-now', methods=['POST'])
+def process_files_now():
+    """Manually trigger file processing"""
+    try:
+        file_watcher.process_now()
+        return jsonify({'message': 'File processing triggered successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Add utility functions to template context
 @app.context_processor
@@ -48,4 +69,16 @@ def utility_processor():
     }
 
 if __name__ == '__main__':
-    app.run(debug=config.debug, port=config.port, host=config.host)
+    # Start the file watcher service if auto-import is enabled
+    if config.auto_import_enabled:
+        file_watcher.start()
+        print(f"File watcher started - checking every {config.auto_import_interval} seconds")
+    else:
+        print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
+    
+    try:
+        app.run(debug=config.debug, port=config.port, host=config.host)
+    finally:
+        # Stop the file watcher when the app shuts down
+        if config.auto_import_enabled:
+            file_watcher.stop()

@@ -134,8 +134,9 @@ namespace NinjaTrader.NinjaScript.Indicators
                         streamWriter.Close();
                         streamWriter.Dispose();
                         
-                        // Move completed file to exported directory
-                        if (File.Exists(exportFilePath))
+                        // Only move completed files to exported directory if not using daily files
+                        // Daily files should remain in place for continued appending
+                        if (!CreateDailyFiles && File.Exists(exportFilePath))
                         {
                             var existingFileName = Path.GetFileName(exportFilePath);
                             var exportedPath = Path.Combine(exportDirectory, "exported", existingFileName);
@@ -146,16 +147,45 @@ namespace NinjaTrader.NinjaScript.Indicators
                     
                     // Generate new file name
                     currentFileDate = DateTime.Now.Date;
-                    var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                    var fileName = $"NinjaTrader_Executions_{timestamp}.csv";
+                    
+                    string fileName;
+                    if (CreateDailyFiles)
+                    {
+                        // Use only date for daily files (one file per day)
+                        var dateString = DateTime.Now.ToString("yyyyMMdd");
+                        fileName = $"NinjaTrader_Executions_{dateString}.csv";
+                    }
+                    else
+                    {
+                        // Use timestamp for time-based rotation
+                        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                        fileName = $"NinjaTrader_Executions_{timestamp}.csv";
+                    }
+                    
                     exportFilePath = Path.Combine(exportDirectory, fileName);
                     
-                    // Create new file with header
-                    streamWriter = new StreamWriter(exportFilePath, false, Encoding.UTF8);
-                    WriteCSVHeader();
+                    // Check if file already exists (for daily files)
+                    bool fileExists = File.Exists(exportFilePath);
+                    
+                    // Create or append to file
+                    streamWriter = new StreamWriter(exportFilePath, append: fileExists, Encoding.UTF8);
+                    
+                    // Only write header if file is new
+                    if (!fileExists)
+                    {
+                        WriteCSVHeader();
+                    }
+                    
                     streamWriter.Flush();
                     
-                    LogMessage($"Created new export file: {fileName}");
+                    if (fileExists)
+                    {
+                        LogMessage($"Reopened existing daily file: {fileName}");
+                    }
+                    else
+                    {
+                        LogMessage($"Created new export file: {fileName}");
+                    }
                 }
             }
             catch (Exception ex)
