@@ -46,9 +46,9 @@ Dockerfile
 docker-compose.yml
 .docker/
 
-# Documentation
-README.md
+# Documentation (keep README.md for image metadata)
 *.md
+!README.md
 docs/
 
 # Test coverage artifacts

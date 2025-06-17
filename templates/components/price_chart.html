@@ -1,0 +1,153 @@
+{% set chart_id = chart_id or 'priceChart' %}
+{% set chart_height = chart_height or '400px' %}
+{% set chart_instrument = chart_instrument or 'MNQ' %}
+{% set chart_timeframe = chart_timeframe or '1m' %}
+{% set chart_days = chart_days or 1 %}
+{% set chart_trade_id = chart_trade_id or '' %}
+
+<!-- TradingView Lightweight Charts Library -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
+<!-- Chart Component CSS -->
+<style>
+.chart-component {
+    position: relative;
+    width: 100%;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    margin-bottom: 15px;
+}
+
+.chart-component .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    font-size: 14px;
+}
+
+.chart-component .chart-title {
+    font-weight: bold;
+    color: #333;
+}
+
+.chart-component .chart-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.chart-component .chart-controls select {
+    padding: 4px 8px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 13px;
+    background: white;
+}
+
+.chart-component .chart-body {
+    position: relative;
+    height: {{ chart_height }};
+}
+
+.chart-component .chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+    display: none;
+    z-index: 1000;
+    font-size: 14px;
+    color: #666;
+}
+
+.chart-component .chart-error {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 15px;
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    display: none;
+    z-index: 1000;
+    max-width: 80%;
+    text-align: center;
+    font-size: 14px;
+}
+</style>
+
+<!-- Chart Component HTML -->
+<div class="chart-component">
+    <div class="chart-header">
+        <div class="chart-title">{{ chart_instrument }} Price Chart</div>
+        <div class="chart-controls">
+            <select class="timeframe-select" data-chart-id="{{ chart_id }}">
+                <option value="1m" {{ 'selected' if chart_timeframe == '1m' else '' }}>1m</option>
+                <option value="5m" {{ 'selected' if chart_timeframe == '5m' else '' }}>5m</option>
+                <option value="15m" {{ 'selected' if chart_timeframe == '15m' else '' }}>15m</option>
+                <option value="1h" {{ 'selected' if chart_timeframe == '1h' else '' }}>1h</option>
+                <option value="4h" {{ 'selected' if chart_timeframe == '4h' else '' }}>4h</option>
+                <option value="1d" {{ 'selected' if chart_timeframe == '1d' else '' }}>1d</option>
+            </select>
+            
+            <select class="days-select" data-chart-id="{{ chart_id }}">
+                <option value="1" {{ 'selected' if chart_days == 1 else '' }}>1 Day</option>
+                <option value="3" {{ 'selected' if chart_days == 3 else '' }}>3 Days</option>
+                <option value="7" {{ 'selected' if chart_days == 7 else '' }}>1 Week</option>
+                <option value="30" {{ 'selected' if chart_days == 30 else '' }}>1 Month</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="chart-body">
+        <div id="{{ chart_id }}" 
+             data-chart 
+             data-instrument="{{ chart_instrument }}" 
+             data-timeframe="{{ chart_timeframe }}" 
+             data-days="{{ chart_days }}"
+             {% if chart_trade_id %}data-trade-id="{{ chart_trade_id }}"{% endif %}>
+        </div>
+        
+        <div class="chart-loading">
+            Loading chart data...
+        </div>
+        
+        <div class="chart-error"></div>
+    </div>
+</div>
+
+<script>
+// Chart component controls handler
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle timeframe changes
+    document.querySelectorAll('.timeframe-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const chartId = this.dataset.chartId;
+            const chartContainer = document.getElementById(chartId);
+            if (chartContainer && chartContainer.chartInstance) {
+                chartContainer.chartInstance.updateTimeframe(this.value);
+            }
+        });
+    });
+    
+    // Handle days changes
+    document.querySelectorAll('.days-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const chartId = this.dataset.chartId;
+            const chartContainer = document.getElementById(chartId);
+            if (chartContainer && chartContainer.chartInstance) {
+                chartContainer.chartInstance.updateDays(parseInt(this.value));
+            }
+        });
+    });
+});
+</script>

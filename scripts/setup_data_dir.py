@@ -3,10 +3,14 @@ from pathlib import Path
 import shutil
 import json
 
-def setup_data_directory(data_dir: str = 'C:/Containers/FuturesTradingLog/data'):
+def setup_data_directory(data_dir: str = None):
     """
     Set up the data directory structure and copy necessary files
     """
+    if data_dir is None:
+        # Use environment variable or cross-platform default
+        data_dir = os.getenv('DATA_DIR', str(Path.home() / 'FuturesTradingLog' / 'data'))
+    
     data_dir = Path(data_dir)
     
     # Create main directories

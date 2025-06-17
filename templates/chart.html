@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+
+{% block title %}{{ instrument }} Chart - Futures Trading Log{% endblock %}
+
+{% block head %}
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+.chart-container {
+    position: relative;
+    width: 100%;
+    min-height: 500px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    margin-bottom: 20px;
+}
+
+.chart-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    flex-wrap: wrap;
+}
+
+.chart-controls select,
+.chart-controls button {
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+    font-size: 14px;
+}
+
+.chart-controls button {
+    background: #007bff;
+    color: white;
+    cursor: pointer;
+    border-color: #007bff;
+}
+
+.chart-controls button:hover {
+    background: #0056b3;
+    border-color: #0056b3;
+}
+
+.chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 4px;
+    display: none;
+    z-index: 1000;
+}
+
+.chart-error {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px;
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    display: none;
+    z-index: 1000;
+    max-width: 80%;
+    text-align: center;
+}
+
+.trades-panel {
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    margin-top: 20px;
+}
+
+.trades-panel h3 {
+    margin: 0 0 15px 0;
+    font-size: 18px;
+    color: #333;
+}
+
+.trade-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.trade-item:hover {
+    background: #e9ecef;
+}
+
+.trade-item.selected {
+    background: #cce5ff;
+    border-color: #007bff;
+}
+
+.trade-info {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.trade-side {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.trade-side.long {
+    background: #d4edda;
+    color: #155724;
+}
+
+.trade-side.short {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.trade-pnl {
+    font-weight: bold;
+}
+
+.trade-pnl.positive {
+    color: #28a745;
+}
+
+.trade-pnl.negative {
+    color: #dc3545;
+}
+
+.instrument-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.instrument-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #333;
+}
+
+.data-status {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 14px;
+    color: #666;
+}
+
+.status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #28a745;
+}
+
+.status-indicator.warning {
+    background: #ffc107;
+}
+
+.status-indicator.error {
+    background: #dc3545;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="instrument-header">
+        <h1 class="instrument-title">{{ instrument }} Price Chart</h1>
+        <div class="data-status">
+            <div class="status-indicator" id="dataStatus"></div>
+            <span id="dataStatusText">Loading...</span>
+        </div>
+    </div>
+
+    <div class="chart-controls">
+        <label>
+            <strong>Timeframe:</strong>
+            <select id="timeframeSelect">
+                <option value="1m">1 Minute</option>
+                <option value="5m">5 Minutes</option>
+                <option value="15m">15 Minutes</option>
+                <option value="1h">1 Hour</option>
+                <option value="4h">4 Hours</option>
+                <option value="1d">1 Day</option>
+            </select>
+        </label>
+
+        <label>
+            <strong>Period:</strong>
+            <select id="daysSelect">
+                <option value="1">1 Day</option>
+                <option value="3">3 Days</option>
+                <option value="7">1 Week</option>
+                <option value="30">1 Month</option>
+                <option value="90">3 Months</option>
+            </select>
+        </label>
+
+        <button id="refreshDataBtn">Refresh Data</button>
+        <button id="updateDataBtn">Update from API</button>
+    </div>
+
+    <div class="chart-container">
+        <div id="priceChart" 
+             data-chart 
+             data-instrument="{{ instrument }}" 
+             data-timeframe="1m" 
+             data-days="1">
+        </div>
+        
+        <div class="chart-loading">
+            <div>Loading chart data...</div>
+        </div>
+        
+        <div class="chart-error"></div>
+    </div>
+
+    {% if trades %}
+    <div class="trades-panel">
+        <h3>Recent Trades for {{ instrument }}</h3>
+        <div id="tradesContainer">
+            {% for trade in trades %}
+            <div class="trade-item" data-trade-id="{{ trade.id }}">
+                <div class="trade-info">
+                    <span class="trade-side {{ 'long' if trade.side_of_market == 'Long' else 'short' }}">
+                        {{ trade.side_of_market }}
+                    </span>
+                    <span>{{ trade.quantity }} @ {{ trade.entry_price }}</span>
+                    <span>{{ trade.entry_time.strftime('%m/%d %H:%M') if trade.entry_time else 'N/A' }}</span>
+                </div>
+                <div class="trade-pnl {{ 'positive' if trade.dollars_gain_loss and trade.dollars_gain_loss > 0 else 'negative' if trade.dollars_gain_loss and trade.dollars_gain_loss < 0 else '' }}">
+                    ${{ trade.dollars_gain_loss or 0 }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartContainer = document.getElementById('priceChart');
+    const timeframeSelect = document.getElementById('timeframeSelect');
+    const daysSelect = document.getElementById('daysSelect');
+    const refreshBtn = document.getElementById('refreshDataBtn');
+    const updateBtn = document.getElementById('updateDataBtn');
+    const statusIndicator = document.getElementById('dataStatus');
+    const statusText = document.getElementById('dataStatusText');
+    const tradesContainer = document.getElementById('tradesContainer');
+    
+    let currentChart = null;
+
+    function updateStatus(status, text) {
+        statusIndicator.className = `status-indicator ${status}`;
+        statusText.textContent = text;
+    }
+
+    function initChart() {
+        if (chartContainer.chartInstance) {
+            currentChart = chartContainer.chartInstance;
+            updateStatus('', 'Chart loaded');
+        } else {
+            updateStatus('error', 'Failed to initialize chart');
+        }
+    }
+
+    // Initialize chart
+    setTimeout(initChart, 100);
+
+    // Timeframe change handler
+    timeframeSelect.addEventListener('change', function() {
+        if (currentChart) {
+            updateStatus('warning', 'Loading...');
+            currentChart.updateTimeframe(this.value);
+        }
+    });
+
+    // Days change handler
+    daysSelect.addEventListener('change', function() {
+        if (currentChart) {
+            updateStatus('warning', 'Loading...');
+            currentChart.updateDays(parseInt(this.value));
+        }
+    });
+
+    // Refresh data handler
+    refreshBtn.addEventListener('click', function() {
+        if (currentChart) {
+            updateStatus('warning', 'Refreshing...');
+            currentChart.loadData();
+        }
+    });
+
+    // Update data from API
+    updateBtn.addEventListener('click', async function() {
+        try {
+            updateStatus('warning', 'Updating from API...');
+            this.disabled = true;
+            
+            const response = await fetch(`/api/update-data/{{ instrument }}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                updateStatus('', `Updated: ${data.total_records} records`);
+                if (currentChart) {
+                    currentChart.loadData();
+                }
+            } else {
+                updateStatus('error', 'Update failed');
+            }
+        } catch (error) {
+            updateStatus('error', 'Update error');
+            console.error('Update error:', error);
+        } finally {
+            this.disabled = false;
+        }
+    });
+
+    // Trade selection handler
+    if (tradesContainer) {
+        tradesContainer.addEventListener('click', function(e) {
+            const tradeItem = e.target.closest('.trade-item');
+            if (!tradeItem || !currentChart) return;
+
+            // Clear previous selections
+            tradesContainer.querySelectorAll('.trade-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Select clicked trade
+            tradeItem.classList.add('selected');
+
+            // Load trade markers
+            const tradeId = parseInt(tradeItem.dataset.tradeId);
+            currentChart.clearMarkers();
+            currentChart.loadTradeMarkers(tradeId);
+        });
+    }
+});
+</script>
+{% endblock %}

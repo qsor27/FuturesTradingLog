@@ -19,9 +19,14 @@ def index():
     try:
         page = max(1, int(request.args.get('page', 1)))
         page_size = int(request.args.get('page_size', 50))
+        cursor_id = request.args.get('cursor_id')
+        cursor_time = request.args.get('cursor_time')
+        cursor_id = int(cursor_id) if cursor_id else None
     except (ValueError, TypeError):
         page = 1
         page_size = 50
+        cursor_id = None
+        cursor_time = None
     
     # Validate page_size
     allowed_page_sizes = [10, 25, 50, 100]
@@ -30,14 +35,16 @@ def index():
     
     with FuturesDB() as db:
         accounts = db.get_unique_accounts()
-        trades, total_count, total_pages = db.get_recent_trades(
+        trades, total_count, total_pages, next_cursor_id, next_cursor_time = db.get_recent_trades(
             page_size=page_size,
             page=page,
             sort_by=sort_by,
             sort_order=sort_order,
             account=account_filters,
             trade_result=trade_result,
-            side=side_filter
+            side=side_filter,
+            cursor_id=cursor_id,
+            cursor_time=cursor_time
         )
     
     # Ensure page is within valid range
@@ -65,7 +72,9 @@ def index():
         current_page=page,
         total_pages=total_pages,
         page_size=page_size,
-        total_count=total_count
+        total_count=total_count,
+        next_cursor_id=next_cursor_id,
+        next_cursor_time=next_cursor_time
     )
 
 @main_bp.route('/delete-trades', methods=['POST'])

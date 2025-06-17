@@ -2,6 +2,10 @@
 
 {% block title %}Trade Details{% endblock %}
 
+{% block extra_head %}
+<script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
+{% endblock %}
+
 {% block content %}
 <div class="container mx-auto px-4 py-8">
     <a href="{{ url_for('main.index') }}" class="inline-block mb-6 text-blue-600 hover:text-blue-800">← Back to Trade List</a>
@@ -109,6 +113,19 @@
                     <textarea id="notes" name="notes" rows="1"
                               class="w-full px-3 py-2 border rounded-md">{{ trade.notes }}</textarea>
                 </div>
+            </div>
+
+            <!-- Interactive Price Chart -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Market Context Chart</h3>
+                {% include 'components/price_chart.html' with 
+                    chart_id='tradeChart', 
+                    chart_height='500px',
+                    chart_instrument=trade.instrument,
+                    chart_timeframe='5m',
+                    chart_days=1,
+                    chart_trade_id=trade.id
+                %}
             </div>
 
             <!-- Chart Image -->

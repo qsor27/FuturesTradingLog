@@ -2,12 +2,14 @@ version: '3.8'
 
 services:
   web:
-    build: .
+    image: ghcr.io/qsor27/futurestradinglog:latest
+    # Uncomment to build locally instead of using GitHub image
+    # build: .
     ports:
       - "5000:5000"
     volumes:
       - type: bind
-        source: C:/Containers/FuturesTradingLog/data
+        source: ${DATA_DIR:-./data}
         target: /app/data
     env_file:
       - .env

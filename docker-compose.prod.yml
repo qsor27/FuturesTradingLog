@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  web:
+    image: ghcr.io/qsor27/futurestradinglog:latest
+    container_name: futures-trading-log
+    ports:
+      - "${EXTERNAL_PORT:-5000}:5000"
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:-./data}
+        target: /app/data
+    environment:
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      - DATA_DIR=/app/data
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-in-production}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Add reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: futures-nginx
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+    profiles:
+      - nginx
+
+networks:
+  default:
+    name: futures-trading-network

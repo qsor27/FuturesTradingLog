@@ -10,8 +10,9 @@ class Config:
             # Use /app/data in Docker test environment
             self.data_dir = Path('/app/data')
         else:
-            # Use configured path for production
-            self.data_dir = Path(os.getenv('DATA_DIR', 'C:/Containers/FuturesTradingLog/data'))
+            # Use configured path for production with cross-platform default
+            default_data_dir = str(Path.home() / 'FuturesTradingLog' / 'data')
+            self.data_dir = Path(os.getenv('DATA_DIR', default_data_dir))
         
         # Ensure all required directories exist
         self.db_dir = self.data_dir / 'db'
