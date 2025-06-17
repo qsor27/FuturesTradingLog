@@ -67,7 +67,7 @@ class Config:
 
     @property
     def auto_import_enabled(self) -> bool:
-        """Return True if automatic import is enabled"""
+        """Return True if automatic import is enabled (default: true)"""
         return os.getenv('AUTO_IMPORT_ENABLED', 'true').lower() == 'true'
 
     @property
