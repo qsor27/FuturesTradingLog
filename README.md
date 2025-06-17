@@ -162,6 +162,42 @@ docker-compose up --build
 http://localhost:5000
 ```
 
+### **Network Access Configuration**
+
+**For Local Access Only:**
+```bash
+# Default - accessible only from localhost
+docker-compose up --build
+# Access: http://localhost:5000
+```
+
+**For Network-Wide Access:**
+```bash
+# Method 1: Update docker-compose.yml ports section
+# Change: - "${EXTERNAL_PORT:-5000}:5000"  
+# To:     - "YOUR_HOST_IP:${EXTERNAL_PORT:-5000}:5000"
+# Example: - "192.168.1.145:5000:5000"
+
+# Method 2: Use standalone Docker run command
+docker build -t futures-trading-log .
+docker run -p YOUR_HOST_IP:5000:5000 \
+  -v $(pwd)/data:/app/data \
+  -e FLASK_ENV=development \
+  -e DATA_DIR=/app/data \
+  --name futures-trading-log \
+  futures-trading-log
+
+# Example for host IP 192.168.1.145:
+docker run -p 192.168.1.145:5000:5000 \
+  -v $(pwd)/data:/app/data \
+  -e FLASK_ENV=development \
+  -e DATA_DIR=/app/data \
+  --name futures-trading-log \
+  futures-trading-log
+
+# Access from any device on your network: http://192.168.1.145:5000
+```
+
 ### **Environment Configuration**
 ```bash
 # Create .env file for custom settings
@@ -171,6 +207,7 @@ cp .env.template .env
 DATA_DIR=/path/to/your/data
 FLASK_HOST=0.0.0.0
 FLASK_PORT=5000
+EXTERNAL_PORT=5000  # Port for external access
 ```
 
 ## ⚡ Performance Highlights
