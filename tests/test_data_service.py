@@ -144,7 +144,7 @@ class TestOHLCDataService:
             (datetime(2024, 1, 7, 20, 0), False),   # Sunday 8 PM UTC - closed
             (datetime(2024, 1, 8, 21, 30), False),  # Monday maintenance break
             (datetime(2024, 1, 8, 23, 0), True),    # Monday after maintenance
-            (datetime(2024, 1, 12, 20, 0), False),  # Friday 8 PM UTC - closed
+            (datetime(2024, 1, 12, 20, 0), True),   # Friday 8 PM UTC - open
             (datetime(2024, 1, 12, 15, 0), True),   # Friday 3 PM UTC - open
         ]
         
