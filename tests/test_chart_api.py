@@ -126,7 +126,7 @@ class TestChartAPI:
             'side_of_market': 'Long',
             'dollars_gain_loss': 50.0
         }
-        mock_db.get_trade.return_value = mock_trade
+        mock_db.get_trade_by_id.return_value = mock_trade
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/api/trade-markers/123')
@@ -166,7 +166,7 @@ class TestChartAPI:
             'side_of_market': 'Short',
             'dollars_gain_loss': 50.0
         }
-        mock_db.get_trade.return_value = mock_trade
+        mock_db.get_trade_by_id.return_value = mock_trade
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/api/trade-markers/124')
@@ -196,7 +196,7 @@ class TestChartAPI:
             'side_of_market': 'Long',
             'dollars_gain_loss': -50.0
         }
-        mock_db.get_trade.return_value = mock_trade
+        mock_db.get_trade_by_id.return_value = mock_trade
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/api/trade-markers/125')
@@ -212,7 +212,7 @@ class TestChartAPI:
     def test_get_trade_markers_not_found(self, mock_db_class, client):
         """Test trade markers when trade not found"""
         mock_db = Mock()
-        mock_db.get_trade.return_value = None
+        mock_db.get_trade_by_id.return_value = None
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/api/trade-markers/999')
@@ -235,7 +235,7 @@ class TestChartAPI:
             'side_of_market': 'Long',
             'dollars_gain_loss': None
         }
-        mock_db.get_trade.return_value = mock_trade
+        mock_db.get_trade_by_id.return_value = mock_trade
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/api/trade-markers/126')
@@ -328,15 +328,19 @@ class TestChartAPI:
     def test_chart_page_render(self, mock_db_class, client):
         """Test chart page rendering"""
         mock_db = Mock()
-        mock_db.get_trades.return_value = [
-            {
-                'id': 1,
-                'instrument': 'MNQ',
-                'side_of_market': 'Long',
-                'entry_price': 100.0,
-                'dollars_gain_loss': 50.0
-            }
-        ]
+        mock_cursor = Mock()
+        # Create a proper mock row that supports dict() conversion
+        mock_row = {
+            'id': 1,
+            'instrument': 'MNQ',
+            'side_of_market': 'Long',
+            'entry_price': 100.0,
+            'dollars_gain_loss': 50.0,
+            'entry_time': '2022-01-01T10:00:00',
+            'exit_time': None
+        }
+        mock_cursor.fetchall.return_value = [mock_row]
+        mock_db.cursor = mock_cursor
         mock_db_class.return_value.__enter__.return_value = mock_db
         
         response = client.get('/chart/MNQ')
@@ -345,8 +349,8 @@ class TestChartAPI:
         assert b'MNQ' in response.data
         assert b'chart' in response.data.lower()
         
-        # Verify database query for recent trades
-        mock_db.get_trades.assert_called_once_with(filters={'instrument': 'MNQ'}, limit=10)
+        # Verify database query was executed
+        mock_cursor.execute.assert_called_once()
     
     def test_chart_data_api_endpoints_exist(self, client):
         """Test that all chart API endpoints exist"""

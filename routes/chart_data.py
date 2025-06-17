@@ -59,7 +59,7 @@ def get_trade_markers(trade_id):
     try:
         with FuturesDB() as db:
             # Get trade details
-            trade = db.get_trade(trade_id)
+            trade = db.get_trade_by_id(trade_id)
             if not trade:
                 return jsonify({'success': False, 'error': 'Trade not found'}), 404
             
@@ -138,7 +138,29 @@ def chart_page(instrument):
     try:
         # Get recent trades for this instrument
         with FuturesDB() as db:
-            trades = db.get_trades(filters={'instrument': instrument}, limit=10)
+            # Get recent trades for this instrument
+            db.cursor.execute("""
+                SELECT * FROM trades 
+                WHERE instrument = ? 
+                ORDER BY entry_time DESC 
+                LIMIT 10
+            """, (instrument,))
+            rows = db.cursor.fetchall()
+            trades = []
+            for row in rows:
+                trade_dict = dict(row)
+                # Convert date strings to datetime objects for template
+                if trade_dict.get('entry_time'):
+                    try:
+                        trade_dict['entry_time'] = datetime.fromisoformat(trade_dict['entry_time'])
+                    except (ValueError, TypeError):
+                        trade_dict['entry_time'] = None
+                if trade_dict.get('exit_time'):
+                    try:
+                        trade_dict['exit_time'] = datetime.fromisoformat(trade_dict['exit_time'])
+                    except (ValueError, TypeError):
+                        trade_dict['exit_time'] = None
+                trades.append(trade_dict)
         
         return render_template('chart.html', 
                              instrument=instrument,
