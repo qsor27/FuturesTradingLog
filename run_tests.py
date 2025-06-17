@@ -4,6 +4,7 @@ Test runner script for Futures Trading Log
 Provides convenient ways to run different test suites
 """
 import sys
+import os
 import subprocess
 import argparse
 from pathlib import Path
@@ -19,6 +20,17 @@ def run_command(cmd, description):
     return result.returncode == 0
 
 def main():
+    # Ensure we're running from the project root
+    script_dir = Path(__file__).parent
+    os.chdir(script_dir)
+    
+    # Set PYTHONPATH to include current directory for imports
+    current_path = os.environ.get('PYTHONPATH', '')
+    if current_path:
+        os.environ['PYTHONPATH'] = f"{script_dir}:{current_path}"
+    else:
+        os.environ['PYTHONPATH'] = str(script_dir)
+    
     parser = argparse.ArgumentParser(description='Run tests for Futures Trading Log')
     parser.add_argument('--quick', action='store_true', 
                        help='Run quick tests only (skip slow and integration tests)')
@@ -47,7 +59,7 @@ def main():
     
     if args.quick:
         # Run quick tests only
-        cmd = f'{pytest_cmd} -m "not slow" tests/test_app.py tests/test_ohlc_database.py::TestOHLCDatabase::test_ohlc_table_creation'
+        cmd = f'{pytest_cmd} -m "not slow" tests/test_app.py tests/test_ohlc_database.py'
         success &= run_command(cmd, "Quick Tests")
         
     elif args.performance:
