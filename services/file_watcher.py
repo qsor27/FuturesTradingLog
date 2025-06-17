@@ -149,8 +149,14 @@ class FileWatcher:
             return False
     
     def _archive_file(self, file_path: Path) -> None:
-        """Move processed file to archive directory"""
+        """Move processed file to archive directory (only if file is older than 1 day)"""
         try:
+            # Check if file is from today - if so, don't archive (NinjaTrader keeps it locked)
+            file_age_hours = (time.time() - file_path.stat().st_mtime) / 3600
+            if file_age_hours < 24:
+                self.logger.info(f"Skipping archive of {file_path.name} - file is less than 24 hours old (NinjaTrader may have it locked)")
+                return
+            
             archive_dir = config.data_dir / 'archive'
             archive_dir.mkdir(parents=True, exist_ok=True)
             
