@@ -31,22 +31,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder stage
-COPY --from=builder /root/.local /root/.local
-
 # Create non-root user and data directory
 RUN useradd -m -u 1000 appuser \
     && mkdir -p /app/data \
     && chown -R appuser:appuser /app
 
+# Copy Python packages from builder stage to appuser location
+COPY --from=builder /root/.local /home/appuser/.local
+
 # Copy application code
 COPY --chown=appuser:appuser . .
+
+# Fix ownership of .local directory
+RUN chown -R appuser:appuser /home/appuser/.local
 
 # Switch to non-root user
 USER appuser
 
-# Make sure scripts are executable and update PATH
-ENV PATH=/root/.local/bin:$PATH
+# Make sure scripts are executable and update PATH for appuser
+ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
