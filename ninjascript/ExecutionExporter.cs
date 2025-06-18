@@ -69,7 +69,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                 {
                     foreach (Account account in Account.All)
                     {
-                        account.ExecutionUpdate += OnExecutionUpdate;
+                        if (account != null)
+                        {
+                            account.ExecutionUpdate += OnExecutionUpdate;
+                        }
                     }
                 }
                 
@@ -85,7 +88,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                 {
                     foreach (Account account in Account.All)
                     {
-                        account.ExecutionUpdate -= OnExecutionUpdate;
+                        if (account != null)
+                        {
+                            account.ExecutionUpdate -= OnExecutionUpdate;
+                        }
                     }
                 }
             }
@@ -204,7 +210,9 @@ namespace NinjaTrader.NinjaScript.Indicators
         {
             try
             {
-                if (e.Execution == null) return;
+                if (e?.Execution == null) return;
+                if (e.Execution.Instrument?.MasterInstrument == null) return;
+                if (e.Execution.Order == null) return;
                 
                 // Generate unique execution ID
                 var executionId = GenerateExecutionId(e.Execution);
@@ -233,16 +241,24 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         private string GenerateExecutionId(Execution execution)
         {
-            // Use NinjaTrader's built-in execution ID if available
-            if (!string.IsNullOrEmpty(execution.ExecutionId))
-                return execution.ExecutionId;
+            try
+            {
+                // Use NinjaTrader's built-in execution ID if available
+                if (!string.IsNullOrEmpty(execution?.ExecutionId))
+                    return execution.ExecutionId;
+                    
+                // Fallback to creating unique ID using instrument + timestamp + order ID
+                var instrument = execution?.Instrument?.MasterInstrument?.Name ?? "UNKNOWN";
+                var timestamp = execution?.Time.Ticks.ToString() ?? DateTime.Now.Ticks.ToString();
+                var orderId = execution?.Order?.Id.ToString() ?? "0";
                 
-            // Fallback to creating unique ID using instrument + timestamp + order ID
-            var instrument = execution.Instrument.MasterInstrument.Name;
-            var timestamp = execution.Time.Ticks.ToString();
-            var orderId = execution.Order?.Id.ToString() ?? "0";
-            
-            return $"{instrument}_{timestamp}_{orderId}";
+                return $"{instrument}_{timestamp}_{orderId}";
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error generating execution ID: {ex.Message}");
+                return $"ERROR_{DateTime.Now.Ticks}";
+            }
         }
 
         private string DetermineEntryExit(Execution execution)
