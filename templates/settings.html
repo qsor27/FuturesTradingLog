@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Settings</h1>
+    
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Instrument Multipliers</h3>
+                    <p class="text-muted">Configure the dollar value per point for each futures instrument</p>
+                </div>
+                <div class="card-body">
+                    <div id="multipliers-section">
+                        <table class="table table-striped" id="multipliers-table">
+                            <thead>
+                                <tr>
+                                    <th>Instrument</th>
+                                    <th>Multiplier ($/point)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="multipliers-tbody">
+                                {% for instrument, multiplier in multipliers.items() %}
+                                <tr data-instrument="{{ instrument }}">
+                                    <td>{{ instrument }}</td>
+                                    <td>
+                                        <input type="number" 
+                                               class="form-control multiplier-input" 
+                                               value="{{ multiplier }}" 
+                                               step="0.01" 
+                                               min="0"
+                                               data-instrument="{{ instrument }}">
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger delete-multiplier" 
+                                                data-instrument="{{ instrument }}">
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <input type="text" 
+                                       id="new-instrument" 
+                                       class="form-control" 
+                                       placeholder="New instrument symbol (e.g., ES MAR25)">
+                            </div>
+                            <div class="col-md-4">
+                                <input type="number" 
+                                       id="new-multiplier" 
+                                       class="form-control" 
+                                       placeholder="Multiplier" 
+                                       step="0.01" 
+                                       min="0">
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-primary" id="add-multiplier">Add</button>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button class="btn btn-success" id="save-multipliers">Save All Changes</button>
+                            <button class="btn btn-secondary" id="cancel-changes">Cancel</button>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <h5>Common Futures Multipliers:</h5>
+                        <ul class="list-unstyled">
+                            <li><strong>E-mini S&P 500 (ES):</strong> $50 per point</li>
+                            <li><strong>E-mini NASDAQ-100 (NQ):</strong> $20 per point</li>
+                            <li><strong>Micro E-mini S&P 500 (MES):</strong> $5 per point</li>
+                            <li><strong>Micro E-mini NASDAQ-100 (MNQ):</strong> $2 per point</li>
+                            <li><strong>E-mini Russell 2000 (RTY):</strong> $50 per point</li>
+                            <li><strong>Crude Oil (CL):</strong> $1000 per point</li>
+                            <li><strong>Gold (GC):</strong> $100 per point</li>
+                            <li><strong>Euro FX (6E):</strong> $1250 per point</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Help</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>What are multipliers?</strong></p>
+                    <p>Multipliers determine how many dollars each point of price movement is worth for a specific futures contract.</p>
+                    
+                    <p><strong>Example:</strong></p>
+                    <p>If MNQ has a multiplier of $2 and the price moves from 22115.5 to 22111.5 (4 points), the P&L would be:</p>
+                    <p><code>4 points × $2 = $8 per contract</code></p>
+                    
+                    <p><strong>Note:</strong></p>
+                    <p>Changes take effect immediately for new trades. Existing trades maintain their original calculations.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+#multipliers-table input {
+    width: 120px;
+}
+
+.card {
+    margin-bottom: 20px;
+}
+
+.text-muted {
+    font-size: 0.9em;
+}
+
+code {
+    background-color: #f8f9fa;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addButton = document.getElementById('add-multiplier');
+    const saveButton = document.getElementById('save-multipliers');
+    const cancelButton = document.getElementById('cancel-changes');
+    const newInstrumentInput = document.getElementById('new-instrument');
+    const newMultiplierInput = document.getElementById('new-multiplier');
+    const tableBody = document.getElementById('multipliers-tbody');
+    
+    // Store original values for cancel functionality
+    let originalData = {};
+    document.querySelectorAll('.multiplier-input').forEach(input => {
+        originalData[input.dataset.instrument] = input.value;
+    });
+    
+    // Add new multiplier
+    addButton.addEventListener('click', function() {
+        const instrument = newInstrumentInput.value.trim().toUpperCase();
+        const multiplier = newMultiplierInput.value.trim();
+        
+        if (!instrument || !multiplier) {
+            alert('Please enter both instrument and multiplier');
+            return;
+        }
+        
+        if (parseFloat(multiplier) <= 0) {
+            alert('Multiplier must be greater than 0');
+            return;
+        }
+        
+        // Check if instrument already exists
+        if (document.querySelector(`tr[data-instrument="${instrument}"]`)) {
+            alert('Instrument already exists');
+            return;
+        }
+        
+        // Add new row
+        const row = document.createElement('tr');
+        row.dataset.instrument = instrument;
+        row.innerHTML = `
+            <td>${instrument}</td>
+            <td>
+                <input type="number" 
+                       class="form-control multiplier-input" 
+                       value="${multiplier}" 
+                       step="0.01" 
+                       min="0"
+                       data-instrument="${instrument}">
+            </td>
+            <td>
+                <button class="btn btn-sm btn-danger delete-multiplier" 
+                        data-instrument="${instrument}">
+                    Delete
+                </button>
+            </td>
+        `;
+        
+        tableBody.appendChild(row);
+        
+        // Clear inputs
+        newInstrumentInput.value = '';
+        newMultiplierInput.value = '';
+        
+        // Add event listener to delete button
+        row.querySelector('.delete-multiplier').addEventListener('click', deleteMultiplier);
+    });
+    
+    // Delete multiplier function
+    function deleteMultiplier(event) {
+        const instrument = event.target.dataset.instrument;
+        if (confirm(`Are you sure you want to delete the multiplier for ${instrument}?`)) {
+            event.target.closest('tr').remove();
+        }
+    }
+    
+    // Add event listeners to existing delete buttons
+    document.querySelectorAll('.delete-multiplier').forEach(button => {
+        button.addEventListener('click', deleteMultiplier);
+    });
+    
+    // Save all changes
+    saveButton.addEventListener('click', function() {
+        const multipliers = {};
+        document.querySelectorAll('.multiplier-input').forEach(input => {
+            const instrument = input.dataset.instrument;
+            const value = parseFloat(input.value);
+            
+            if (value <= 0) {
+                alert(`Invalid multiplier for ${instrument}: must be greater than 0`);
+                return;
+            }
+            
+            multipliers[instrument] = value;
+        });
+        
+        // Send to server
+        fetch('/settings/multipliers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ multipliers: multipliers })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Multipliers saved successfully!');
+                // Update original data
+                originalData = { ...multipliers };
+            } else {
+                alert('Error saving multipliers: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error saving multipliers: ' + error);
+        });
+    });
+    
+    // Cancel changes
+    cancelButton.addEventListener('click', function() {
+        if (confirm('Are you sure you want to discard all changes?')) {
+            location.reload();
+        }
+    });
+    
+    // Enter key handling for new inputs
+    newInstrumentInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            newMultiplierInput.focus();
+        }
+    });
+    
+    newMultiplierInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addButton.click();
+        }
+    });
+});
+</script>
+{% endblock %}

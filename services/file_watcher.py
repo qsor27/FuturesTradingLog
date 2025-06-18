@@ -102,9 +102,25 @@ class FileWatcher:
                 return []
             
             # Process the trades
+            self.logger.info(f"Starting trade processing for {file_path.name}")
             processed_trades = process_trades(df, self.multipliers)
             
             self.logger.info(f"Processed {len(processed_trades)} trades from {file_path.name}")
+            
+            # Log summary of processed trades by account
+            if processed_trades:
+                account_summary = {}
+                for trade in processed_trades:
+                    account = trade['Account']
+                    if account not in account_summary:
+                        account_summary[account] = {'count': 0, 'total_pnl': 0}
+                    account_summary[account]['count'] += 1
+                    account_summary[account]['total_pnl'] += trade['Gain/Loss in Dollars']
+                
+                self.logger.info("Trade processing summary by account:")
+                for account, summary in account_summary.items():
+                    self.logger.info(f"  {account}: {summary['count']} trades, Total P&L: ${summary['total_pnl']:.2f}")
+            
             return processed_trades
             
         except Exception as e:
@@ -137,9 +153,14 @@ class FileWatcher:
                     }
                     
                     # Insert trade into database (database handles duplicates)
+                    self.logger.info(f"Attempting to add trade: {trade_data['entry_execution_id']} for {trade_data['instrument']}")
+                    self.logger.debug(f"Trade data being inserted: {trade_data}")
                     success = db.add_trade(trade_data)
                     if success:
                         imported_count += 1
+                        self.logger.info(f"Successfully added trade {trade_data['entry_execution_id']}")
+                    else:
+                        self.logger.warning(f"Failed to add trade {trade_data['entry_execution_id']} - possibly duplicate or data error")
                 
                 self.logger.info(f"Successfully imported {imported_count} trades to database")
                 return True

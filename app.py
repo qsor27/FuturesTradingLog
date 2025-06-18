@@ -8,6 +8,7 @@ from routes.statistics import statistics_bp
 from routes.trade_details import trade_details_bp
 from routes.trade_links import trade_links_bp
 from routes.chart_data import chart_data_bp
+from routes.settings import settings_bp
 from futures_db import FuturesDB
 
 # Setup logging before any other operations
@@ -37,6 +38,7 @@ app.register_blueprint(statistics_bp)  # Changed from stats_bp to statistics_bp
 app.register_blueprint(trade_details_bp, url_prefix='/trade')
 app.register_blueprint(trade_links_bp)
 app.register_blueprint(chart_data_bp)  # Chart data API routes
+app.register_blueprint(settings_bp)  # Settings routes
 
 @app.route('/health')
 def health_check():

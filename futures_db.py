@@ -545,11 +545,18 @@ class FuturesDB:
                 print(f"Skipping duplicate trade: {trade_data.get('entry_execution_id')}")
                 return True  # Return True to indicate it was processed (already exists)
             
-            # Convert datetime strings to proper format if needed
-            if isinstance(trade_data.get('entry_time'), str):
-                trade_data['entry_time'] = pd.to_datetime(trade_data['entry_time']).strftime('%Y-%m-%d %H:%M:%S')
-            if isinstance(trade_data.get('exit_time'), str):
-                trade_data['exit_time'] = pd.to_datetime(trade_data['exit_time']).strftime('%Y-%m-%d %H:%M:%S')
+            # Convert datetime objects to proper string format for SQLite
+            if trade_data.get('entry_time') is not None:
+                if hasattr(trade_data['entry_time'], 'strftime'):  # pandas Timestamp or datetime
+                    trade_data['entry_time'] = trade_data['entry_time'].strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(trade_data['entry_time'], str):
+                    trade_data['entry_time'] = pd.to_datetime(trade_data['entry_time']).strftime('%Y-%m-%d %H:%M:%S')
+            
+            if trade_data.get('exit_time') is not None:
+                if hasattr(trade_data['exit_time'], 'strftime'):  # pandas Timestamp or datetime
+                    trade_data['exit_time'] = trade_data['exit_time'].strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(trade_data['exit_time'], str):
+                    trade_data['exit_time'] = pd.to_datetime(trade_data['exit_time']).strftime('%Y-%m-%d %H:%M:%S')
             
             # Insert the trade
             self.cursor.execute("""
@@ -577,6 +584,10 @@ class FuturesDB:
             return True
             
         except Exception as e:
+            import logging
+            logger = logging.getLogger('database')
+            logger.error(f"Error adding trade {trade_data.get('entry_execution_id', 'unknown')}: {e}")
+            logger.error(f"Trade data: {trade_data}")
             print(f"Error adding trade: {e}")
             self.conn.rollback()
             return False

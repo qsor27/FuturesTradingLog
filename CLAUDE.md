@@ -34,6 +34,20 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - Multi-timeframe support (1m, 5m, 15m, 1h, 4h, 1d)
 - Smart backfilling with market hours awareness (Sun 3PM PT - Fri 2PM PT)
 
+**Enhanced Execution Processing & Settings Management - June 2025**
+- ✅ **Multi-Account Trade Separation**: Proper handling of NinjaTrader trade copying between accounts
+- ✅ **Advanced FIFO Position Tracking**: Accurate entry/exit matching using Entry/Exit markers (not just Buy/Sell)
+- ✅ **Instrument Multiplier Management**: Web interface for configuring contract values ($2, $5, $20, $50, $100 per point)
+- ✅ **Partial Fill Processing**: Correctly handles multiple exit orders for single entry positions
+- ✅ **Unique Trade IDs**: Eliminates duplicate trade issues with traceable execution chains
+- ✅ **Enhanced Database Logging**: Comprehensive error handling and timestamp conversion fixes
+
+**New Features Available:**
+- `/settings` - Instrument multiplier management interface with common futures reference guide
+- Account-separated trade processing maintaining independent P&L calculations
+- Real-time multiplier updates affecting new trade imports immediately
+- Detailed processing logs for troubleshooting execution pairing issues
+
 ## Development Commands
 
 ### Local Development
@@ -88,7 +102,8 @@ docker run -p 5000:5000 futures-trading-log
 - `statistics.py`: Performance analytics and metrics calculation
 - `trade_details.py`: Individual trade view with embedded price charts
 - `trade_links.py`: Trade linking and grouping functionality
-- `chart_data.py`: **NEW** - OHLC data APIs and chart endpoints
+- `chart_data.py`: OHLC data APIs and chart endpoints
+- `settings.py`: **NEW** - Instrument multiplier management and application settings
 
 ### Database Schema
 
@@ -368,6 +383,11 @@ All tests validate against our performance targets:
 - Frontend uses hybrid server-side rendering with JavaScript enhancements
 - Database automatically creates indexes and applies performance optimizations on startup
 - Cursor-based pagination scales to millions of trades efficiently
+- **Multi-Account Processing**: Proper separation and FIFO tracking for NinjaTrader trade copying
+- **Execution Pairing**: Uses Entry/Exit markers (not Buy/Sell) for accurate position matching
+- **Instrument Multipliers**: Web-based management with real-time updates to trade processing
+- **Unique Trade IDs**: Traceable execution chains prevent duplicate database entries
+- **Enhanced Error Handling**: Comprehensive logging and timestamp conversion for SQLite compatibility
 - **Gap Detection**: Enhanced algorithm prevents equal timestamp issues in OHLC data
 - **Test Isolation**: Comprehensive mocking ensures tests don't depend on external APIs
 - **Docker Ready**: Cross-platform deployment with optimized build configuration

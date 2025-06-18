@@ -14,7 +14,7 @@ def create_archive_folder():
         archive_path.mkdir(parents=True)
 
 def process_trades(df, multipliers):
-    """Process trades from a NinjaTrader DataFrame"""
+    """Process trades from a NinjaTrader DataFrame using proper account-based position tracking"""
     # Create an explicit copy of the DataFrame
     ninja_trades_df = df.copy()
     
@@ -26,53 +26,110 @@ def process_trades(df, multipliers):
 
     # Sort by Time to ensure proper order
     ninja_trades_df.loc[:, 'Time'] = pd.to_datetime(ninja_trades_df['Time'])
-    ninja_trades_df = ninja_trades_df.sort_values('Time')
+    ninja_trades_df = ninja_trades_df.sort_values(['Account', 'Time'])
 
     # Initialize list to store processed trades
     processed_trades = []
 
-    # Group by ID to match entries and exits
-    entries = ninja_trades_df[ninja_trades_df['E/X'] == 'Entry']
-    exits = ninja_trades_df[ninja_trades_df['E/X'] == 'Exit']
-
-    # Process each entry
-    for _, entry in entries.iterrows():
-        try:
-            # Find matching exit
-            matching_exit = exits[exits['Time'] > entry['Time']].iloc[0]
+    # Process each account separately to handle copied trades
+    for account in ninja_trades_df['Account'].unique():
+        account_df = ninja_trades_df[ninja_trades_df['Account'] == account].copy()
+        print(f"Processing account: {account}")
+        
+        # Track open positions for this account using FIFO
+        open_positions = []  # List of open entry executions
+        
+        for _, execution in account_df.iterrows():
+            qty = int(execution['Quantity'])
+            price = float(execution['Price'])
+            time = execution['Time']
+            exec_id = execution['ID']
+            commission = float(execution['Commission'])
+            instrument = execution['Instrument']
             
-            # Determine side of market and calculate P&L
-            if entry['Action'] == 'Buy':
-                side = 'Long'
-                points_pl = float(matching_exit['Price']) - float(entry['Price'])
-            else:
-                side = 'Short'
-                points_pl = float(entry['Price']) - float(matching_exit['Price'])
+            print(f"  Processing {execution['E/X']}: {execution['Action']} {qty} at {price} (ID: {exec_id})")
             
-            # Calculate dollar P&L including commission
-            multiplier = float(multipliers[entry['Instrument']])
-            commission = float(entry['Commission']) * 2  # Both entry and exit
-            dollar_pl = (points_pl * multiplier * float(entry['Quantity'])) - commission
-            
-            # Create trade record
-            trade = {
-                'Instrument': entry['Instrument'],
-                'Side of Market': side,
-                'Quantity': int(entry['Quantity']),
-                'Entry Price': float(entry['Price']),
-                'Entry Time': entry['Time'],
-                'Exit Time': matching_exit['Time'],
-                'Exit Price': float(matching_exit['Price']),
-                'Result Gain/Loss in Points': round(points_pl, 2),
-                'Gain/Loss in Dollars': round(dollar_pl, 2),
-                'ID': entry['ID'],
-                'Commission': round(commission, 2),
-                'Account': entry['Account']
-            }
-            
-            processed_trades.append(trade)
-        except Exception as e:
-            print(f"Error processing trade with ID {entry['ID']}: {str(e)}")
+            if execution['E/X'] == 'Entry':
+                # Opening new position - add to open positions
+                open_positions.append({
+                    'price': price,
+                    'quantity': qty,
+                    'time': time,
+                    'id': exec_id,
+                    'commission': commission,
+                    'side': 'Long' if execution['Action'] == 'Buy' else 'Short'
+                })
+                print(f"    Added to open positions: {qty} contracts at {price}")
+                
+            elif execution['E/X'] == 'Exit':
+                # Closing position - match against open positions using FIFO
+                remaining_to_close = qty
+                
+                # Process open positions in FIFO order (oldest first)
+                positions_to_remove = []
+                
+                for i, open_pos in enumerate(open_positions):
+                    if remaining_to_close <= 0:
+                        break
+                    
+                    # Determine how much of this position to close
+                    close_qty = min(remaining_to_close, open_pos['quantity'])
+                    
+                    # Calculate P&L for this portion
+                    if open_pos['side'] == 'Long':
+                        points_pl = price - open_pos['price']  # Long: exit - entry
+                    else:
+                        points_pl = open_pos['price'] - price  # Short: entry - exit
+                    
+                    # Get multiplier for this instrument
+                    multiplier = float(multipliers.get(instrument, 1))
+                    
+                    # Calculate commission (entry + proportional exit commission)
+                    entry_commission = open_pos['commission'] * (close_qty / open_pos['quantity'])
+                    exit_commission = commission * (close_qty / qty)
+                    total_commission = entry_commission + exit_commission
+                    
+                    # Calculate dollar P&L
+                    dollar_pl = (points_pl * multiplier * close_qty) - total_commission
+                    
+                    # Create unique trade ID
+                    unique_id = f"{open_pos['id']}_to_{exec_id}_{len(processed_trades)+1}"
+                    
+                    # Create completed trade record
+                    trade = {
+                        'Instrument': instrument,
+                        'Side of Market': open_pos['side'],
+                        'Quantity': close_qty,
+                        'Entry Price': open_pos['price'],
+                        'Entry Time': open_pos['time'],
+                        'Exit Time': time,
+                        'Exit Price': price,
+                        'Result Gain/Loss in Points': round(points_pl, 2),
+                        'Gain/Loss in Dollars': round(dollar_pl, 2),
+                        'ID': unique_id,
+                        'Commission': round(total_commission, 2),
+                        'Account': account
+                    }
+                    
+                    processed_trades.append(trade)
+                    print(f"    Created trade: {close_qty} contracts, P&L: ${dollar_pl:.2f}")
+                    
+                    # Update the open position
+                    open_pos['quantity'] -= close_qty
+                    remaining_to_close -= close_qty
+                    
+                    # Mark for removal if fully closed
+                    if open_pos['quantity'] <= 0:
+                        positions_to_remove.append(i)
+                
+                # Remove fully closed positions (in reverse order to maintain indices)
+                for i in reversed(positions_to_remove):
+                    open_positions.pop(i)
+                
+                if remaining_to_close > 0:
+                    print(f"    WARNING: Could not match {remaining_to_close} contracts for exit")
+        
+        print(f"  Account {account} completed with {len(open_positions)} open positions remaining")
 
     return processed_trades
 
