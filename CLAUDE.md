@@ -8,6 +8,15 @@ This is a Flask-based web application for futures traders to track, analyze, and
 
 ### Recent Major Updates (✅ COMPLETED)
 
+**Position-Based Trading System - June 2025** ✅ **COMPLETED**
+- ✅ **Position Aggregation Engine**: Complete rewrite of trade processing to show positions instead of individual executions
+- ✅ **Intelligent Trade Grouping**: Groups related executions into complete position lifecycle (0 → +/- → 0)
+- ✅ **Position Dashboard**: New `/positions/` interface showing aggregated positions with comprehensive metrics
+- ✅ **Position Detail Pages**: Detailed breakdown of all executions that comprise each position
+- ✅ **Debug Interface**: `/positions/debug` for troubleshooting position building logic
+- ✅ **Multiple Grouping Strategies**: Links groups, execution ID patterns, and time-based association
+- ✅ **Corrected P&L Calculations**: Accurate position-level P&L, commission, and risk/reward ratios
+
 **Enhanced Position Detail Pages & Background Services - June 2025**
 - ✅ **Interactive Execution Analysis**: Comprehensive position breakdown with FIFO tracking and execution flow visualization
 - ✅ **Chart-Table Synchronization**: Bidirectional highlighting between execution table rows and TradingView chart markers
@@ -61,10 +70,14 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - ✅ **Enhanced Database Logging**: Comprehensive error handling and timestamp conversion fixes
 
 **New Features Available:**
+- `/positions/` - **Position-based dashboard** showing aggregated trading positions instead of individual executions
+- `/positions/<id>` - **Detailed position analysis** with complete execution breakdown and lifecycle tracking
+- `/positions/debug` - **Position building troubleshooting** interface for debugging trade grouping logic
 - `/settings` - Instrument multiplier management interface with common futures reference guide
 - Account-separated trade processing maintaining independent P&L calculations
 - Real-time multiplier updates affecting new trade imports immediately
-- Detailed processing logs for troubleshooting execution pairing issues
+- **Position rebuild functionality** - Regenerate positions from existing trade data
+- **Comprehensive position metrics** - Win rate, total P&L, risk/reward ratios at position level
 
 ## Development Commands
 
@@ -108,22 +121,25 @@ docker run -p 5000:5000 futures-trading-log
 ### Core Components
 - **Flask Application** (`app.py`): Main entry point with blueprint registration and background services integration
 - **Database Layer** (`futures_db.py`): SQLite database with OHLC schema, aggressive indexing, and position analysis methods
+- **Position Service** (`position_service.py`): **NEW** - Intelligent trade aggregation into position-based view with multiple grouping strategies
 - **Configuration** (`config.py`): Cross-platform environment-based configuration with Redis and caching settings
 - **Data Processing** (`ExecutionProcessing.py`): Ninja Trader CSV processing pipeline with multi-account support
 - **OHLC Data Service** (`data_service.py`): yfinance integration with Redis caching, gap detection, and rate limiting
 - **Chart Data API** (`routes/chart_data.py`): REST APIs for chart data and trade markers
-- **Redis Cache Service** (`redis_cache_service.py`): **NEW** - 2-week data retention with intelligent caching and cleanup
-- **Background Services** (`background_services.py`): **NEW** - Automated gap-filling, cache maintenance, and data updates
+- **Position Routes** (`routes/positions.py`): **NEW** - Position dashboard, detail pages, and debug interfaces
+- **Redis Cache Service** (`redis_cache_service.py`): 2-week data retention with intelligent caching and cleanup
+- **Background Services** (`background_services.py`): Automated gap-filling, cache maintenance, and data updates
 
 ### Route Structure (`routes/`)
 - `main.py`: Homepage and trade listing with advanced filtering
 - `trades.py`: CRUD operations for individual trades
+- `positions.py`: **NEW** - Position dashboard, detail pages, rebuild functionality, and debug interfaces
 - `upload.py`: CSV file import and processing workflow
 - `statistics.py`: Performance analytics and metrics calculation
 - `trade_details.py`: **ENHANCED** - Individual trade view with comprehensive execution breakdown, interactive charts, and position analysis
 - `trade_links.py`: Trade linking and grouping functionality
 - `chart_data.py`: OHLC data APIs and chart endpoints
-- `settings.py`: **NEW** - Instrument multiplier management and application settings
+- `settings.py`: Instrument multiplier management and application settings
 
 ### Database Schema
 
@@ -134,7 +150,19 @@ docker run -p 5000:5000 futures-trading-log
 - Trade linking via `link_group_id`
 - Duplicate prevention using `entry_execution_id` + `account` combination
 
-**OHLC Data Table** - **NEW** - High-performance market data:
+**Positions Table** - **NEW** - Aggregated position data:
+- Position lifecycle tracking (entry to exit times)
+- Total position quantity and P&L calculations
+- Position type (Long/Short) and status (open/closed)
+- Risk/reward ratios and commission totals
+- Execution count and peak position size
+
+**Position Executions Table** - **NEW** - Position-to-trade mapping:
+- Links position records to their constituent trade executions
+- Maintains execution order within positions
+- Enables detailed position breakdown and analysis
+
+**OHLC Data Table** - High-performance market data:
 - OHLC candlestick data (open, high, low, close, volume)
 - Multi-timeframe support (1m, 5m, 15m, 1h, 4h, 1d)
 - Instrument and timestamp indexing for millisecond queries
@@ -153,9 +181,13 @@ docker run -p 5000:5000 futures-trading-log
 - **Chart Components**:
   - `templates/chart.html`: Standalone chart pages
   - `templates/components/price_chart.html`: Reusable chart component with multi-timeframe controls
+- **Position-Based Interface**:
+  - `templates/positions/dashboard.html`: **NEW** - Position-centric dashboard with aggregated metrics and filtering
+  - `templates/positions/detail.html`: **NEW** - Detailed position analysis with execution breakdown and P&L summary
+  - `templates/positions/debug.html`: **NEW** - Position building troubleshooting and trade grouping analysis
 - **Enhanced Position Pages**:
-  - `templates/trade_detail.html`: **NEW** - Comprehensive execution breakdown with interactive table and synchronized charts
-  - `templates/error.html`: **NEW** - Professional error handling template
+  - `templates/trade_detail.html`: Comprehensive execution breakdown with interactive table and synchronized charts
+  - `templates/error.html`: Professional error handling template
 
 ## Key Configuration
 
@@ -409,11 +441,15 @@ All tests validate against our performance targets:
 - Frontend uses hybrid server-side rendering with JavaScript enhancements
 - Database automatically creates indexes and applies performance optimizations on startup
 - Cursor-based pagination scales to millions of trades efficiently
+- **Position-Based Architecture**: Complete trade aggregation system showing positions instead of individual executions
+- **Intelligent Trade Grouping**: Multiple strategies for grouping related trades (link groups, execution IDs, time proximity)
+- **Position Lifecycle Tracking**: Accurate position start/end detection and quantity management
 - **Multi-Account Processing**: Proper separation and FIFO tracking for NinjaTrader trade copying
 - **Execution Pairing**: Uses Entry/Exit markers (not Buy/Sell) for accurate position matching
 - **Instrument Multipliers**: Web-based management with real-time updates to trade processing
 - **Unique Trade IDs**: Traceable execution chains prevent duplicate database entries
 - **Enhanced Error Handling**: Comprehensive logging and timestamp conversion for SQLite compatibility
+- **Position Debug Interface**: Troubleshooting tools for examining trade grouping and position building logic
 - **Gap Detection**: Enhanced algorithm prevents equal timestamp issues in OHLC data
 - **Test Isolation**: Comprehensive mocking ensures tests don't depend on external APIs
 - **Docker Ready**: Cross-platform deployment with optimized build configuration

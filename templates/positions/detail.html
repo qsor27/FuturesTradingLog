@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Position Details - {{ position.instrument }} {{ position.position_type }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .position-header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .position-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .summary-card {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #3b82f6;
+        }
+        .summary-label {
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        .summary-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        .pnl-positive { color: #059669; }
+        .pnl-negative { color: #dc2626; }
+        .position-status {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            display: inline-block;
+        }
+        .status-open { background-color: #fef3c7; color: #92400e; }
+        .status-closed { background-color: #d1fae5; color: #065f46; }
+        .position-type {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+        }
+        .type-long { background-color: #dcfce7; color: #166534; }
+        .type-short { background-color: #fef2f2; color: #991b1b; }
+        .executions-section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .execution-row {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 0;
+        }
+        .execution-row:last-child {
+            border-bottom: none;
+        }
+        .execution-type {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .type-entry { background-color: #e0f2fe; color: #01579b; }
+        .type-exit { background-color: #fff3e0; color: #e65100; }
+        .back-nav {
+            margin-bottom: 20px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <div class="back-nav">
+        <a href="{{ url_for('positions.positions_dashboard') }}" class="btn btn-secondary">← Back to Positions</a>
+    </div>
+
+    <!-- Position Header -->
+    <div class="position-header">
+        <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 20px;">
+            <div>
+                <h1>{{ position.instrument }} Position</h1>
+                <p style="color: #6b7280; margin: 5px 0;">
+                    <span class="position-type type-{{ position.position_type.lower() }}">
+                        {{ position.position_type }}
+                    </span>
+                    <span style="margin: 0 10px;">•</span>
+                    <span class="position-status status-{{ position.position_status }}">
+                        {{ position.position_status.title() }}
+                    </span>
+                    <span style="margin: 0 10px;">•</span>
+                    Account: {{ position.account }}
+                </p>
+            </div>
+        </div>
+
+        <!-- Position Summary Metrics -->
+        <div class="position-summary">
+            <div class="summary-card">
+                <div class="summary-label">Total Quantity</div>
+                <div class="summary-value">{{ position.total_quantity }} contracts</div>
+            </div>
+            
+            <div class="summary-card">
+                <div class="summary-label">Average Entry Price</div>
+                <div class="summary-value">${{ "%.2f"|format(position.average_entry_price) }}</div>
+            </div>
+            
+            {% if position.average_exit_price %}
+            <div class="summary-card">
+                <div class="summary-label">Average Exit Price</div>
+                <div class="summary-value">${{ "%.2f"|format(position.average_exit_price) }}</div>
+            </div>
+            {% endif %}
+            
+            <div class="summary-card">
+                <div class="summary-label">Points P&L</div>
+                <div class="summary-value {{ 'pnl-positive' if (position.total_points_pnl or 0) > 0 else 'pnl-negative' if (position.total_points_pnl or 0) < 0 else '' }}">
+                    {{ "%.2f"|format(position.total_points_pnl or 0) }} pts
+                </div>
+            </div>
+            
+            <div class="summary-card">
+                <div class="summary-label">Gross P&L</div>
+                <div class="summary-value {{ 'pnl-positive' if (position.total_dollars_pnl or 0) > 0 else 'pnl-negative' if (position.total_dollars_pnl or 0) < 0 else '' }}">
+                    ${{ "{:,.2f}"|format(position.total_dollars_pnl or 0) }}
+                </div>
+            </div>
+            
+            <div class="summary-card">
+                <div class="summary-label">Commission</div>
+                <div class="summary-value">${{ "%.2f"|format(position.total_commission or 0) }}</div>
+            </div>
+            
+            <div class="summary-card">
+                <div class="summary-label">Net P&L</div>
+                <div class="summary-value {{ 'pnl-positive' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) > 0 else 'pnl-negative' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) < 0 else '' }}">
+                    ${{ "{:,.2f}"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
+                </div>
+            </div>
+            
+            <div class="summary-card">
+                <div class="summary-label">Total Executions</div>
+                <div class="summary-value">{{ position.execution_count }}</div>
+            </div>
+        </div>
+
+        <!-- Additional Metrics for Closed Positions -->
+        {% if position.position_status == 'closed' %}
+        <div class="metrics-grid">
+            {% if position.duration_display %}
+            <div class="summary-card">
+                <div class="summary-label">Position Duration</div>
+                <div class="summary-value">{{ position.duration_display }}</div>
+            </div>
+            {% endif %}
+            
+            {% if position.rr_display %}
+            <div class="summary-card">
+                <div class="summary-label">Risk:Reward Ratio</div>
+                <div class="summary-value">{{ position.rr_display }}</div>
+            </div>
+            {% endif %}
+            
+            {% if position.max_quantity > position.total_quantity %}
+            <div class="summary-card">
+                <div class="summary-label">Peak Position Size</div>
+                <div class="summary-value">{{ position.max_quantity }} contracts</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Execution Breakdown -->
+    <div class="executions-section">
+        <h2>Execution Breakdown</h2>
+        <p style="color: #6b7280; margin-bottom: 20px;">
+            All {{ position.execution_count }} executions that make up this position, showing the complete lifecycle from entry to exit.
+        </p>
+
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Order</th>
+                        <th>Entry Time</th>
+                        <th>Exit Time</th>
+                        <th>Side</th>
+                        <th>Quantity</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th>Points P&L</th>
+                        <th>Dollar P&L</th>
+                        <th>Commission</th>
+                        <th>Execution ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for execution in position.executions %}
+                    <tr>
+                        <td>{{ execution.execution_order }}</td>
+                        <td>{{ execution.entry_time }}</td>
+                        <td>{{ execution.exit_time if execution.exit_time else '-' }}</td>
+                        <td>
+                            <span class="position-type type-{{ execution.side_of_market.lower() }}">
+                                {{ execution.side_of_market }}
+                            </span>
+                        </td>
+                        <td>{{ execution.quantity }}</td>
+                        <td>${{ "%.2f"|format(execution.entry_price) }}</td>
+                        <td>
+                            {% if execution.exit_price %}
+                                ${{ "%.2f"|format(execution.exit_price) }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td class="{{ 'pnl-positive' if (execution.points_gain_loss or 0) > 0 else 'pnl-negative' if (execution.points_gain_loss or 0) < 0 else '' }}">
+                            {{ "%.2f"|format(execution.points_gain_loss or 0) }}
+                        </td>
+                        <td class="{{ 'pnl-positive' if (execution.dollars_gain_loss or 0) > 0 else 'pnl-negative' if (execution.dollars_gain_loss or 0) < 0 else '' }}">
+                            ${{ "{:,.2f}"|format(execution.dollars_gain_loss or 0) }}
+                        </td>
+                        <td>${{ "%.2f"|format(execution.commission or 0) }}</td>
+                        <td style="font-family: monospace; font-size: 11px;">{{ execution.entry_execution_id }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Position Summary -->
+        <div style="margin-top: 30px; padding: 20px; background: #f8fafc; border-radius: 6px;">
+            <h3>Position Summary</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                <div>
+                    <strong>Entry Period:</strong><br>
+                    {{ position.entry_time.split(' ')[0] if position.entry_time else 'N/A' }}
+                    {% if position.first_execution and position.first_execution != position.entry_time %}
+                        to {{ position.first_execution.split(' ')[0] }}
+                    {% endif %}
+                </div>
+                
+                {% if position.position_status == 'closed' %}
+                <div>
+                    <strong>Exit Period:</strong><br>
+                    {{ position.exit_time.split(' ')[0] if position.exit_time else 'N/A' }}
+                    {% if position.last_execution and position.last_execution != position.exit_time %}
+                        to {{ position.last_execution.split(' ')[0] }}
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                <div>
+                    <strong>Position Outcome:</strong><br>
+                    {% if position.position_status == 'closed' %}
+                        {% if (position.total_dollars_pnl or 0) > 0 %}
+                            <span class="pnl-positive">Winner (+${{ "{:,.2f}"|format(position.total_dollars_pnl) }})</span>
+                        {% elif (position.total_dollars_pnl or 0) < 0 %}
+                            <span class="pnl-negative">Loser (${{ "{:,.2f}"|format(position.total_dollars_pnl) }})</span>
+                        {% else %}
+                            <span>Breakeven</span>
+                        {% endif %}
+                    {% else %}
+                        <span style="color: #92400e;">Position Still Open</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Back Navigation -->
+    <div style="margin-top: 30px; text-align: center;">
+        <a href="{{ url_for('positions.positions_dashboard') }}" class="btn">← Back to Positions Dashboard</a>
+    </div>
+</body>
+</html>

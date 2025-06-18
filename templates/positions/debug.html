@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Position Debug - Trading Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .debug-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .trade-row {
+            padding: 8px;
+            border-bottom: 1px solid #e5e7eb;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .account-instrument {
+            background: #f8fafc;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .account-instrument:hover {
+            background: #e5e7eb;
+        }
+        pre {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <div style="margin-bottom: 20px;">
+        <a href="{{ url_for('positions.positions_dashboard') }}" class="btn btn-secondary">← Back to Positions</a>
+    </div>
+
+    <h1>Position Building Debug</h1>
+    <p>This page helps debug position building logic by examining trade data and position creation.</p>
+
+    <!-- Account/Instrument Combinations -->
+    <div class="debug-section">
+        <h2>Account/Instrument Combinations</h2>
+        <p>Click on any combination to see detailed position building analysis:</p>
+        
+        {% for combo in account_instruments %}
+        <div class="account-instrument" onclick="debugAccountInstrument('{{ combo.account }}', '{{ combo.instrument }}')">
+            <strong>{{ combo.account }}</strong> / {{ combo.instrument }} 
+            <span style="color: #6b7280;">({{ combo.trade_count }} trades)</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Recent Trades -->
+    <div class="debug-section">
+        <h2>Recent 20 Trades</h2>
+        <p>Raw trade data showing how executions are currently stored:</p>
+        
+        <div style="overflow-x: auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Entry Time</th>
+                        <th>Account</th>
+                        <th>Instrument</th>
+                        <th>Side</th>
+                        <th>Quantity</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th>P&L</th>
+                        <th>Execution ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trade in recent_trades %}
+                    <tr>
+                        <td>{{ trade.entry_time }}</td>
+                        <td>{{ trade.account }}</td>
+                        <td>{{ trade.instrument }}</td>
+                        <td>{{ trade.side_of_market }}</td>
+                        <td>{{ trade.quantity }}</td>
+                        <td>${{ "%.2f"|format(trade.entry_price) }}</td>
+                        <td>${{ "%.2f"|format(trade.exit_price) }}</td>
+                        <td>${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
+                        <td style="font-family: monospace; font-size: 10px;">{{ trade.entry_execution_id }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Debug Analysis Results -->
+    <div class="debug-section" id="debugResults" style="display: none;">
+        <h2>Position Building Analysis</h2>
+        <div id="debugContent"></div>
+    </div>
+
+    <script>
+        function debugAccountInstrument(account, instrument) {
+            const resultsDiv = document.getElementById('debugResults');
+            const contentDiv = document.getElementById('debugContent');
+            
+            contentDiv.innerHTML = '<p>Loading debug analysis...</p>';
+            resultsDiv.style.display = 'block';
+            
+            fetch(`/positions/debug/${encodeURIComponent(account)}/${encodeURIComponent(instrument)}`)
+                .then(response => response.json())
+                .then(data => {
+                    let html = `
+                        <h3>${data.account} / ${data.instrument}</h3>
+                        <p><strong>Total Trades:</strong> ${data.trade_count}</p>
+                        <p><strong>Positions Built:</strong> ${data.positions_built}</p>
+                        
+                        <h4>Raw Trade Data:</h4>
+                        <pre>${JSON.stringify(data.trades, null, 2)}</pre>
+                        
+                        <h4>Built Positions:</h4>
+                        <pre>${JSON.stringify(data.positions, null, 2)}</pre>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: #fef3c7; border-radius: 4px;">
+                            <strong>Analysis Notes:</strong>
+                            <ul>
+                                <li>Each trade represents a complete round-trip (entry + exit)</li>
+                                <li>The position building logic should group related trades</li>
+                                <li>For 6-contract positions, we expect total_quantity = 6</li>
+                                <li>Check the application logs for detailed position building steps</li>
+                            </ul>
+                        </div>
+                    `;
+                    contentDiv.innerHTML = html;
+                })
+                .catch(error => {
+                    contentDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                });
+        }
+    </script>
+</body>
+</html>
