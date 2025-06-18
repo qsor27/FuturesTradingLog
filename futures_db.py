@@ -3,6 +3,10 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Union, Tuple
 import os
+import logging
+
+# Get database logger
+db_logger = logging.getLogger('database')
 
 class FuturesDB:
     def __init__(self, db_path: str = None):
@@ -13,13 +17,23 @@ class FuturesDB:
 
     def __enter__(self):
         """Establish database connection when entering context"""
-        self.conn = sqlite3.connect(self.db_path)
-        self.conn.row_factory = sqlite3.Row
-        self.cursor = self.conn.cursor()
-        
-        # Verify database structure
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'")
-        table_exists = self.cursor.fetchone() is not None
+        try:
+            db_logger.info(f"Connecting to database: {self.db_path}")
+            self.conn = sqlite3.connect(self.db_path)
+            self.conn.row_factory = sqlite3.Row
+            self.cursor = self.conn.cursor()
+            
+            # Verify database structure
+            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'")
+            table_exists = self.cursor.fetchone() is not None
+            
+            if not table_exists:
+                db_logger.info("Trades table does not exist, will be created")
+            else:
+                db_logger.debug("Database connection established successfully")
+        except Exception as e:
+            db_logger.error(f"Failed to connect to database: {e}")
+            raise
         
         if not table_exists:
             print("Creating trades table...")

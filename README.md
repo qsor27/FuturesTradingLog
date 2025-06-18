@@ -297,11 +297,16 @@ ExportPath = Environment.GetEnvironmentVariable("NINJA_EXPORT_PATH")
 
 Your shared directory will be organized as follows:
 ```
-C:\TradingData\exports\           # Your host directory
+C:\TradingData\                  # Your host directory
 ├── NinjaTrader_Executions_*.csv  # Daily execution files (auto-created)
 ├── archive\                      # Processed files (auto-created)
 ├── db\                          # SQLite database (auto-created)
 ├── logs\                        # Application logs (auto-created)
+│   ├── app.log                  # Main application log
+│   ├── error.log                # Error-only log for troubleshooting
+│   ├── file_watcher.log         # Auto-import monitoring
+│   ├── database.log             # Database operations
+│   └── flask.log                # Web server logs
 └── config\                      # Configuration files (auto-created)
 ```
 
@@ -363,20 +368,39 @@ FLASK_HOST=0.0.0.0               # Allow network access
 
 ### **Troubleshooting Integration**
 
-**Common Issues:**
+#### **Log Files for Debugging**
+
+All application logs are stored in the `logs` subdirectory of your data folder. These logs are essential for troubleshooting issues:
+
+- **`app.log`**: Main application activity and errors
+- **`error.log`**: Error-only log for quick problem identification
+- **`file_watcher.log`**: Auto-import monitoring and file processing
+- **`database.log`**: Database operations and performance issues
+- **`flask.log`**: Web server requests and responses
+
+**When reporting issues to developers, please include relevant log files.**
+
+#### **Common Issues:**
 
 1. **Files not being detected:**
+   - Check `file_watcher.log` for processing attempts
    - Verify volume mount path matches NinjaTrader export path
    - Check file naming: should be `NinjaTrader_Executions_YYYYMMDD.csv`
    - Ensure files are less than 24 hours old
 
-2. **Permission issues:**
+2. **Database errors:**
+   - Check `database.log` and `error.log` for specific error messages
+   - Verify database file permissions in the `db` directory
+
+3. **Permission issues:**
    - On Windows, ensure the shared directory has proper permissions
    - Consider running Docker Desktop as administrator
+   - Check logs for "Permission denied" errors
 
-3. **Network access problems:**
+4. **Network access problems:**
    - Replace `YOUR_HOST_IP` with your actual computer's IP address
    - Check Windows Firewall settings for port 5000
+   - Review `flask.log` for connection attempts
 
 **Verification Commands:**
 ```bash

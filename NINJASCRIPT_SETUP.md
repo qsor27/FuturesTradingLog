@@ -209,4 +209,29 @@ The paths must match:
 - **NinjaTrader Export Path**: `C:\TradingData`
 - **Docker Volume Mount**: `C:/TradingData:/app/data`
 
+## 📊 Monitoring and Troubleshooting
+
+### Application Log Files
+
+The application creates detailed log files in your data directory for troubleshooting:
+
+```
+C:\TradingData\logs\
+├── app.log              # Main application activity
+├── error.log            # Error-only log for quick troubleshooting
+├── file_watcher.log     # Auto-import monitoring and processing
+├── database.log         # Database operations and performance
+├── flask.log            # Web server requests and responses
+└── execution_export.log # NinjaTrader export activity (from NinjaScript)
+```
+
+### When to Check Logs
+
+- **Trades not appearing**: Check `file_watcher.log` and `execution_export.log`
+- **Application errors**: Check `error.log` and `app.log`
+- **Database issues**: Check `database.log`
+- **Web interface problems**: Check `flask.log`
+
+**When reporting issues to developers, include relevant log files from the `logs` directory.**
+
 Your ExecutionExporter is now ready to automatically capture and export all trade executions in real-time!

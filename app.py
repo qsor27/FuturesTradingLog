@@ -1,5 +1,6 @@
 from flask import Flask, jsonify
 from config import config
+from logging_config import setup_application_logging, get_logger, log_system_info
 from routes.main import main_bp
 from routes.trades import trades_bp
 from routes.upload import upload_bp
@@ -9,12 +10,17 @@ from routes.trade_links import trade_links_bp
 from routes.chart_data import chart_data_bp
 from futures_db import FuturesDB
 
+# Setup logging before any other operations
+setup_application_logging()
+logger = get_logger(__name__)
+
 # Import file watcher conditionally to avoid test import issues
 try:
     from services.file_watcher import file_watcher
     FILE_WATCHER_AVAILABLE = True
+    logger.info("File watcher service imported successfully")
 except ImportError as e:
-    print(f"Warning: File watcher not available: {e}")
+    logger.warning(f"File watcher not available: {e}")
     file_watcher = None
     FILE_WATCHER_AVAILABLE = False
 
@@ -34,10 +40,30 @@ app.register_blueprint(chart_data_bp)  # Chart data API routes
 
 @app.route('/health')
 def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'file_watcher_running': file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False
-    }), 200
+    try:
+        # Test database connection
+        with FuturesDB() as db:
+            db.cursor.execute("SELECT 1")
+            db_status = "healthy"
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        db_status = "error"
+    
+    # Check log directory
+    log_dir = config.data_dir / 'logs'
+    logs_accessible = log_dir.exists() and log_dir.is_dir()
+    
+    health_data = {
+        'status': 'healthy' if db_status == 'healthy' else 'degraded',
+        'database': db_status,
+        'file_watcher_running': file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False,
+        'file_watcher_available': FILE_WATCHER_AVAILABLE,
+        'logs_accessible': logs_accessible,
+        'log_directory': str(log_dir)
+    }
+    
+    logger.info(f"Health check: {health_data}")
+    return jsonify(health_data), 200 if db_status == 'healthy' else 503
 
 @app.route('/api/file-watcher/status')
 def file_watcher_status():
@@ -83,18 +109,31 @@ def utility_processor():
     }
 
 if __name__ == '__main__':
+    # Log system information for troubleshooting
+    log_system_info()
+    
     # Start the file watcher service if auto-import is enabled and available
     if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
         file_watcher.start()
+        logger.info(f"File watcher started - checking every {config.auto_import_interval} seconds")
         print(f"File watcher started - checking every {config.auto_import_interval} seconds")
     elif not FILE_WATCHER_AVAILABLE:
+        logger.warning("File watcher not available - skipping auto-import")
         print("File watcher not available - skipping auto-import.")
     else:
+        logger.info("Auto-import is disabled")
         print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
+    
+    logger.info(f"Starting Flask application on {config.host}:{config.port}")
     
     try:
         app.run(debug=config.debug, port=config.port, host=config.host)
+    except Exception as e:
+        logger.error(f"Failed to start Flask application: {e}")
+        raise
     finally:
         # Stop the file watcher when the app shuts down
         if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
+            logger.info("Stopping file watcher service")
             file_watcher.stop()
+        logger.info("Application shutdown complete")

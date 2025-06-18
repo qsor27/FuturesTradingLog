@@ -136,9 +136,14 @@ Application auto-creates these under `DATA_DIR`:
 ```
 data/
 ├── db/              # SQLite database
-├── config/          # instrument_multipliers.json
+├── config/          # instrument_multipliers.json  
 ├── charts/          # Chart storage
-├── logs/            # Application logs
+├── logs/            # Application logs (comprehensive logging)
+│   ├── app.log      # Main application log (rotating, 10MB max)
+│   ├── error.log    # Error-only log (rotating, 5MB max)
+│   ├── file_watcher.log  # Auto-import monitoring
+│   ├── database.log # Database operations (rotating, 5MB max)
+│   └── flask.log    # Web server logs (rotating, 5MB max)
 └── archive/         # Processed CSV files
 ```
 
@@ -271,6 +276,59 @@ python run_tests.py --coverage
 
 # GitHub Actions simulation (local)
 docker-compose up --build
+```
+
+## Logging and Troubleshooting
+
+### Comprehensive Logging System
+
+The application implements centralized logging with multiple log files for different purposes:
+
+#### Log Files Created:
+- **`app.log`**: Main application activity (10MB rotating, 5 backups)
+- **`error.log`**: Error-only log for quick troubleshooting (5MB rotating, 3 backups)  
+- **`file_watcher.log`**: Auto-import monitoring and file processing
+- **`database.log`**: Database operations and performance (5MB rotating, 3 backups)
+- **`flask.log`**: Web server requests and responses (5MB rotating, 3 backups)
+
+#### Logging Configuration:
+- **Location**: `{DATA_DIR}/logs/` directory
+- **Format**: Timestamp, logger name, level, filename:line, message
+- **Rotation**: Automatic rotation prevents disk space issues
+- **Levels**: INFO, WARNING, ERROR with appropriate filtering
+
+#### Health Check Integration:
+- `/health` endpoint includes logging system status
+- Verifies log directory accessibility
+- Reports on logging infrastructure health
+
+### Troubleshooting Guide:
+
+**For Developers:**
+- All error contexts include stack traces
+- Database operations are logged with performance metrics
+- File operations include detailed error information
+- System startup logs environment configuration
+
+**For Users:**
+- Clear error messages in `error.log`
+- File processing status in `file_watcher.log`
+- Web interface issues tracked in `flask.log`
+- Database connection issues in `database.log`
+
+**Log Analysis:**
+```bash
+# Check recent errors
+tail -f logs/error.log
+
+# Monitor file processing
+tail -f logs/file_watcher.log
+
+# Review application startup
+head -20 logs/app.log
+
+# Database performance
+grep "performance\|slow" logs/database.log
 ```
 
 ### Performance Validation - ✅ ALL TARGETS ACHIEVED
