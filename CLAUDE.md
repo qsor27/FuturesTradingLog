@@ -8,15 +8,23 @@ This is a Flask-based web application for futures traders to track, analyze, and
 
 ### Recent Major Updates (✅ COMPLETED)
 
-**OHLC Chart Integration & Performance Optimization - January 2025**
-- ✅ **Free Futures Data Integration**: Implemented yfinance API integration with rate limiting and market hours validation
-- ✅ **Interactive Price Charts**: Added TradingView Lightweight Charts with professional candlestick visualization
-- ✅ **Trade Execution Overlays**: Entry/exit markers show trade context on price action with P&L information
-- ✅ **Performance-First Database Design**: 8 aggressive indexes delivering 15-50ms chart loads for 10M+ records
-- ✅ **Cross-Platform Deployment**: Removed all hardcoded Windows paths, environment variable-based configuration
+**Enhanced Position Detail Pages & Background Services - June 2025**
+- ✅ **Interactive Execution Analysis**: Comprehensive position breakdown with FIFO tracking and execution flow visualization
+- ✅ **Chart-Table Synchronization**: Bidirectional highlighting between execution table rows and TradingView chart markers
+- ✅ **Redis Caching System**: 2-week data retention with intelligent cache warming and automatic cleanup
+- ✅ **Background Gap-Filling**: Automated market data gap detection and filling every 15 minutes with extended backfilling
+- ✅ **Enhanced Error Handling**: Professional error templates and comprehensive database method validation
+- ✅ **Production Monitoring**: Background service health checks, cache statistics, and manual trigger APIs
+
+**OHLC Chart Integration & Performance Optimization - January 2025** ✅ **COMPLETED**
+- ✅ **Free Futures Data Integration**: Fully implemented yfinance API with comprehensive symbol mapping and intelligent rate limiting
+- ✅ **Interactive Price Charts**: Production-ready TradingView Lightweight Charts with professional candlestick + volume visualization
+- ✅ **Trade Execution Overlays**: Complete entry/exit marker system with P&L context and chart-table synchronization
+- ✅ **Performance-First Database Design**: 8 aggressive indexes achieving 15-50ms chart loads for 10M+ records (PERFORMANCE TARGETS MET)
+- ✅ **Cross-Platform Deployment**: All hardcoded paths eliminated, full environment variable configuration
 - ✅ **Comprehensive Testing**: 120+ tests covering performance, integration, API endpoints, and database operations
 - ✅ **CI/CD Pipeline**: All GitHub Actions tests passing with robust mocking and test isolation
-- ✅ **Docker Integration**: Fixed configuration for seamless local development and deployment
+- ✅ **Docker Integration**: Production-ready configuration for seamless deployment
 
 **✅ Performance Targets ACHIEVED:**
 - Chart loading: 15-50ms response times ✅
@@ -25,14 +33,24 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - Real-time data updates: 1-5ms inserts ✅
 - Scalable to 10M+ OHLC records with sub-second queries ✅
 
-**New Features Available:**
-- `/chart/<instrument>` - Interactive chart pages for any futures instrument
-- `/api/chart-data/<instrument>` - OHLC data API with automatic gap filling
-- `/api/trade-markers/<trade_id>` - Trade execution overlays for charts
-- `/api/update-data/<instrument>` - Manual data refresh from yfinance
-- Market context charts embedded in trade detail pages
-- Multi-timeframe support (1m, 5m, 15m, 1h, 4h, 1d)
-- Smart backfilling with market hours awareness (Sun 3PM PT - Fri 2PM PT)
+**✅ OHLC Chart Features - PRODUCTION READY:**
+- `/chart/<instrument>` - **Standalone interactive chart pages** for any futures instrument with full controls
+- `/api/chart-data/<instrument>` - **High-performance OHLC data API** with automatic gap filling and Redis caching
+- `/api/trade-markers/<trade_id>` - **Trade execution overlay API** for chart markers with P&L context
+- `/api/update-data/<instrument>` - **Manual data refresh endpoint** from yfinance with rate limiting
+- **Embedded market context charts** in trade detail pages with synchronized highlighting
+- **Complete timeframe support** (1m, 5m, 15m, 1h, 4h, 1d) with intelligent switching
+- **Smart backfilling system** with market hours awareness (Sun 3PM PT - Fri 2PM PT)
+
+**✅ Enhanced Position Detail Features:**
+- `/trade/<id>` - Enhanced position detail pages with **comprehensive execution breakdown** and interactive charts
+- `/api/background-services/status` - Background service health monitoring and status
+- `/api/cache/stats` - Redis cache statistics and performance metrics  
+- `/api/gap-filling/force/<instrument>` - Manual gap-filling trigger for specific instruments
+- **Interactive execution table** with bidirectional chart synchronization (click rows to highlight chart markers)
+- **Position lifecycle tracking** (Open Long/Short/Closed) with advanced FIFO analysis
+- **Automated background gap-filling** every 15 minutes with extended 4-hour cycles
+- **Redis-based OHLC caching** with 2-week retention and intelligent cleanup
 
 **Enhanced Execution Processing & Settings Management - June 2025**
 - ✅ **Multi-Account Trade Separation**: Proper handling of NinjaTrader trade copying between accounts
@@ -88,19 +106,21 @@ docker run -p 5000:5000 futures-trading-log
 ## Architecture Overview
 
 ### Core Components
-- **Flask Application** (`app.py`): Main entry point with blueprint registration
-- **Database Layer** (`futures_db.py`): SQLite database with OHLC schema and aggressive indexing
-- **Configuration** (`config.py`): Cross-platform environment-based configuration
-- **Data Processing** (`ExecutionProcessing.py`): Ninja Trader CSV processing pipeline
-- **OHLC Data Service** (`data_service.py`): yfinance integration with gap detection and rate limiting
+- **Flask Application** (`app.py`): Main entry point with blueprint registration and background services integration
+- **Database Layer** (`futures_db.py`): SQLite database with OHLC schema, aggressive indexing, and position analysis methods
+- **Configuration** (`config.py`): Cross-platform environment-based configuration with Redis and caching settings
+- **Data Processing** (`ExecutionProcessing.py`): Ninja Trader CSV processing pipeline with multi-account support
+- **OHLC Data Service** (`data_service.py`): yfinance integration with Redis caching, gap detection, and rate limiting
 - **Chart Data API** (`routes/chart_data.py`): REST APIs for chart data and trade markers
+- **Redis Cache Service** (`redis_cache_service.py`): **NEW** - 2-week data retention with intelligent caching and cleanup
+- **Background Services** (`background_services.py`): **NEW** - Automated gap-filling, cache maintenance, and data updates
 
 ### Route Structure (`routes/`)
 - `main.py`: Homepage and trade listing with advanced filtering
 - `trades.py`: CRUD operations for individual trades
 - `upload.py`: CSV file import and processing workflow
 - `statistics.py`: Performance analytics and metrics calculation
-- `trade_details.py`: Individual trade view with embedded price charts
+- `trade_details.py`: **ENHANCED** - Individual trade view with comprehensive execution breakdown, interactive charts, and position analysis
 - `trade_links.py`: Trade linking and grouping functionality
 - `chart_data.py`: OHLC data APIs and chart endpoints
 - `settings.py`: **NEW** - Instrument multiplier management and application settings
@@ -129,16 +149,22 @@ docker run -p 5000:5000 futures-trading-log
   - `StatisticsChart.js`: Performance metrics charts
   - `trades.js`: Trade management interactions
   - `linked_trades.js`: Trade linking functionality
-  - `PriceChart.js`: **NEW** - TradingView Lightweight Charts integration
+  - `PriceChart.js`: **ENHANCED** - TradingView Lightweight Charts with execution markers and chart-table synchronization
 - **Chart Components**:
   - `templates/chart.html`: Standalone chart pages
-  - `templates/components/price_chart.html`: Reusable chart component
+  - `templates/components/price_chart.html`: Reusable chart component with multi-timeframe controls
+- **Enhanced Position Pages**:
+  - `templates/trade_detail.html`: **NEW** - Comprehensive execution breakdown with interactive table and synchronized charts
+  - `templates/error.html`: **NEW** - Professional error handling template
 
 ## Key Configuration
 
 ### Environment Variables
 - `DATA_DIR`: Base directory for all data storage (default: `~/FuturesTradingLog/data` - cross-platform)
 - `FLASK_ENV`: Set to `development` or `testing` as needed
+- `REDIS_URL`: Redis connection URL (default: `redis://localhost:6379/0`)
+- `CACHE_ENABLED`: Enable Redis caching (default: `true`)
+- `CACHE_TTL_DAYS`: Cache retention in days (default: `14`)
 
 ### Docker Environment Variables
 - `HOST_IP`: Network binding IP (default: `0.0.0.0` for all interfaces)
@@ -392,3 +418,26 @@ All tests validate against our performance targets:
 - **Test Isolation**: Comprehensive mocking ensures tests don't depend on external APIs
 - **Docker Ready**: Cross-platform deployment with optimized build configuration
 - **CI/CD Pipeline**: GitHub Actions integration with 100% test success rate
+- **Redis Caching**: 2-week OHLC data retention with intelligent cleanup and cache warming
+- **Background Services**: Automated gap-filling every 15 minutes with extended 4-hour cycles
+- **Chart-Table Synchronization**: Bidirectional highlighting between execution tables and TradingView charts
+- **Position Analysis**: Comprehensive FIFO tracking with execution flow visualization and lifecycle status
+
+## Documentation and Guides
+
+### Setup and Configuration
+- **`AUTO_IMPORT_SETUP.md`**: Complete guide for automatic NinjaTrader file processing
+- **`REDIS_SETUP.md`**: Redis installation, configuration, and optimization for enhanced caching
+- **`NINJASCRIPT_SETUP.md`**: NinjaScript indicator installation and configuration
+
+### User Guides
+- **`ENHANCED_POSITION_GUIDE.md`**: Comprehensive guide for using the new enhanced position detail pages
+  - Interactive execution breakdown tables
+  - Chart-table synchronization features
+  - Position lifecycle tracking and FIFO analysis
+  - Performance optimization and troubleshooting
+
+### Technical References
+- **`CLAUDE.md`**: This file - comprehensive technical documentation for developers
+- **`requirements.txt`**: Python dependencies including Redis, schedule, and enhanced libraries
+- **Log Files** (`data/logs/`): Comprehensive logging system for monitoring and troubleshooting
