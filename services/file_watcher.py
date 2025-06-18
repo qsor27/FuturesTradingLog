@@ -163,11 +163,34 @@ class FileWatcher:
                         self.logger.warning(f"Failed to add trade {trade_data['entry_execution_id']} - possibly duplicate or data error")
                 
                 self.logger.info(f"Successfully imported {imported_count} trades to database")
+                
+                # Automatically rebuild positions after importing trades
+                if imported_count > 0:
+                    self.logger.info("Auto-generating positions from imported trades...")
+                    position_result = self._rebuild_positions(db)
+                    if position_result['positions_created'] > 0:
+                        self.logger.info(f"Generated {position_result['positions_created']} positions from {position_result['trades_processed']} trades")
+                    else:
+                        self.logger.info("No new positions generated")
+                
                 return True
                 
         except Exception as e:
             self.logger.error(f"Error importing trades to database: {e}")
             return False
+    
+    def _rebuild_positions(self, db) -> Dict[str, int]:
+        """Rebuild positions using the position service"""
+        try:
+            from position_service import PositionService
+            
+            # Use position service to rebuild positions
+            with PositionService() as position_service:
+                result = position_service.rebuild_positions_from_trades()
+                return result
+        except Exception as e:
+            self.logger.error(f"Error rebuilding positions: {e}")
+            return {'positions_created': 0, 'trades_processed': 0}
     
     def _archive_file(self, file_path: Path) -> None:
         """Move processed file to archive directory (only if file is older than 1 day)"""

@@ -9,7 +9,8 @@ The automatic import system consists of:
 1. **Background File Watcher Service** - Monitors the data directory for new execution files
 2. **Automatic Processing** - Processes found files using the existing execution processing pipeline
 3. **Direct Database Import** - Imports trades directly to the database with duplicate prevention
-4. **File Archiving** - Moves processed files to the archive directory
+4. **Automatic Position Generation** - **NEW!** Automatically creates positions from imported trades
+5. **File Archiving** - Moves processed files to the archive directory
 
 ## Setup Instructions
 
@@ -135,6 +136,43 @@ Monitor these log files for troubleshooting:
    - Check environment variable `AUTO_IMPORT_ENABLED`
    - Review application startup logs
    - Verify data directory exists and is writable
+
+4. **Positions not being generated**
+   - Check for "Auto-generating positions" messages in logs
+   - Verify position service is functioning properly
+   - Use manual rebuild: `POST /positions/rebuild`
+   - Review position service logs for errors
+
+## Automatic Position Generation
+
+**New Feature**: The system now automatically generates positions when trades are imported!
+
+### How It Works
+
+1. **Immediate Processing**: After trades are imported (either via file watcher or manual upload), the system automatically analyzes the trades
+2. **Position Building**: Related executions are grouped into complete position lifecycles 
+3. **Execution Details**: Each position contains all its constituent executions accessible via the detail page
+4. **Real-time Updates**: Positions appear immediately in the `/positions/` dashboard
+
+### Benefits
+
+- **No Manual Steps**: Positions are created automatically - no need to manually rebuild
+- **Real-time Analysis**: See position-level P&L and metrics immediately after import
+- **Complete Execution History**: Click into any position to see all fills and execution details
+- **Consistent View**: Both manual uploads and automatic file imports generate positions
+
+### Monitoring
+
+Check the logs for position generation activity:
+
+```bash
+# Look for automatic position generation messages
+tail -f data/logs/file_watcher.log | grep "Auto-generating"
+
+# Example successful output:
+# 2025-06-18 22:32:16,702 - FileWatcher - INFO - Auto-generating positions from imported trades...
+# 2025-06-18 22:32:17,235 - FileWatcher - INFO - Generated 59 positions from 210 trades
+```
 
 ### Manual Processing
 

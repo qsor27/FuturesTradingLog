@@ -1401,12 +1401,35 @@ class FuturesDB:
             
             self.conn.commit()
             print(f"Import complete: {trades_added} trades added, {trades_skipped} duplicates skipped")
+            
+            # Automatically rebuild positions after importing trades
+            if trades_added > 0:
+                print("Auto-generating positions from imported trades...")
+                position_result = self._rebuild_positions_for_accounts()
+                if position_result['positions_created'] > 0:
+                    print(f"Generated {position_result['positions_created']} positions from {position_result['trades_processed']} trades")
+                else:
+                    print("No new positions generated")
+            
             return True
             
         except Exception as e:
             print(f"Error importing CSV: {e}")
             self.conn.rollback()
             return False
+            
+    def _rebuild_positions_for_accounts(self) -> Dict[str, int]:
+        """Rebuild positions for all accounts using the position service"""
+        try:
+            from position_service import PositionService
+            
+            # Use position service to rebuild positions
+            with PositionService(db_path=self.db_path) as position_service:
+                result = position_service.rebuild_positions_from_trades()
+                return result
+        except Exception as e:
+            print(f"Error rebuilding positions: {e}")
+            return {'positions_created': 0, 'trades_processed': 0}
 
     def explain_query(self, query: str, params: list = None) -> List[Dict[str, Any]]:
         """Analyze query performance using EXPLAIN QUERY PLAN."""
