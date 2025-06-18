@@ -60,12 +60,12 @@
             <td class="{{ get_side_class(trade.side_of_market) }}">{{ trade.side_of_market }}</td>
             <td>{{ trade.quantity }}</td>
             <td>{{ trade.entry_time }}</td>
-            <td>${{ "%.2f"|format(trade.entry_price) }}</td>
-            <td>{{ trade.exit_time }}</td>
-            <td>${{ "%.2f"|format(trade.exit_price) }}</td>
-            <td>{{ "%.2f"|format(trade.points_gain_loss) }}</td>
-            <td class="pnl-cell">${{ "%.2f"|format(trade.dollars_gain_loss) }}</td>
-            <td>${{ "%.2f"|format(trade.commission) }}</td>
+            <td>${{ "%.2f"|format(trade.entry_price) if trade.entry_price is not none else "-" }}</td>
+            <td>{{ trade.exit_time if trade.exit_time else "-" }}</td>
+            <td>${{ "%.2f"|format(trade.exit_price) if trade.exit_price is not none else "-" }}</td>
+            <td>{{ "%.2f"|format(trade.points_gain_loss) if trade.points_gain_loss is not none else "-" }}</td>
+            <td class="pnl-cell">${{ "%.2f"|format(trade.dollars_gain_loss) if trade.dollars_gain_loss is not none else "-" }}</td>
+            <td>${{ "%.2f"|format(trade.commission) if trade.commission is not none else "-" }}</td>
             <td>{{ trade.account }}</td>
             <td>
                 {% if trade.link_group_id %}

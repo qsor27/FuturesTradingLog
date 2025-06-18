@@ -10,7 +10,11 @@
     </div>
     
     <div class="pagination-info">
-        Showing {{ trades|length }} of {{ total_count }} trades
+        {% if total_count >= 0 %}
+            Showing {{ trades|length }} of {{ total_count }} trades
+        {% else %}
+            Showing {{ trades|length }} trades (page {{ current_page }})
+        {% endif %}
     </div>
     
     <div class="pagination-buttons">
@@ -26,23 +30,31 @@
             {% if current_page == 1 %}disabled{% endif %}
         >⟨</button>
         
-        {% for p in range(max(1, current_page - 2), min(total_pages + 1, current_page + 3)) %}
-        <button 
-            class="pagination-button {% if p == current_page %}active{% endif %}" 
-            onclick="goToPage({{ p }})"
-        >{{ p }}</button>
-        {% endfor %}
+        {% if total_pages > 0 %}
+            {% for p in range(max(1, current_page - 2), min(total_pages + 1, current_page + 3)) %}
+            <button 
+                class="pagination-button {% if p == current_page %}active{% endif %}" 
+                onclick="goToPage({{ p }})"
+            >{{ p }}</button>
+            {% endfor %}
+        {% else %}
+            <button class="pagination-button active">{{ current_page }}</button>
+        {% endif %}
         
         <button 
             class="pagination-button" 
             onclick="goToPage({{ current_page + 1 }})"
-            {% if current_page == total_pages %}disabled{% endif %}
+            {% if total_pages > 0 and current_page == total_pages %}disabled{% endif %}
         >⟩</button>
         
+        {% if total_pages > 0 %}
         <button 
             class="pagination-button" 
             onclick="goToPage({{ total_pages }})"
             {% if current_page == total_pages %}disabled{% endif %}
         >⟩⟩</button>
+        {% else %}
+        <button class="pagination-button" disabled>⟩⟩</button>
+        {% endif %}
     </div>
 </div>
