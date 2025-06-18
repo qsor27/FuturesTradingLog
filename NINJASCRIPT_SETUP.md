@@ -34,11 +34,13 @@ This guide will help you install and configure the ExecutionExporter indicator t
 When adding the indicator, configure these critical settings:
 
 #### **Required Settings:**
-- **Export Path**: Set to your FuturesTradingLog data directory
+- **Export Path**: Set to match your Docker volume mount directory
   ```
-  C:\Containers\FuturesTradingLog\data
+  C:\TradingData                    # Recommended - simple path
+  C:\Users\YourName\TradingData     # Alternative - in your user folder  
+  D:\FuturesData                    # Alternative - different drive
   ```
-  *(Adjust path based on your installation)*
+  ⚠️ **Important**: This path must match the volume path in your Docker command
 
 #### **Optional Settings:**
 - **Create Daily Files**: `True` (recommended)
@@ -50,21 +52,21 @@ When adding the indicator, configure these critical settings:
 1. **Check the Output Window** (Tools → Output Window)
 2. **Look for initialization message**:
    ```
-   ExecutionExporter initialized. Export path: C:\Containers\FuturesTradingLog\data
+   ExecutionExporter initialized. Export path: C:\TradingData
    ```
 3. **Verify directory structure** is created:
    ```
-   C:\Containers\FuturesTradingLog\data\
-   ├── exported/          (completed files)
-   └── logs/              (error logs)
+   C:\TradingData\               # Your chosen export path
+   ├── exported/                 # (completed files)
+   └── logs/                     # (error logs)
    ```
 
 ## ⚙️ Configuration Options
 
 ### Export Path Settings
-- **Default**: `C:\Containers\FuturesTradingLog\data`
-- **Custom**: Point to your actual data directory
-- **Requirements**: Must have write permissions
+- **Recommended**: `C:\TradingData` (simple and clear)
+- **Alternative**: Any directory you prefer (e.g., `C:\Users\YourName\TradingData`)
+- **Requirements**: Must have write permissions and match your Docker volume mount
 
 ### File Management Options
 - **Create Daily Files**: Creates new CSV file each trading day
@@ -126,7 +128,7 @@ MNQ_638123456790_12346,Exit,Sell,MNQ MAR25,15010.25,1,2024-12-17 09:45:22,$2.50,
 
 **Successful operation:**
 ```
-2024-12-17 09:30:00 - INFO - ExecutionExporter initialized. Export path: C:\Data
+2024-12-17 09:30:00 - INFO - ExecutionExporter initialized. Export path: C:\TradingData
 2024-12-17 09:30:15 - INFO - Created new export file: NinjaTrader_Executions_20241217_093000.csv
 2024-12-17 09:30:16 - INFO - Exported execution: MNQ Entry 1@15000.50
 ```
@@ -185,10 +187,26 @@ If you encounter issues:
 Save this configuration for easy setup:
 
 ```
-Export Path: C:\Containers\FuturesTradingLog\data
-Create Daily Files: True
-Max File Size (MB): 10
-Enable Logging: True
+Export Path: C:\TradingData           # Must match your Docker volume mount
+Create Daily Files: True             # Recommended for daily file rotation
+Max File Size (MB): 10              # Creates new file when exceeded
+Enable Logging: True                 # Essential for troubleshooting
 ```
+
+### Docker Integration Example
+
+If you're using the recommended path, your Docker command should be:
+
+```bash
+docker run -p 5000:5000 \
+  -v "C:/TradingData:/app/data" \
+  -e AUTO_IMPORT_ENABLED=true \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
+```
+
+The paths must match:
+- **NinjaTrader Export Path**: `C:\TradingData`
+- **Docker Volume Mount**: `C:/TradingData:/app/data`
 
 Your ExecutionExporter is now ready to automatically capture and export all trade executions in real-time!

@@ -122,8 +122,14 @@ docker run -p 5000:5000 futures-trading-log
 ## Key Configuration
 
 ### Environment Variables
-- `DATA_DIR`: Base directory for all data storage (default: `C:/Containers/FuturesTradingLog/data/`)
+- `DATA_DIR`: Base directory for all data storage (default: `~/FuturesTradingLog/data` - cross-platform)
 - `FLASK_ENV`: Set to `development` or `testing` as needed
+
+### Docker Environment Variables
+- `HOST_IP`: Network binding IP (default: `0.0.0.0` for all interfaces)
+- `EXTERNAL_PORT`: External port mapping (default: `5000`)
+- `AUTO_IMPORT_ENABLED`: Enable file watcher (default: `true`)
+- `AUTO_IMPORT_INTERVAL`: Check interval in seconds (default: `300`)
 
 ### Directory Structure
 Application auto-creates these under `DATA_DIR`:
