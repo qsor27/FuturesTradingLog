@@ -12,7 +12,7 @@ from routes.settings import settings_bp
 from routes.reports import reports_bp
 from routes.execution_analysis import execution_analysis_bp
 from routes.positions import positions_bp
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 from background_services import start_background_services, stop_background_services, get_services_status
 import atexit
 

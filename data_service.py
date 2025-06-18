@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 from typing import List, Dict, Tuple, Optional
 import logging
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 from config import config
 from redis_cache_service import get_cache_service
 

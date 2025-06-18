@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 from logging_config import get_logger
 
 logger = get_logger(__name__)

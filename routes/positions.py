@@ -4,7 +4,7 @@ Position Routes - Handle position-based views and operations
 
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from position_service import PositionService
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 import logging
 
 positions_bp = Blueprint('positions', __name__)
@@ -210,7 +210,7 @@ def api_position_executions(position_id):
 @positions_bp.route('/debug')
 def debug_positions():
     """Debug page to examine position building logic"""
-    from futures_db import FuturesDB
+    from TradingLog_db import FuturesDB
     
     # Get recent trades for debugging
     with FuturesDB() as db:
@@ -238,7 +238,7 @@ def debug_positions():
 @positions_bp.route('/debug/<account>/<instrument>')
 def debug_account_instrument(account, instrument):
     """Debug specific account/instrument combination"""
-    from futures_db import FuturesDB
+    from TradingLog_db import FuturesDB
     
     with FuturesDB() as db:
         # Get all trades for this account/instrument

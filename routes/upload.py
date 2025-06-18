@@ -1,6 +1,6 @@
 import os
 from flask import Blueprint, request, render_template
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 
 upload_bp = Blueprint('upload', __name__)
 

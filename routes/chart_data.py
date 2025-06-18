@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime, timedelta
 import logging
 from data_service import ohlc_service
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 
 chart_data_bp = Blueprint('chart_data', __name__)
 logger = logging.getLogger(__name__)
