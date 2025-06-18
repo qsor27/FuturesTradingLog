@@ -88,7 +88,7 @@
         </div>
         <div class="stat-card">
             <div class="stat-value {{ 'pnl-positive' if (stats.total_pnl or 0) > 0 else 'pnl-negative' }}">
-                ${{ "{:,.2f}"|format(stats.total_pnl or 0) }}
+                ${{ "{:,.2f}".format(stats.total_pnl or 0) }}
             </div>
             <div class="stat-label">Total P&L</div>
         </div>

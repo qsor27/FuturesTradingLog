@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
                         <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
                         <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
@@ -287,7 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission) }}</td>
+                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
                         <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
