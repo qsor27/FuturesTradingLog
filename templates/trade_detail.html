@@ -215,14 +215,13 @@
             <!-- Interactive Price Chart with Execution Markers -->
             <div class="mb-8">
                 <h3 class="text-lg font-semibold mb-4 text-gray-800">Market Context Chart with Execution Flow</h3>
-                {% include 'components/price_chart.html' with 
-                    chart_id='tradeChart', 
-                    chart_height='500px',
-                    chart_instrument=trade.instrument,
-                    chart_timeframe='5m',
-                    chart_days=1,
-                    chart_trade_id=trade.id
-                %}
+                {% set chart_id = 'tradeChart' %}
+                {% set chart_height = '500px' %}
+                {% set chart_instrument = trade.instrument %}
+                {% set chart_timeframe = '5m' %}
+                {% set chart_days = 1 %}
+                {% set chart_trade_id = trade.id %}
+                {% include 'components/price_chart.html' %}
                 
                 <!-- Chart Synchronization Controls -->
                 <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
