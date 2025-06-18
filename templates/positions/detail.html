@@ -141,7 +141,7 @@
             <div class="summary-card">
                 <div class="summary-label">Gross P&L</div>
                 <div class="summary-value {{ 'pnl-positive' if (position.total_dollars_pnl or 0) > 0 else 'pnl-negative' if (position.total_dollars_pnl or 0) < 0 else '' }}">
-                    ${{ "{:,.2f}"|format(position.total_dollars_pnl or 0) }}
+                    ${{ "%.2f"|format(position.total_dollars_pnl or 0) }}
                 </div>
             </div>
             
@@ -153,7 +153,7 @@
             <div class="summary-card">
                 <div class="summary-label">Net P&L</div>
                 <div class="summary-value {{ 'pnl-positive' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) > 0 else 'pnl-negative' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) < 0 else '' }}">
-                    ${{ "{:,.2f}"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
+                    ${{ "%.2f"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
                 </div>
             </div>
             
@@ -238,7 +238,7 @@
                             {{ "%.2f"|format(execution.points_gain_loss or 0) }}
                         </td>
                         <td class="{{ 'pnl-positive' if (execution.dollars_gain_loss or 0) > 0 else 'pnl-negative' if (execution.dollars_gain_loss or 0) < 0 else '' }}">
-                            ${{ "{:,.2f}"|format(execution.dollars_gain_loss or 0) }}
+                            ${{ "%.2f"|format(execution.dollars_gain_loss or 0) }}
                         </td>
                         <td>${{ "%.2f"|format(execution.commission or 0) }}</td>
                         <td style="font-family: monospace; font-size: 11px;">{{ execution.entry_execution_id }}</td>
@@ -274,9 +274,9 @@
                     <strong>Position Outcome:</strong><br>
                     {% if position.position_status == 'closed' %}
                         {% if (position.total_dollars_pnl or 0) > 0 %}
-                            <span class="pnl-positive">Winner (+${{ "{:,.2f}"|format(position.total_dollars_pnl) }})</span>
+                            <span class="pnl-positive">Winner (+${{ "%.2f"|format(position.total_dollars_pnl or 0) }})</span>
                         {% elif (position.total_dollars_pnl or 0) < 0 %}
-                            <span class="pnl-negative">Loser (${{ "{:,.2f}"|format(position.total_dollars_pnl) }})</span>
+                            <span class="pnl-negative">Loser (${{ "%.2f"|format(position.total_dollars_pnl or 0) }})</span>
                         {% else %}
                             <span>Breakeven</span>
                         {% endif %}

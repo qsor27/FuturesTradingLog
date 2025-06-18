@@ -88,7 +88,7 @@
         </div>
         <div class="stat-card">
             <div class="stat-value {{ 'pnl-positive' if (stats.total_pnl or 0) > 0 else 'pnl-negative' }}">
-                ${{ "{:,.2f}".format(stats.total_pnl or 0) }}
+                ${{ "%.2f"|format(stats.total_pnl or 0) }}
             </div>
             <div class="stat-label">Total P&L</div>
         </div>
@@ -202,7 +202,7 @@
                     <td>{{ position.entry_time.split(' ')[0] if position.entry_time else 'N/A' }}</td>
                     <td>{{ position.exit_time.split(' ')[0] if position.exit_time else '-' }}</td>
                     <td>{{ position.total_quantity }}</td>
-                    <td>${{ "%.2f"|format(position.average_entry_price) }}</td>
+                    <td>${{ "%.2f"|format(position.average_entry_price) if position.average_entry_price is not none else "-" }}</td>
                     <td>
                         {% if position.average_exit_price %}
                             ${{ "%.2f"|format(position.average_exit_price) }}
@@ -210,13 +210,13 @@
                             -
                         {% endif %}
                     </td>
-                    <td>{{ "%.2f"|format(position.total_points_pnl or 0) }}</td>
+                    <td>{{ "%.2f"|format(position.total_points_pnl or 0) if (position.total_points_pnl or 0) is not none else "-" }}</td>
                     <td class="{{ 'pnl-positive' if (position.total_dollars_pnl or 0) > 0 else 'pnl-negative' if (position.total_dollars_pnl or 0) < 0 else 'pnl-neutral' }}">
-                        ${{ "{:,.2f}"|format(position.total_dollars_pnl or 0) }}
+                        ${{ "%.2f"|format(position.total_dollars_pnl or 0) }}
                     </td>
-                    <td>${{ "%.2f"|format(position.total_commission or 0) }}</td>
+                    <td>${{ "%.2f"|format(position.total_commission or 0) if (position.total_commission or 0) is not none else "-" }}</td>
                     <td class="{{ 'pnl-positive' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) > 0 else 'pnl-negative' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) < 0 else 'pnl-neutral' }}">
-                        ${{ "{:,.2f}"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
+                        ${{ "%.2f"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
                     </td>
                     <td>{{ position.execution_count }}</td>
                     <td>
