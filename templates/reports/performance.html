@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Performance Analysis{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-6">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Performance Analysis</h1>
+            <p class="text-gray-600">Historical performance tracking with trend analysis</p>
+        </div>
+        <a href="/reports" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+            ← Back to Reports
+        </a>
+    </div>
+
+    <!-- Filters Section -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+        <form method="GET" action="/reports/performance" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+                <label for="account" class="block text-sm font-medium text-gray-700 mb-1">Account</label>
+                <select name="account" id="account" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Accounts</option>
+                    {% for account in accounts %}
+                        <option value="{{ account }}" {% if filters.account == account %}selected{% endif %}>{{ account }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div>
+                <label for="instrument" class="block text-sm font-medium text-gray-700 mb-1">Instrument</label>
+                <select name="instrument" id="instrument" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Instruments</option>
+                    {% for instrument in instruments %}
+                        <option value="{{ instrument }}" {% if filters.instrument == instrument %}selected{% endif %}>{{ instrument }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div>
+                <label for="start_date" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                <input type="date" name="start_date" id="start_date" value="{{ filters.start_date or '' }}" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label for="end_date" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                <input type="date" name="end_date" id="end_date" value="{{ filters.end_date or '' }}" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label for="period" class="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                <select name="period" id="period" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="daily" {% if filters.period == 'daily' %}selected{% endif %}>Daily</option>
+                    <option value="weekly" {% if filters.period == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if filters.period == 'monthly' %}selected{% endif %}>Monthly</option>
+                </select>
+            </div>
+            
+            <div class="md:col-span-5 flex justify-end space-x-2">
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
+                    Apply Filters
+                </button>
+                <a href="/reports/performance" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg">
+                    Clear
+                </a>
+            </div>
+        </form>
+    </div>
+
+    {% if performance_data %}
+    <!-- Performance Chart -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Cumulative P&L Trend</h3>
+        <div class="h-96">
+            <canvas id="performanceChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Performance Summary Cards -->
+    {% set total_trades = performance_data|sum(attribute='trade_count') %}
+    {% set total_pnl = performance_data|sum(attribute='total_pnl') %}
+    {% set total_winners = performance_data|sum(attribute='winners') %}
+    {% set total_losers = performance_data|sum(attribute='losers') %}
+    {% set overall_win_rate = (total_winners / total_trades * 100) if total_trades > 0 else 0 %}
+    
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-center">
+                <p class="text-sm font-medium text-gray-500 mb-1">Total Trades</p>
+                <p class="text-2xl font-bold text-gray-900">{{ total_trades }}</p>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-center">
+                <p class="text-sm font-medium text-gray-500 mb-1">Total P&L</p>
+                <p class="text-2xl font-bold {% if total_pnl >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                    ${{ "{:,.2f}"|format(total_pnl) }}
+                </p>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-center">
+                <p class="text-sm font-medium text-gray-500 mb-1">Win Rate</p>
+                <p class="text-2xl font-bold text-gray-900">{{ "%.1f"|format(overall_win_rate) }}%</p>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-center">
+                <p class="text-sm font-medium text-gray-500 mb-1">Avg Trade P&L</p>
+                {% set avg_trade = (total_pnl / total_trades) if total_trades > 0 else 0 %}
+                <p class="text-2xl font-bold {% if avg_trade >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                    ${{ "{:,.2f}"|format(avg_trade) }}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Data Table -->
+    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-900">Performance Breakdown</h3>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Trades</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Winners</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Win Rate</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">P&L</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cumulative P&L</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Avg P&L</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Best Trade</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Worst Trade</th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Profit Factor</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for period_data in performance_data %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {{ period_data.period }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {{ period_data.trade_count }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {{ period_data.winners }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {{ "%.1f"|format(period_data.win_rate) }}%
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right {% if period_data.total_pnl >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            ${{ "{:,.2f}"|format(period_data.total_pnl) }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right {% if period_data.cumulative_pnl >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            ${{ "{:,.2f}"|format(period_data.cumulative_pnl) }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right {% if period_data.avg_pnl >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            ${{ "{:,.2f}"|format(period_data.avg_pnl) }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 text-right">
+                            ${{ "{:,.2f}"|format(period_data.best_trade) }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 text-right">
+                            ${{ "{:,.2f}"|format(period_data.worst_trade) }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                            {{ "%.2f"|format(period_data.profit_factor) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <div class="text-gray-400 mb-4">
+            <svg class="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            </svg>
+        </div>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">No Performance Data Available</h3>
+        <p class="text-gray-600 mb-4">Try adjusting your filters or ensure you have trade data imported.</p>
+        <a href="/upload" class="text-blue-600 hover:text-blue-700 font-medium">Import Trade Data →</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if performance_data %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    
+    const data = {
+        labels: [{% for period_data in performance_data %}'{{ period_data.period }}'{% if not loop.last %},{% endif %}{% endfor %}],
+        datasets: [{
+            label: 'Cumulative P&L',
+            data: [{% for period_data in performance_data %}{{ period_data.cumulative_pnl }}{% if not loop.last %},{% endif %}{% endfor %}],
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.1
+        }]
+    };
+    
+    const config = {
+        type: 'line',
+        data: data,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'Cumulative P&L: $' + context.parsed.y.toLocaleString();
+                        }
+                    }
+                },
+                legend: {
+                    display: false
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            }
+        }
+    };
+    
+    new Chart(ctx, config);
+});
+</script>
+{% endif %}
+{% endblock %}

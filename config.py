@@ -75,5 +75,20 @@ class Config:
         """Return auto import check interval in seconds (default 5 minutes)"""
         return int(os.getenv('AUTO_IMPORT_INTERVAL', 300))
 
+    @property
+    def redis_url(self) -> str:
+        """Return Redis connection URL"""
+        return os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Return True if caching is enabled (default: true)"""
+        return os.getenv('CACHE_ENABLED', 'true').lower() == 'true'
+
+    @property
+    def cache_ttl_days(self) -> int:
+        """Return cache TTL in days (default: 14 days)"""
+        return int(os.getenv('CACHE_TTL_DAYS', 14))
+
 # Create global config instance
 config = Config()

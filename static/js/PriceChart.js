@@ -187,6 +187,93 @@ class PriceChart {
         this.candlestickSeries.setMarkers(this.markers);
     }
     
+    addExecutionMarkers(executions) {
+        // Clear existing execution markers
+        this.clearExecutionMarkers();
+        
+        // Convert executions to chart markers
+        const executionMarkers = executions.map(execution => {
+            const timestamp = new Date(execution.timestamp).getTime() / 1000;
+            
+            return {
+                time: timestamp,
+                position: execution.type === 'entry' ? 'belowBar' : 'aboveBar',
+                color: execution.type === 'entry' ? '#4CAF50' : '#F44336',
+                shape: execution.type === 'entry' ? 'arrowUp' : 'arrowDown',
+                text: `${execution.type.toUpperCase()}: ${execution.quantity}@${execution.price.toFixed(2)}`,
+                id: `execution_${execution.execution_id}`,
+                execution: execution
+            };
+        });
+        
+        // Add execution markers to existing markers
+        this.executionMarkers = executionMarkers;
+        const allMarkers = [...this.markers, ...this.executionMarkers];
+        this.candlestickSeries.setMarkers(allMarkers);
+        
+        // Setup marker click handler for highlighting
+        this.setupMarkerClickHandler();
+    }
+    
+    clearExecutionMarkers() {
+        this.executionMarkers = [];
+        this.candlestickSeries.setMarkers(this.markers);
+    }
+    
+    setupMarkerClickHandler() {
+        // Handle marker clicks for table synchronization
+        this.chart.subscribeClick((param) => {
+            if (param.point && this.executionMarkers) {
+                const clickedMarker = this.executionMarkers.find(marker => 
+                    Math.abs(marker.time - param.time) < 60 // Within 1 minute tolerance
+                );
+                
+                if (clickedMarker) {
+                    this.highlightExecution(clickedMarker.execution);
+                }
+            }
+        });
+    }
+    
+    highlightExecution(execution) {
+        // Dispatch custom event for table synchronization
+        const event = new CustomEvent('executionHighlight', {
+            detail: { execution }
+        });
+        document.dispatchEvent(event);
+        
+        // Visual highlight on chart
+        this.highlightMarker(execution.execution_id);
+    }
+    
+    highlightMarker(executionId) {
+        // Find and temporarily highlight the marker
+        const marker = this.executionMarkers.find(m => 
+            m.execution.execution_id === executionId
+        );
+        
+        if (marker) {
+            // Create temporary highlight marker
+            const highlightMarker = {
+                ...marker,
+                color: '#FFD700', // Gold highlight
+                size: 2
+            };
+            
+            // Replace marker temporarily
+            const tempMarkers = this.executionMarkers.map(m => 
+                m.execution.execution_id === executionId ? highlightMarker : m
+            );
+            
+            this.candlestickSeries.setMarkers([...this.markers, ...tempMarkers]);
+            
+            // Reset after 2 seconds
+            setTimeout(() => {
+                this.candlestickSeries.setMarkers([...this.markers, ...this.executionMarkers]);
+            }, 2000);
+        }
+    }
+    
     clearMarkers() {
         this.markers = [];
         this.candlestickSeries.setMarkers([]);

@@ -432,6 +432,676 @@ class FuturesDB:
         except Exception as e:
             print(f"Error getting statistics: {e}")
             return []
+    
+    def get_overview_statistics(self) -> Dict[str, Any]:
+        """Get high-level overview statistics for dashboard."""
+        try:
+            self.cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN 1 ELSE 0 END) as losing_trades,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_trade_pnl,
+                    SUM(commission) as total_commission,
+                    COUNT(DISTINCT instrument) as instruments_traded,
+                    COUNT(DISTINCT account) as accounts_traded,
+                    MIN(entry_time) as first_trade_date,
+                    MAX(entry_time) as last_trade_date
+                FROM trades
+                WHERE entry_time IS NOT NULL
+            """)
+            
+            row = self.cursor.fetchone()
+            if not row:
+                return {}
+                
+            stats = dict(row)
+            
+            # Calculate win rate
+            total_trades = stats.get('total_trades', 0)
+            winning_trades = stats.get('winning_trades', 0)
+            stats['win_rate'] = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            
+            return stats
+            
+        except Exception as e:
+            print(f"Error getting overview statistics: {e}")
+            return {}
+    
+    def get_unique_accounts(self) -> List[str]:
+        """Get list of unique account names."""
+        try:
+            self.cursor.execute("SELECT DISTINCT account FROM trades WHERE account IS NOT NULL ORDER BY account")
+            return [row[0] for row in self.cursor.fetchall()]
+        except Exception as e:
+            print(f"Error getting unique accounts: {e}")
+            return []
+    
+    def get_unique_instruments(self) -> List[str]:
+        """Get list of unique instruments."""
+        try:
+            self.cursor.execute("SELECT DISTINCT instrument FROM trades WHERE instrument IS NOT NULL ORDER BY instrument")
+            return [row[0] for row in self.cursor.fetchall()]
+        except Exception as e:
+            print(f"Error getting unique instruments: {e}")
+            return []
+    
+    def get_date_range(self) -> Dict[str, str]:
+        """Get date range of trades."""
+        try:
+            self.cursor.execute("""
+                SELECT 
+                    MIN(DATE(entry_time)) as min_date,
+                    MAX(DATE(entry_time)) as max_date
+                FROM trades 
+                WHERE entry_time IS NOT NULL
+            """)
+            
+            row = self.cursor.fetchone()
+            if row and row[0] and row[1]:
+                return {
+                    'min_date': row[0],
+                    'max_date': row[1]
+                }
+            return {}
+            
+        except Exception as e:
+            print(f"Error getting date range: {e}")
+            return {}
+    
+    def get_performance_analysis(self, account=None, instrument=None, start_date=None, end_date=None, period='daily') -> List[Dict[str, Any]]:
+        """Get performance analysis data for historical reporting."""
+        try:
+            # Build WHERE clause
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if instrument:
+                where_conditions.append("instrument = ?")
+                params.append(instrument)
+            
+            if start_date:
+                where_conditions.append("DATE(entry_time) >= ?")
+                params.append(start_date)
+            
+            if end_date:
+                where_conditions.append("DATE(entry_time) <= ?")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Determine date grouping based on period
+            if period == 'weekly':
+                date_group = "strftime('%Y-W%W', entry_time)"
+                date_format = "strftime('%Y-W%W', entry_time)"
+            elif period == 'monthly':
+                date_group = "strftime('%Y-%m', entry_time)"
+                date_format = "strftime('%Y-%m', entry_time)"
+            else:  # daily
+                date_group = "DATE(entry_time)"
+                date_format = "DATE(entry_time)"
+            
+            query = f"""
+                SELECT 
+                    {date_format} as period,
+                    COUNT(*) as trade_count,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN 1 ELSE 0 END) as losers,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(commission) as total_commission,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN dollars_gain_loss ELSE 0 END) as gross_profit,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN ABS(dollars_gain_loss) ELSE 0 END) as gross_loss,
+                    MAX(dollars_gain_loss) as best_trade,
+                    MIN(dollars_gain_loss) as worst_trade,
+                    COUNT(DISTINCT instrument) as instruments_count
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY {date_group}
+                ORDER BY period DESC
+            """
+            
+            self.cursor.execute(query, params)
+            
+            results = []
+            running_pnl = 0
+            
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                
+                # Calculate additional metrics
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                
+                # Calculate running P&L
+                running_pnl += data.get('total_pnl', 0)
+                data['cumulative_pnl'] = running_pnl
+                
+                # Calculate profit factor
+                gross_profit = data.get('gross_profit', 0)
+                gross_loss = data.get('gross_loss', 0)
+                data['profit_factor'] = (gross_profit / gross_loss) if gross_loss > 0 else 0
+                
+                results.append(data)
+            
+            # Reverse to get chronological order
+            return list(reversed(results))
+            
+        except Exception as e:
+            print(f"Error getting performance analysis: {e}")
+            return []
+    
+    def get_monthly_performance(self, account=None, year=None) -> List[Dict[str, Any]]:
+        """Get monthly performance breakdown."""
+        try:
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if year:
+                where_conditions.append("strftime('%Y', entry_time) = ?")
+                params.append(str(year))
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            query = f"""
+                SELECT 
+                    strftime('%Y', entry_time) as year,
+                    strftime('%m', entry_time) as month,
+                    strftime('%Y-%m', entry_time) as period,
+                    COUNT(*) as trade_count,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(commission) as total_commission,
+                    MAX(dollars_gain_loss) as best_trade,
+                    MIN(dollars_gain_loss) as worst_trade,
+                    COUNT(DISTINCT instrument) as instruments_traded
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY strftime('%Y-%m', entry_time)
+                ORDER BY period
+            """
+            
+            self.cursor.execute(query, params)
+            
+            results = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                
+                # Calculate win rate
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                
+                # Add month name
+                month_names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                month_num = int(data.get('month', 0))
+                data['month_name'] = month_names[month_num] if 1 <= month_num <= 12 else ''
+                
+                results.append(data)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error getting monthly performance: {e}")
+            return []
+    
+    def get_instrument_performance(self, account=None, start_date=None, end_date=None) -> List[Dict[str, Any]]:
+        """Get performance breakdown by instrument."""
+        try:
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if start_date:
+                where_conditions.append("DATE(entry_time) >= ?")
+                params.append(start_date)
+            
+            if end_date:
+                where_conditions.append("DATE(entry_time) <= ?")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            query = f"""
+                SELECT 
+                    instrument,
+                    COUNT(*) as trade_count,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN 1 ELSE 0 END) as losers,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(commission) as total_commission,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN dollars_gain_loss ELSE 0 END) as gross_profit,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN ABS(dollars_gain_loss) ELSE 0 END) as gross_loss,
+                    MAX(dollars_gain_loss) as best_trade,
+                    MIN(dollars_gain_loss) as worst_trade,
+                    SUM(quantity) as total_volume
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY instrument
+                ORDER BY total_pnl DESC
+            """
+            
+            self.cursor.execute(query, params)
+            
+            results = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                
+                # Calculate additional metrics
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                
+                # Calculate profit factor
+                gross_profit = data.get('gross_profit', 0)
+                gross_loss = data.get('gross_loss', 0)
+                data['profit_factor'] = (gross_profit / gross_loss) if gross_loss > 0 else 0
+                
+                results.append(data)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error getting instrument performance: {e}")
+            return []
+    
+    def get_available_years(self) -> List[int]:
+        """Get list of years with trade data."""
+        try:
+            self.cursor.execute("""
+                SELECT DISTINCT strftime('%Y', entry_time) as year
+                FROM trades 
+                WHERE entry_time IS NOT NULL
+                ORDER BY year DESC
+            """)
+            
+            return [int(row[0]) for row in self.cursor.fetchall() if row[0]]
+            
+        except Exception as e:
+            print(f"Error getting available years: {e}")
+            return []
+    
+    def get_execution_quality_analysis(self, account=None, instrument=None, start_date=None, end_date=None) -> Dict[str, Any]:
+        """Analyze execution quality and trading patterns."""
+        try:
+            # Build WHERE clause
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if instrument:
+                where_conditions.append("instrument = ?")
+                params.append(instrument)
+            
+            if start_date:
+                where_conditions.append("DATE(entry_time) >= ?")
+                params.append(start_date)
+            
+            if end_date:
+                where_conditions.append("DATE(entry_time) <= ?")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Get execution timing analysis
+            timing_query = f"""
+                SELECT 
+                    strftime('%H', entry_time) as hour,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY strftime('%H', entry_time)
+                ORDER BY hour
+            """
+            
+            self.cursor.execute(timing_query, params)
+            hourly_data = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                hourly_data.append(data)
+            
+            # Get position size analysis
+            size_query = f"""
+                SELECT 
+                    CASE 
+                        WHEN quantity = 1 THEN '1 Contract'
+                        WHEN quantity BETWEEN 2 AND 5 THEN '2-5 Contracts'
+                        WHEN quantity BETWEEN 6 AND 10 THEN '6-10 Contracts'
+                        ELSE '10+ Contracts'
+                    END as size_range,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY size_range
+                ORDER BY MIN(quantity)
+            """
+            
+            self.cursor.execute(size_query, params)
+            size_data = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                size_data.append(data)
+            
+            # Get hold time analysis
+            hold_time_query = f"""
+                SELECT 
+                    CASE 
+                        WHEN (julianday(exit_time) - julianday(entry_time)) * 24 * 60 < 5 THEN 'Under 5 min'
+                        WHEN (julianday(exit_time) - julianday(entry_time)) * 24 * 60 < 30 THEN '5-30 min'
+                        WHEN (julianday(exit_time) - julianday(entry_time)) * 24 < 1 THEN '30 min - 1 hour'
+                        WHEN (julianday(exit_time) - julianday(entry_time)) < 1 THEN '1-24 hours'
+                        ELSE '1+ days'
+                    END as hold_time_range,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners,
+                    AVG((julianday(exit_time) - julianday(entry_time)) * 24 * 60) as avg_hold_minutes
+                FROM trades
+                WHERE {where_clause} AND exit_time IS NOT NULL
+                GROUP BY hold_time_range
+                ORDER BY avg_hold_minutes
+            """
+            
+            self.cursor.execute(hold_time_query, params)
+            hold_time_data = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                hold_time_data.append(data)
+            
+            # Get side bias analysis
+            side_query = f"""
+                SELECT 
+                    side_of_market as side,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY side_of_market
+            """
+            
+            self.cursor.execute(side_query, params)
+            side_data = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                side_data.append(data)
+            
+            # Get streak analysis
+            streak_query = f"""
+                WITH streak_data AS (
+                    SELECT 
+                        dollars_gain_loss,
+                        CASE WHEN dollars_gain_loss > 0 THEN 'W' ELSE 'L' END as result,
+                        ROW_NUMBER() OVER (ORDER BY entry_time) as trade_num
+                    FROM trades
+                    WHERE {where_clause}
+                )
+                SELECT 
+                    result,
+                    COUNT(*) as occurrence_count,
+                    AVG(dollars_gain_loss) as avg_pnl
+                FROM streak_data
+                GROUP BY result
+            """
+            
+            self.cursor.execute(streak_query, params)
+            streak_data = [dict(row) for row in self.cursor.fetchall()]
+            
+            return {
+                'hourly_performance': hourly_data,
+                'position_size_analysis': size_data,
+                'hold_time_analysis': hold_time_data,
+                'side_bias_analysis': side_data,
+                'streak_analysis': streak_data
+            }
+            
+        except Exception as e:
+            print(f"Error getting execution quality analysis: {e}")
+            return {}
+    
+    def get_trade_distribution_analysis(self, account=None, instrument=None) -> Dict[str, Any]:
+        """Get trade size and timing distribution analysis."""
+        try:
+            # Build WHERE clause
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if instrument:
+                where_conditions.append("instrument = ?")
+                params.append(instrument)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            # Get quantity distribution
+            quantity_query = f"""
+                SELECT 
+                    quantity,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY quantity
+                ORDER BY quantity
+            """
+            
+            self.cursor.execute(quantity_query, params)
+            quantity_distribution = [dict(row) for row in self.cursor.fetchall()]
+            
+            # Get day of week distribution
+            dow_query = f"""
+                SELECT 
+                    CASE strftime('%w', entry_time)
+                        WHEN '0' THEN 'Sunday'
+                        WHEN '1' THEN 'Monday'
+                        WHEN '2' THEN 'Tuesday'
+                        WHEN '3' THEN 'Wednesday'
+                        WHEN '4' THEN 'Thursday'
+                        WHEN '5' THEN 'Friday'
+                        WHEN '6' THEN 'Saturday'
+                    END as day_of_week,
+                    strftime('%w', entry_time) as day_num,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winners
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY strftime('%w', entry_time)
+                ORDER BY day_num
+            """
+            
+            self.cursor.execute(dow_query, params)
+            dow_data = []
+            for row in self.cursor.fetchall():
+                data = dict(row)
+                trade_count = data.get('trade_count', 0)
+                winners = data.get('winners', 0)
+                data['win_rate'] = (winners / trade_count * 100) if trade_count > 0 else 0
+                dow_data.append(data)
+            
+            # Get P&L distribution ranges
+            pnl_query = f"""
+                SELECT 
+                    CASE 
+                        WHEN dollars_gain_loss < -500 THEN 'Large Loss (< -$500)'
+                        WHEN dollars_gain_loss < -100 THEN 'Medium Loss (-$500 to -$100)'
+                        WHEN dollars_gain_loss < 0 THEN 'Small Loss (-$100 to $0)'
+                        WHEN dollars_gain_loss = 0 THEN 'Breakeven'
+                        WHEN dollars_gain_loss <= 100 THEN 'Small Win ($0 to $100)'
+                        WHEN dollars_gain_loss <= 500 THEN 'Medium Win ($100 to $500)'
+                        ELSE 'Large Win (> $500)'
+                    END as pnl_range,
+                    COUNT(*) as trade_count,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    MIN(dollars_gain_loss) as min_pnl,
+                    MAX(dollars_gain_loss) as max_pnl
+                FROM trades
+                WHERE {where_clause}
+                GROUP BY pnl_range
+                ORDER BY MIN(dollars_gain_loss)
+            """
+            
+            self.cursor.execute(pnl_query, params)
+            pnl_distribution = [dict(row) for row in self.cursor.fetchall()]
+            
+            return {
+                'quantity_distribution': quantity_distribution,
+                'day_of_week_performance': dow_data,
+                'pnl_distribution': pnl_distribution
+            }
+            
+        except Exception as e:
+            print(f"Error getting trade distribution analysis: {e}")
+            return {}
+    
+    def get_performance_chart_data(self, account=None, instrument=None, start_date=None, end_date=None, period='daily') -> Dict[str, Any]:
+        """Get chart data for performance visualization."""
+        try:
+            # Use existing performance analysis method
+            performance_data = self.get_performance_analysis(account, instrument, start_date, end_date, period)
+            
+            if not performance_data:
+                return {'labels': [], 'datasets': []}
+            
+            labels = [item['period'] for item in performance_data]
+            cumulative_pnl = [item['cumulative_pnl'] for item in performance_data]
+            daily_pnl = [item['total_pnl'] for item in performance_data]
+            
+            return {
+                'labels': labels,
+                'datasets': [
+                    {
+                        'label': 'Cumulative P&L',
+                        'data': cumulative_pnl,
+                        'type': 'line',
+                        'borderColor': 'rgb(59, 130, 246)',
+                        'backgroundColor': 'rgba(59, 130, 246, 0.1)',
+                        'fill': True
+                    },
+                    {
+                        'label': 'Period P&L',
+                        'data': daily_pnl,
+                        'type': 'bar',
+                        'backgroundColor': 'rgba(34, 197, 94, 0.7)',
+                        'borderColor': 'rgb(34, 197, 94)',
+                        'borderWidth': 1
+                    }
+                ]
+            }
+            
+        except Exception as e:
+            print(f"Error getting performance chart data: {e}")
+            return {'labels': [], 'datasets': []}
+    
+    def get_summary_statistics(self, account=None, instrument=None, start_date=None, end_date=None) -> Dict[str, Any]:
+        """Get summary statistics for API endpoints."""
+        try:
+            # Build WHERE clause
+            where_conditions = ["entry_time IS NOT NULL"]
+            params = []
+            
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+            
+            if instrument:
+                where_conditions.append("instrument = ?")
+                params.append(instrument)
+            
+            if start_date:
+                where_conditions.append("DATE(entry_time) >= ?")
+                params.append(start_date)
+            
+            if end_date:
+                where_conditions.append("DATE(entry_time) <= ?")
+                params.append(end_date)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            query = f"""
+                SELECT 
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN 1 ELSE 0 END) as losing_trades,
+                    SUM(dollars_gain_loss) as total_pnl,
+                    AVG(dollars_gain_loss) as avg_pnl,
+                    SUM(commission) as total_commission,
+                    SUM(CASE WHEN dollars_gain_loss > 0 THEN dollars_gain_loss ELSE 0 END) as gross_profit,
+                    SUM(CASE WHEN dollars_gain_loss < 0 THEN ABS(dollars_gain_loss) ELSE 0 END) as gross_loss,
+                    MAX(dollars_gain_loss) as best_trade,
+                    MIN(dollars_gain_loss) as worst_trade,
+                    COUNT(DISTINCT instrument) as instruments_traded,
+                    COUNT(DISTINCT account) as accounts_traded
+                FROM trades
+                WHERE {where_clause}
+            """
+            
+            self.cursor.execute(query, params)
+            row = self.cursor.fetchone()
+            
+            if not row:
+                return {}
+            
+            stats = dict(row)
+            
+            # Calculate additional metrics
+            total_trades = stats.get('total_trades', 0)
+            winning_trades = stats.get('winning_trades', 0)
+            gross_profit = stats.get('gross_profit', 0)
+            gross_loss = stats.get('gross_loss', 0)
+            
+            stats['win_rate'] = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            stats['profit_factor'] = (gross_profit / gross_loss) if gross_loss > 0 else 0
+            
+            return stats
+            
+        except Exception as e:
+            print(f"Error getting summary statistics: {e}")
+            return {}
 
     def link_trades(self, trade_ids: List[int]) -> Tuple[bool, Optional[int]]:
         """Link multiple trades together in a group."""
@@ -934,6 +1604,173 @@ class FuturesDB:
             '1d': 86400
         }
         return timeframe_map.get(timeframe, 60)
+
+    def get_position_executions(self, trade_id: int) -> Dict[str, Any]:
+        """Get detailed execution breakdown for a position with FIFO analysis."""
+        try:
+            # Get the base trade
+            trade = self.get_trade_by_id(trade_id)
+            if not trade:
+                return None
+            
+            # For positions built from multiple executions, get all related trades
+            # This includes trades with the same entry_execution_id prefix or in the same link group
+            base_execution_id = trade['entry_execution_id'].split('_to_')[0] if '_to_' in trade['entry_execution_id'] else trade['entry_execution_id']
+            
+            # Find all related executions (same base entry ID)
+            self.cursor.execute("""
+                SELECT * FROM trades 
+                WHERE entry_execution_id LIKE ? OR 
+                      (link_group_id IS NOT NULL AND link_group_id = ?)
+                ORDER BY entry_time, exit_time
+            """, (f"{base_execution_id}%", trade.get('link_group_id')))
+            
+            related_trades = [dict(row) for row in self.cursor.fetchall()]
+            
+            # Analyze execution flow and FIFO matching
+            execution_analysis = self._analyze_execution_flow(related_trades, trade)
+            
+            return {
+                'primary_trade': trade,
+                'related_executions': related_trades,
+                'execution_analysis': execution_analysis,
+                'position_summary': self._calculate_position_summary(related_trades)
+            }
+            
+        except Exception as e:
+            print(f"Error getting position executions: {e}")
+            return None
+
+    def _analyze_execution_flow(self, trades: List[Dict], primary_trade: Dict) -> Dict[str, Any]:
+        """Analyze the execution flow and FIFO matching for visualization."""
+        try:
+            executions = []
+            total_quantity = 0
+            total_cost_basis = 0
+            
+            for trade in trades:
+                # Entry execution
+                entry_execution = {
+                    'type': 'entry',
+                    'timestamp': trade['entry_time'],
+                    'price': trade['entry_price'],
+                    'quantity': trade['quantity'],
+                    'side': trade['side_of_market'],
+                    'execution_id': trade['entry_execution_id'],
+                    'cumulative_position': total_quantity + trade['quantity'],
+                    'average_price': None  # Will calculate below
+                }
+                
+                # Update position tracking
+                total_quantity += trade['quantity']
+                total_cost_basis += trade['entry_price'] * trade['quantity']
+                entry_execution['average_price'] = total_cost_basis / total_quantity if total_quantity > 0 else 0
+                
+                executions.append(entry_execution)
+                
+                # Exit execution
+                exit_execution = {
+                    'type': 'exit',
+                    'timestamp': trade['exit_time'],
+                    'price': trade['exit_price'],
+                    'quantity': trade['quantity'],
+                    'side': 'Sell' if trade['side_of_market'] == 'Long' else 'Buy',
+                    'execution_id': trade['entry_execution_id'],
+                    'cumulative_position': total_quantity - trade['quantity'],
+                    'realized_pnl': trade['dollars_gain_loss'],
+                    'points_pnl': trade['points_gain_loss']
+                }
+                
+                # Update position tracking for exit
+                total_quantity -= trade['quantity']
+                if total_quantity > 0:
+                    total_cost_basis -= trade['entry_price'] * trade['quantity']
+                else:
+                    total_cost_basis = 0
+                
+                executions.append(exit_execution)
+            
+            # Sort all executions by timestamp
+            executions.sort(key=lambda x: x['timestamp'])
+            
+            return {
+                'executions': executions,
+                'total_fills': len(executions),
+                'entry_fills': len([e for e in executions if e['type'] == 'entry']),
+                'exit_fills': len([e for e in executions if e['type'] == 'exit']),
+                'position_lifecycle': self._determine_position_lifecycle(executions)
+            }
+            
+        except Exception as e:
+            print(f"Error analyzing execution flow: {e}")
+            return {'executions': [], 'total_fills': 0, 'entry_fills': 0, 'exit_fills': 0}
+
+    def _determine_position_lifecycle(self, executions: List[Dict]) -> str:
+        """Determine the current state of the position lifecycle."""
+        if not executions:
+            return 'unknown'
+        
+        # Check if position is fully closed
+        final_position = executions[-1].get('cumulative_position', 0)
+        
+        if final_position == 0:
+            return 'closed'
+        elif final_position > 0:
+            return 'open_long'
+        else:
+            return 'open_short'
+
+    def _calculate_position_summary(self, trades: List[Dict]) -> Dict[str, Any]:
+        """Calculate comprehensive position summary statistics."""
+        try:
+            if not trades:
+                return {}
+            
+            total_pnl = sum(trade['dollars_gain_loss'] for trade in trades)
+            total_commission = sum(trade['commission'] for trade in trades)
+            total_points = sum(trade['points_gain_loss'] for trade in trades)
+            total_quantity = sum(trade['quantity'] for trade in trades)
+            
+            # Calculate average prices
+            avg_entry_price = sum(trade['entry_price'] * trade['quantity'] for trade in trades) / total_quantity if total_quantity > 0 else 0
+            avg_exit_price = sum(trade['exit_price'] * trade['quantity'] for trade in trades) / total_quantity if total_quantity > 0 else 0
+            
+            # Position duration
+            entry_times = [trade['entry_time'] for trade in trades]
+            exit_times = [trade['exit_time'] for trade in trades]
+            
+            return {
+                'total_pnl': total_pnl,
+                'total_commission': total_commission,
+                'total_points': total_points,
+                'total_quantity': total_quantity,
+                'average_entry_price': avg_entry_price,
+                'average_exit_price': avg_exit_price,
+                'net_pnl': total_pnl - total_commission,
+                'first_entry': min(entry_times) if entry_times else None,
+                'last_exit': max(exit_times) if exit_times else None,
+                'number_of_fills': len(trades) * 2  # Each trade has entry and exit
+            }
+            
+        except Exception as e:
+            print(f"Error calculating position summary: {e}")
+            return {}
+
+    def get_linked_trades_with_stats(self, group_id: int) -> Dict[str, Any]:
+        """Get linked trades with comprehensive statistics - replaces the buggy approach."""
+        try:
+            trades = self.get_linked_trades(group_id)
+            stats = self.get_group_statistics(group_id)
+            
+            return {
+                'trades': trades,
+                'total_pnl': stats['total_pnl'],
+                'total_commission': stats['total_commission'],
+                'trade_count': stats['trade_count']
+            }
+        except Exception as e:
+            print(f"Error getting linked trades with stats: {e}")
+            return {'trades': [], 'total_pnl': 0, 'total_commission': 0, 'trade_count': 0}
 
     def get_ohlc_count(self, instrument: str = None, timeframe: str = None) -> int:
         """Get count of OHLC records for monitoring."""

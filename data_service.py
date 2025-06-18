@@ -10,6 +10,7 @@ from typing import List, Dict, Tuple, Optional
 import logging
 from futures_db import FuturesDB
 from config import config
+from redis_cache_service import get_cache_service
 
 class OHLCDataService:
     """Service for managing OHLC market data with gap detection and backfilling"""
@@ -18,6 +19,13 @@ class OHLCDataService:
         self.logger = logging.getLogger(__name__)
         self.rate_limit_delay = 1.0  # 1 second between requests to be respectful
         self.last_request_time = 0
+        
+        # Initialize cache service if enabled
+        self.cache_service = get_cache_service() if config.cache_enabled else None
+        if self.cache_service:
+            self.logger.info("Redis cache service initialized")
+        else:
+            self.logger.info("Cache service disabled or unavailable")
         
         # Futures symbol mapping - yfinance symbols for major futures
         self.symbol_mapping = {
@@ -205,17 +213,35 @@ class OHLCDataService:
 
     def get_chart_data(self, instrument: str, timeframe: str, 
                       start_date: datetime, end_date: datetime) -> List[Dict]:
-        """Get chart data with automatic gap filling"""
+        """Get chart data with Redis caching and automatic gap filling"""
         try:
-            # First, try to fill any gaps
-            self.detect_and_fill_gaps(instrument, timeframe, start_date, end_date)
-            
-            # Then retrieve data from database
             start_timestamp = int(start_date.timestamp())
             end_timestamp = int(end_date.timestamp())
             
+            # Try cache first if enabled
+            if self.cache_service:
+                cached_data = self.cache_service.get_cached_ohlc_data(
+                    instrument, timeframe, start_timestamp, end_timestamp
+                )
+                if cached_data:
+                    self.logger.debug(f"Returning cached data for {instrument} {timeframe}")
+                    return cached_data
+            
+            # Cache miss - fetch from database with gap filling
+            self.detect_and_fill_gaps(instrument, timeframe, start_date, end_date)
+            
             with FuturesDB() as db:
-                return db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
+                data = db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
+            
+            # Cache the data if cache service is available
+            if self.cache_service and data:
+                self.cache_service.cache_ohlc_data(
+                    instrument, timeframe, start_timestamp, end_timestamp, 
+                    data, ttl_days=config.cache_ttl_days
+                )
+                self.logger.debug(f"Cached {len(data)} records for {instrument} {timeframe}")
+            
+            return data
                 
         except Exception as e:
             self.logger.error(f"Error getting chart data: {e}")
