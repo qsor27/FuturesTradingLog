@@ -210,6 +210,152 @@ FLASK_PORT=5000
 EXTERNAL_PORT=5000  # Port for external access
 ```
 
+## 🔄 NinjaTrader Integration with Docker
+
+### **Automatic Trade Import Setup**
+
+The application can automatically monitor and import trades from NinjaTrader using a shared volume approach. Here's how to set it up:
+
+#### **Step 1: Configure NinjaTrader Export Path**
+
+First, determine where you want NinjaTrader to export trades. This path will be shared with the Docker container.
+
+**Recommended approach:**
+1. Create a dedicated directory for trade exports (e.g., `C:\TradingData\exports` on Windows)
+2. Configure NinjaTrader ExecutionExporter to export to this path
+3. Mount this path as a volume in Docker
+
+#### **Step 2: Docker Run Command with Shared Volume**
+
+Replace the volume path in the Docker command with your NinjaTrader export directory:
+
+```bash
+# Windows Example:
+# If NinjaTrader exports to: C:\TradingData\exports
+docker run -p YOUR_HOST_IP:5000:5000 \
+  -v "C:/TradingData/exports:/app/data" \
+  -e FLASK_ENV=development \
+  -e DATA_DIR=/app/data \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
+
+# Linux/macOS Example:
+# If NinjaTrader exports to: /home/user/trading-data
+docker run -p YOUR_HOST_IP:5000:5000 \
+  -v "/home/user/trading-data:/app/data" \
+  -e FLASK_ENV=development \
+  -e DATA_DIR=/app/data \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
+```
+
+#### **Step 3: Configure NinjaTrader ExecutionExporter**
+
+Update your NinjaScript ExecutionExporter settings to match your shared directory:
+
+**In NinjaTrader ExecutionExporter.cs:**
+```csharp
+// Example: If using C:\TradingData\exports
+ExportPath = @"C:\TradingData\exports";
+
+// Or use a configurable approach:
+ExportPath = Environment.GetEnvironmentVariable("NINJA_EXPORT_PATH") 
+    ?? @"C:\TradingData\exports";
+```
+
+#### **Step 4: Directory Structure**
+
+Your shared directory will be organized as follows:
+```
+C:\TradingData\exports\           # Your host directory
+├── NinjaTrader_Executions_*.csv  # Daily execution files (auto-created)
+├── archive\                      # Processed files (auto-created)
+├── db\                          # SQLite database (auto-created)
+├── logs\                        # Application logs (auto-created)
+└── config\                      # Configuration files (auto-created)
+```
+
+#### **Step 5: Verify Auto-Import is Working**
+
+1. **Start the container** with the shared volume
+2. **Check file watcher status:**
+   ```bash
+   curl http://YOUR_HOST_IP:5000/api/file-watcher/status
+   ```
+3. **Manually trigger processing** (if needed):
+   ```bash
+   curl -X POST http://YOUR_HOST_IP:5000/api/file-watcher/process-now
+   ```
+4. **Monitor logs** in the shared directory: `logs/file_watcher.log`
+
+### **Complete Setup Example**
+
+Here's a complete example for a Windows setup:
+
+```bash
+# 1. Create export directory
+mkdir "C:\TradingData\exports"
+
+# 2. Stop existing container (if running)
+docker stop futures-trading-log
+docker rm futures-trading-log
+
+# 3. Start with shared volume (replace YOUR_HOST_IP)
+docker run -p 192.168.1.100:5000:5000 \
+  -v "C:/TradingData/exports:/app/data" \
+  -e FLASK_ENV=development \
+  -e DATA_DIR=/app/data \
+  -e AUTO_IMPORT_ENABLED=true \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
+
+# 4. Access application
+# http://192.168.1.100:5000
+```
+
+### **Environment Variables for Integration**
+
+```bash
+# Auto-import settings
+AUTO_IMPORT_ENABLED=true          # Enable automatic file monitoring
+AUTO_IMPORT_INTERVAL=300          # Check every 5 minutes (300 seconds)
+
+# Data directory (maps to your shared volume)
+DATA_DIR=/app/data                # Container path (don't change)
+
+# Network access
+FLASK_HOST=0.0.0.0               # Allow network access
+```
+
+### **Troubleshooting Integration**
+
+**Common Issues:**
+
+1. **Files not being detected:**
+   - Verify volume mount path matches NinjaTrader export path
+   - Check file naming: should be `NinjaTrader_Executions_YYYYMMDD.csv`
+   - Ensure files are less than 24 hours old
+
+2. **Permission issues:**
+   - On Windows, ensure the shared directory has proper permissions
+   - Consider running Docker Desktop as administrator
+
+3. **Network access problems:**
+   - Replace `YOUR_HOST_IP` with your actual computer's IP address
+   - Check Windows Firewall settings for port 5000
+
+**Verification Commands:**
+```bash
+# Check if file watcher is running
+curl http://YOUR_HOST_IP:5000/health
+
+# Get file watcher status
+curl http://YOUR_HOST_IP:5000/api/file-watcher/status
+
+# Manually trigger file processing
+curl -X POST http://YOUR_HOST_IP:5000/api/file-watcher/process-now
+```
+
 ## ⚡ Performance Highlights
 
 ### **Validated Benchmarks**
