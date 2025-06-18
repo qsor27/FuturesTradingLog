@@ -30,13 +30,23 @@ A high-performance Flask-based application that transforms futures trading analy
 - **CI/CD Ready**: Complete test automation for reliable deployments
 
 ## Prerequisites
+
+### **For Docker Users (Recommended)**
+- Docker Desktop installed
+- NinjaTrader (for trade data export)
+
+### **For Development Setup**
 - Python 3.8+
-- Ninja Trader (for generating execution reports)
-- Git (optional, for cloning the repository)
+- Docker Desktop (optional)
+- Git (for cloning repository)
 
 ## Setup and Installation
 
-### 1. Clone the Repository
+> **💡 Most users should skip this section and go directly to [Docker Deployment](#-docker-deployment)**
+
+### Development Setup Only
+
+#### 1. Clone the Repository
 ```bash
 git clone https://github.com/qsor27/FuturesTradingLog.git
 cd FuturesTradingLog
@@ -146,9 +156,29 @@ flask run
 
 ## 🐳 Docker Deployment
 
-### **Cross-Platform Container Setup**
+### **Quick Start (No Code Download Required)**
+
+The easiest way to run the application is using the pre-built Docker image:
+
 ```bash
-# Clone and start with Docker
+# 1. Create a data directory for NinjaTrader exports
+mkdir "C:\TradingData"  # Windows
+# or mkdir ~/TradingData  # Linux/macOS
+
+# 2. Run the application
+docker run -p 5000:5000 \
+  -v "C:/TradingData:/app/data" \
+  -e AUTO_IMPORT_ENABLED=true \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
+
+# 3. Access application
+http://localhost:5000
+```
+
+### **For Development (Code Download Required)**
+```bash
+# Only needed if you want to modify the code
 git clone https://github.com/qsor27/FuturesTradingLog.git
 cd FuturesTradingLog
 
@@ -290,28 +320,32 @@ C:\TradingData\exports\           # Your host directory
 
 ### **Complete Setup Example**
 
-Here's a complete example for a Windows setup:
+Here's a complete example for a Windows setup (no code download required):
 
 ```bash
 # 1. Create export directory
-mkdir "C:\TradingData\exports"
+mkdir "C:\TradingData"
 
-# 2. Stop existing container (if running)
-docker stop futures-trading-log
-docker rm futures-trading-log
+# 2. Configure NinjaTrader to export to C:\TradingData
+# (see NinjaScript setup instructions)
 
-# 3. Start with shared volume (replace YOUR_HOST_IP)
-docker run -p 192.168.1.100:5000:5000 \
-  -v "C:/TradingData/exports:/app/data" \
-  -e FLASK_ENV=development \
-  -e DATA_DIR=/app/data \
+# 3. Stop existing container (if running)
+docker stop futures-trading-log 2>/dev/null
+docker rm futures-trading-log 2>/dev/null
+
+# 4. Start with shared volume
+docker run -p 5000:5000 \
+  -v "C:/TradingData:/app/data" \
   -e AUTO_IMPORT_ENABLED=true \
   --name futures-trading-log \
   ghcr.io/qsor27/futurestradinglog:main
 
-# 4. Access application
-# http://192.168.1.100:5000
+# 5. Access application
+# http://localhost:5000 (local access)
+# http://YOUR_COMPUTER_IP:5000 (network access)
 ```
+
+**That's it!** No code download, no building, no complex setup.
 
 ### **Environment Variables for Integration**
 
