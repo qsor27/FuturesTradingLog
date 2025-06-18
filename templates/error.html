@@ -11,7 +11,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.502 0L4.232 18.5c-.77.833.192 2.5 1.732 2.5z"></path>
                 </svg>
             </div>
-            <h1 class="text-xl font-semibold text-red-800 mb-2">Error</h1>
+            <h1 class="text-xl font-semibold text-red-800 mb-2">{{ error or "Error" }}</h1>
             <p class="text-red-600 mb-4">{{ message or "An error occurred while processing your request." }}</p>
             <a href="{{ url_for('main.index') }}" class="inline-block bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
                 Return to Home
