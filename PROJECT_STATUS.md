@@ -56,7 +56,7 @@ The Futures Trading Log has been successfully transformed from a basic trade log
 📁 Core Application Enhancement
 ├── data_service.py              # OHLC data management service
 ├── routes/chart_data.py         # Chart API endpoints
-└── futures_db.py               # Enhanced with OHLC schema
+└── TradingLog_db.py            # Enhanced with OHLC schema (renamed from futures_db.py)
 
 📁 Frontend Integration
 ├── static/js/PriceChart.js      # TradingView charts integration

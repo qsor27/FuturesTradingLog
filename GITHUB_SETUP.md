@@ -456,7 +456,7 @@ python run_tests.py --performance
 
 # Database optimization checks
 python -c "
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 with FuturesDB() as db:
     perf = db.analyze_performance()
     print('Performance metrics:', perf)

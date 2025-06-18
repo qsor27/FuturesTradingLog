@@ -61,6 +61,13 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - **Automated background gap-filling** every 15 minutes with extended 4-hour cycles
 - **Redis-based OHLC caching** with 2-week retention and intelligent cleanup
 
+**✅ Database & Template Improvements - June 2025**
+- **Database Rename**: `futures_db.py` → `TradingLog_db.py` for better project naming consistency
+- **Template Error Fixes**: Resolved NoneType formatting errors in statistics and positions pages
+- **Enhanced Error Handling**: Comprehensive fallback data for trade detail pages
+- **Route Consolidation**: Improved trade detail route handling with proper position data provision
+- **Jinja2 Template Fixes**: Corrected template syntax errors and variable handling
+
 **Enhanced Execution Processing & Settings Management - June 2025**
 - ✅ **Multi-Account Trade Separation**: Proper handling of NinjaTrader trade copying between accounts
 - ✅ **Advanced FIFO Position Tracking**: Accurate entry/exit matching using Entry/Exit markers (not just Buy/Sell)
@@ -120,7 +127,7 @@ docker run -p 5000:5000 futures-trading-log
 
 ### Core Components
 - **Flask Application** (`app.py`): Main entry point with blueprint registration and background services integration
-- **Database Layer** (`futures_db.py`): SQLite database with OHLC schema, aggressive indexing, and position analysis methods
+- **Database Layer** (`TradingLog_db.py`): SQLite database with OHLC schema, aggressive indexing, and position analysis methods
 - **Position Service** (`position_service.py`): **NEW** - Intelligent trade aggregation into position-based view with multiple grouping strategies
 - **Configuration** (`config.py`): Cross-platform environment-based configuration with Redis and caching settings
 - **Data Processing** (`ExecutionProcessing.py`): Ninja Trader CSV processing pipeline with multi-account support
@@ -208,7 +215,7 @@ docker run -p 5000:5000 futures-trading-log
 Application auto-creates these under `DATA_DIR`:
 ```
 data/
-├── db/              # SQLite database
+├── db/              # SQLite database (PERMANENT OHLC + Trade data)
 ├── config/          # instrument_multipliers.json  
 ├── charts/          # Chart storage
 ├── logs/            # Application logs (comprehensive logging)
@@ -219,6 +226,24 @@ data/
 │   └── flask.log    # Web server logs (rotating, 5MB max)
 └── archive/         # Processed CSV files
 ```
+
+### 🔍 **OHLC Data Storage Strategy**
+
+**Dual Storage Architecture for Optimal Performance:**
+- **SQLite** (`TradingLog_db.py`): **PRIMARY PERMANENT STORAGE** 
+  - All OHLC candle data stored forever
+  - Trade execution data and position history
+  - Survives container restarts/deletions
+  - 8 aggressive indexes for millisecond queries
+- **Redis Cache**: **PERFORMANCE LAYER** (optional)
+  - 14-day TTL for frequently accessed data
+  - 20-60x faster chart loading when available
+  - Graceful fallback to SQLite when Redis unavailable
+
+**Data Persistence Guarantee:**
+- ✅ **Historical market context** always available for trade analysis
+- ✅ **No data rebuilding** required - candles stored permanently
+- ✅ **Container-safe** - all critical data in mounted `data/` volume
 
 ### Ninja Trader Integration
 

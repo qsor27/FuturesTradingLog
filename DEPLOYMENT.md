@@ -300,7 +300,7 @@ tar -xzf futures-backup-20250117.tar.gz
 
 # Verify database after update
 docker exec futures-trading-log python -c "
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 with FuturesDB() as db:
     print('Database connection successful')
     print(f'Trade records: {db.get_trade_count()}')
@@ -334,7 +334,7 @@ docker stats futures-trading-log
 
 # Verify database indexes
 docker exec futures-trading-log python -c "
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 with FuturesDB() as db:
     db.cursor.execute('PRAGMA index_list(ohlc_data)')
     print('OHLC Indexes:', db.cursor.fetchall())
@@ -348,7 +348,7 @@ docker exec futures-trading-log find /app/data -type d
 
 # Check database integrity
 docker exec futures-trading-log python -c "
-from futures_db import FuturesDB
+from TradingLog_db import FuturesDB
 with FuturesDB() as db:
     db.cursor.execute('PRAGMA integrity_check')
     print('Database integrity:', db.cursor.fetchone()[0])
