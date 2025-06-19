@@ -148,5 +148,51 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+    
+    // Update timeframe availability for each chart
+    document.querySelectorAll('[data-chart]').forEach(async (container) => {
+        const instrument = container.dataset.instrument;
+        if (!instrument) return;
+        
+        try {
+            const response = await fetch(`/api/available-timeframes/${encodeURIComponent(instrument)}`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    console.log(`📊 Available timeframes for ${instrument}:`, data.available_timeframes);
+                    
+                    // Find the timeframe select for this chart
+                    const chartId = container.id;
+                    const timeframeSelect = document.querySelector(`[data-chart-id="${chartId}"].timeframe-select`);
+                    
+                    if (timeframeSelect) {
+                        // Mark unavailable timeframes
+                        Array.from(timeframeSelect.options).forEach(option => {
+                            const tf = option.value;
+                            const isAvailable = data.available_timeframes.hasOwnProperty(tf);
+                            
+                            if (!isAvailable) {
+                                option.disabled = true;
+                                option.textContent = `${tf} (no data)`;
+                                option.style.color = '#999';
+                            } else {
+                                option.disabled = false;
+                                option.textContent = `${tf} (${data.available_timeframes[tf]} records)`;
+                                option.style.color = '';
+                            }
+                        });
+                        
+                        // If current selection is not available, switch to best timeframe
+                        if (data.best_timeframe && !data.available_timeframes[timeframeSelect.value]) {
+                            timeframeSelect.value = data.best_timeframe;
+                            console.log(`🔄 Switched to best available timeframe: ${data.best_timeframe}`);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error checking timeframes for ${instrument}:`, error);
+        }
+    });
 });
 </script>

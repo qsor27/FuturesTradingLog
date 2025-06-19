@@ -131,18 +131,18 @@ class PriceChart {
             this.showLoading(true);
             console.log(`🔍 Loading chart data for ${this.options.instrument}, timeframe: ${this.options.timeframe}, days: ${this.options.days}`);
             
-            // Fetch OHLC data
-            const url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
+            // First try the requested timeframe
+            let url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
             console.log(`📡 Fetching from: ${url}`);
             
-            const response = await fetch(url);
+            let response = await fetch(url);
             console.log(`📊 Response status: ${response.status} ${response.statusText}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            const data = await response.json();
+            let data = await response.json();
             console.log(`📈 API Response:`, {
                 success: data.success,
                 count: data.count,
@@ -157,9 +157,43 @@ class PriceChart {
                 throw new Error(errorMsg);
             }
             
+            // If no data for requested timeframe, try to find alternative
             if (!data.data || data.data.length === 0) {
-                console.warn(`⚠️ No data returned for ${this.options.instrument}`);
-                this.showError(`No market data available for ${this.options.instrument} (${this.options.timeframe}, ${this.options.days} days)`);
+                console.warn(`⚠️ No data for ${this.options.timeframe}, checking available timeframes...`);
+                
+                try {
+                    const timeframesResponse = await fetch(`/api/available-timeframes/${this.options.instrument}`);
+                    if (timeframesResponse.ok) {
+                        const timeframesData = await timeframesResponse.json();
+                        console.log(`🔍 Available timeframes:`, timeframesData);
+                        
+                        if (timeframesData.success && timeframesData.best_timeframe) {
+                            console.log(`🔄 Switching from ${this.options.timeframe} to ${timeframesData.best_timeframe}`);
+                            
+                            // Update options and retry
+                            this.options.timeframe = timeframesData.best_timeframe;
+                            
+                            // Retry with best available timeframe
+                            url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
+                            response = await fetch(url);
+                            
+                            if (response.ok) {
+                                data = await response.json();
+                                console.log(`🎯 Fallback successful: ${data.count} records with ${this.options.timeframe}`);
+                                
+                                // Update UI to show we switched timeframes
+                                this.updateTimeframeSelect(this.options.timeframe);
+                            }
+                        }
+                    }
+                } catch (fallbackError) {
+                    console.error(`❌ Error checking available timeframes: ${fallbackError}`);
+                }
+            }
+            
+            if (!data.data || data.data.length === 0) {
+                console.warn(`⚠️ No data available for ${this.options.instrument} in any timeframe`);
+                this.showError(`No market data available for ${this.options.instrument}. Try updating data or check a different instrument.`);
                 return;
             }
             
@@ -388,6 +422,15 @@ class PriceChart {
         this.options.instrument = instrument;
         this.clearMarkers();
         this.loadData();
+    }
+    
+    updateTimeframeSelect(timeframe) {
+        // Update the timeframe select dropdown to reflect the current timeframe
+        const timeframeSelect = document.querySelector(`[data-chart-id="${this.containerId}"].timeframe-select`);
+        if (timeframeSelect) {
+            timeframeSelect.value = timeframe;
+            console.log(`🔄 Updated timeframe select to: ${timeframe}`);
+        }
     }
     
     showLoading(show) {

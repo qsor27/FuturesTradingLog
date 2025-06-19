@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chart Test - Direct Data</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #chartContainer {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #333;
+            margin: 20px 0;
+            background: #1f1f1f;
+        }
+        .info {
+            background: #333;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .log {
+            background: #222;
+            color: #ccc;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chart Test - Direct Implementation</h1>
+    
+    <div class="info">
+        <button onclick="testWithSampleData()">Test with Sample Data</button>
+        <button onclick="testWithAPIData()">Test with API Data</button>
+        <button onclick="clearChart()">Clear Chart</button>
+    </div>
+    
+    <div id="chartContainer"></div>
+    
+    <div class="info">
+        <h3>Debug Log:</h3>
+        <div id="debugLog" class="log">Ready...</div>
+    </div>
+
+    <script>
+        let chart = null;
+        let candlestickSeries = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('debugLog');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function initChart() {
+            const container = document.getElementById('chartContainer');
+            
+            if (chart) {
+                chart.remove();
+            }
+            
+            try {
+                chart = LightweightCharts.createChart(container, {
+                    width: container.clientWidth,
+                    height: 400,
+                    layout: {
+                        background: { color: '#1a1a1a' },
+                        textColor: '#e5e5e5',
+                    },
+                    grid: {
+                        vertLines: { color: '#333333' },
+                        horzLines: { color: '#333333' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                    },
+                    rightPriceScale: {
+                        borderColor: '#404040',
+                    },
+                    timeScale: {
+                        borderColor: '#404040',
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                });
+                
+                candlestickSeries = chart.addCandlestickSeries({
+                    upColor: '#4CAF50',
+                    downColor: '#F44336',
+                    borderDownColor: '#F44336',
+                    borderUpColor: '#4CAF50',
+                    wickDownColor: '#F44336',
+                    wickUpColor: '#4CAF50',
+                });
+                
+                log('Chart initialized successfully');
+                return true;
+            } catch (error) {
+                log(`Chart initialization error: ${error.message}`);
+                return false;
+            }
+        }
+        
+        function testWithSampleData() {
+            log('Testing with hardcoded sample data...');
+            
+            if (!initChart()) return;
+            
+            // Create sample data with current timestamps
+            const now = Math.floor(Date.now() / 1000);
+            const oneHour = 3600;
+            
+            const sampleData = [];
+            for (let i = 0; i < 24; i++) {
+                const timestamp = now - (24 - i) * oneHour;
+                const basePrice = 22000 + Math.sin(i / 4) * 100;
+                const variation = Math.random() * 20 - 10;
+                
+                const open = basePrice + variation;
+                const close = basePrice + variation + (Math.random() * 20 - 10);
+                const high = Math.max(open, close) + Math.random() * 10;
+                const low = Math.min(open, close) - Math.random() * 10;
+                
+                sampleData.push({
+                    time: timestamp,
+                    open: open,
+                    high: high,
+                    low: low,
+                    close: close
+                });
+            }
+            
+            log(`Generated ${sampleData.length} sample data points`);
+            log(`Sample point: ${JSON.stringify(sampleData[0])}`);
+            
+            try {
+                candlestickSeries.setData(sampleData);
+                chart.timeScale().fitContent();
+                log('Sample data loaded successfully!');
+            } catch (error) {
+                log(`Error loading sample data: ${error.message}`);
+            }
+        }
+        
+        async function testWithAPIData() {
+            log('Testing with API data...');
+            
+            if (!initChart()) return;
+            
+            try {
+                const response = await fetch('/api/chart-data/MNQ?timeframe=1h&days=3');
+                log(`API response status: ${response.status}`);
+                
+                const data = await response.json();
+                log(`API response: success=${data.success}, count=${data.count}`);
+                
+                if (!data.success || !data.data || data.data.length === 0) {
+                    log('No valid data from API');
+                    return;
+                }
+                
+                log(`Processing ${data.data.length} API data points...`);
+                log(`First API point: ${JSON.stringify(data.data[0])}`);
+                
+                // Convert the API data format
+                const chartData = data.data.map(item => ({
+                    time: item.time,
+                    open: parseFloat(item.open),
+                    high: parseFloat(item.high),
+                    low: parseFloat(item.low),
+                    close: parseFloat(item.close)
+                }));
+                
+                log(`Converted data sample: ${JSON.stringify(chartData[0])}`);
+                
+                candlestickSeries.setData(chartData);
+                chart.timeScale().fitContent();
+                log('API data loaded successfully!');
+                
+            } catch (error) {
+                log(`API test error: ${error.message}`);
+            }
+        }
+        
+        function clearChart() {
+            if (candlestickSeries) {
+                candlestickSeries.setData([]);
+                log('Chart cleared');
+            }
+        }
+        
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            log('Page loaded');
+            log('TradingView version: ' + (typeof LightweightCharts !== 'undefined' ? 'loaded' : 'not loaded'));
+            log('Ready for testing...');
+        });
+    </script>
+</body>
+</html>

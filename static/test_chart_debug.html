@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chart Debug Test</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #chartContainer {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #333;
+            margin: 20px 0;
+        }
+        .info {
+            background: #333;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chart Debug Test</h1>
+    
+    <div class="info">
+        <strong>Chart Data API Test:</strong>
+        <button onclick="testAPICall()">Test API Call</button>
+        <button onclick="loadChart()">Load Chart</button>
+        <button onclick="clearChart()">Clear Chart</button>
+    </div>
+    
+    <div id="chartContainer"></div>
+    
+    <div class="info">
+        <h3>Debug Info:</h3>
+        <div id="debugInfo">Ready...</div>
+    </div>
+    
+    <div class="info">
+        <h3>API Response:</h3>
+        <pre id="apiResponse">No data loaded yet...</pre>
+    </div>
+
+    <script>
+        let chart = null;
+        let candlestickSeries = null;
+        
+        function log(message) {
+            const debugDiv = document.getElementById('debugInfo');
+            const timestamp = new Date().toLocaleTimeString();
+            debugDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+            console.log(message);
+        }
+        
+        function initChart() {
+            const container = document.getElementById('chartContainer');
+            
+            if (chart) {
+                chart.remove();
+            }
+            
+            chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 400,
+                layout: {
+                    background: { color: '#1a1a1a' },
+                    textColor: '#e5e5e5',
+                },
+                grid: {
+                    vertLines: { color: '#333333' },
+                    horzLines: { color: '#333333' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: '#404040',
+                },
+                timeScale: {
+                    borderColor: '#404040',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            });
+            
+            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#4CAF50',
+                downColor: '#F44336',
+                borderDownColor: '#F44336',
+                borderUpColor: '#4CAF50',
+                wickDownColor: '#F44336',
+                wickUpColor: '#4CAF50',
+            });
+            
+            log('Chart initialized successfully');
+        }
+        
+        async function testAPICall() {
+            try {
+                log('Testing API call to /api/chart-data/MNQ...');
+                
+                const response = await fetch('/api/chart-data/MNQ?timeframe=1h&days=7');
+                log(`API response status: ${response.status}`);
+                
+                const data = await response.json();
+                log(`API response success: ${data.success}`);
+                log(`Data count: ${data.count}`);
+                
+                document.getElementById('apiResponse').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.success && data.data && data.data.length > 0) {
+                    log(`Sample data point: ${JSON.stringify(data.data[0])}`);
+                    return data.data;
+                } else {
+                    log('No valid data returned from API');
+                    return null;
+                }
+                
+            } catch (error) {
+                log(`API test error: ${error.message}`);
+                return null;
+            }
+        }
+        
+        async function loadChart() {
+            try {
+                log('Starting chart load process...');
+                
+                if (!chart) {
+                    initChart();
+                }
+                
+                const data = await testAPICall();
+                
+                if (!data || data.length === 0) {
+                    log('No data to display in chart');
+                    return;
+                }
+                
+                log(`Processing ${data.length} data points for chart...`);
+                
+                // Process data for TradingView format
+                const chartData = data.map(item => ({
+                    time: item.time,
+                    open: item.open,
+                    high: item.high,
+                    low: item.low,
+                    close: item.close
+                }));
+                
+                log(`Sample processed data: ${JSON.stringify(chartData[0])}`);
+                
+                // Set data to chart
+                candlestickSeries.setData(chartData);
+                
+                // Fit content
+                chart.timeScale().fitContent();
+                
+                log(`Chart loaded successfully with ${chartData.length} candles`);
+                
+            } catch (error) {
+                log(`Chart load error: ${error.message}`);
+                console.error('Chart load error:', error);
+            }
+        }
+        
+        function clearChart() {
+            if (candlestickSeries) {
+                candlestickSeries.setData([]);
+                log('Chart cleared');
+            }
+        }
+        
+        // Auto-initialize chart on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            log('Page loaded, initializing chart...');
+            initChart();
+        });
+    </script>
+</body>
+</html>

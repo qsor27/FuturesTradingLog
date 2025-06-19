@@ -196,3 +196,39 @@ def get_available_instruments():
             'success': False,
             'error': str(e)
         }), 500
+
+@chart_data_bp.route('/api/available-timeframes/<instrument>')
+def get_available_timeframes(instrument):
+    """Get available timeframes for an instrument with data counts"""
+    try:
+        timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+        available = {}
+        
+        with FuturesDB() as db:
+            for tf in timeframes:
+                count = db.get_ohlc_count(instrument, tf)
+                if count > 0:
+                    available[tf] = count
+        
+        # Find best fallback timeframe (prefer 1h, then 1d, then others)
+        fallback_order = ['1h', '1d', '4h', '15m', '5m', '1m']
+        best_timeframe = None
+        for tf in fallback_order:
+            if tf in available:
+                best_timeframe = tf
+                break
+        
+        return jsonify({
+            'success': True,
+            'instrument': instrument,
+            'available_timeframes': available,
+            'best_timeframe': best_timeframe,
+            'total_timeframes': len(available)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting available timeframes for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
