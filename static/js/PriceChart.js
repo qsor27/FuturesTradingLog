@@ -32,6 +32,11 @@ class PriceChart {
             },
             rightPriceScale: {
                 borderColor: '#404040',
+                autoScale: true,
+                scaleMargins: {
+                    top: 0.1,
+                    bottom: 0.1,
+                },
             },
             timeScale: {
                 borderColor: '#404040',
@@ -45,6 +50,7 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
+        this.volumeVisible = true; // Default volume visibility
         
         this.init();
     }
@@ -81,20 +87,24 @@ class PriceChart {
             });
             console.log('✅ Candlestick series added');
             
-            // Create volume series
-            console.log('📊 Adding volume series...');
-            this.volumeSeries = this.chart.addHistogramSeries({
-                color: '#26a69a',
-                priceFormat: {
-                    type: 'volume',
-                },
-                priceScaleId: 'left',
-                scaleMargins: {
-                    top: 0.8,
-                    bottom: 0,
-                },
-            });
-            console.log('✅ Volume series added');
+            // Create volume series (only if initially visible)
+            if (this.volumeVisible) {
+                console.log('📊 Adding volume series...');
+                this.volumeSeries = this.chart.addHistogramSeries({
+                    color: '#26a69a',
+                    priceFormat: {
+                        type: 'volume',
+                    },
+                    priceScaleId: 'left',
+                    scaleMargins: {
+                        top: 0.8,
+                        bottom: 0,
+                    },
+                });
+                console.log('✅ Volume series added');
+            } else {
+                console.log('📊 Volume series skipped (hidden by default)');
+            }
             
             // Handle resize
             console.log('🔄 Setting up resize handler...');
@@ -271,11 +281,18 @@ class PriceChart {
         }
         
         try {
-            // Set data to series
+            // Set data to candlestick series
             this.candlestickSeries.setData(candlestickData);
-            this.volumeSeries.setData(volumeData);
             
-            // Fit content to show all data
+            // Cache volume data for toggle functionality
+            this.cachedVolumeData = volumeData;
+            
+            // Set volume data only if volume is visible
+            if (this.volumeVisible && this.volumeSeries) {
+                this.volumeSeries.setData(volumeData);
+            }
+            
+            // Fit content to show all data with auto-scaling
             this.chart.timeScale().fitContent();
             
             console.log(`Successfully loaded ${candlestickData.length} candles for ${this.options.instrument}`);
@@ -424,6 +441,34 @@ class PriceChart {
         this.loadData();
     }
     
+    toggleVolume(visible) {
+        this.volumeVisible = visible;
+        if (this.volumeSeries) {
+            this.chart.removeSeries(this.volumeSeries);
+            this.volumeSeries = null;
+        }
+        
+        if (visible) {
+            // Re-create volume series
+            this.volumeSeries = this.chart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'volume',
+                },
+                priceScaleId: 'left',
+                scaleMargins: {
+                    top: 0.8,
+                    bottom: 0,
+                },
+            });
+            
+            // Re-load volume data if we have it
+            if (this.cachedVolumeData) {
+                this.volumeSeries.setData(this.cachedVolumeData);
+            }
+        }
+    }
+    
     updateTimeframeSelect(timeframe) {
         // Update the timeframe select dropdown to reflect the current timeframe
         const timeframeSelect = document.querySelector(`[data-chart-id="${this.containerId}"].timeframe-select`);
@@ -511,6 +556,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         try {
             const chart = new PriceChart(container.id, options);
+            
+            // Register chart instance globally for external access
+            if (!window.chartInstances) {
+                window.chartInstances = [];
+            }
+            window.chartInstances.push(chart);
             
             // Store chart instance on container for external access
             container.chartInstance = chart;

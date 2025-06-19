@@ -276,7 +276,15 @@
 
     <!-- Market Context Chart -->
     <div class="chart-section">
-        <h2>Market Context - {{ position.instrument }}</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h2>Market Context - {{ position.instrument }}</h2>
+            <div class="chart-controls">
+                <label style="display: flex; align-items: center; color: #e5e5e5; font-size: 14px; cursor: pointer;">
+                    <input type="checkbox" id="volumeToggle" checked style="margin-right: 8px; transform: scale(1.2);">
+                    Show Volume
+                </label>
+            </div>
+        </div>
         <p style="color: #9ca3af; margin-bottom: 20px;">
             OHLC price chart showing market context during position lifecycle
         </p>
@@ -394,5 +402,27 @@
 
     <!-- Load PriceChart.js after the library -->
     <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
+    
+    <script>
+        // Handle volume toggle
+        document.addEventListener('DOMContentLoaded', function() {
+            const volumeToggle = document.getElementById('volumeToggle');
+            
+            if (volumeToggle) {
+                volumeToggle.addEventListener('change', function() {
+                    // Find the chart instance and toggle volume
+                    const chartContainer = document.getElementById('positionChart');
+                    if (chartContainer && window.chartInstances) {
+                        const chartInstance = window.chartInstances.find(chart => 
+                            chart.container === chartContainer
+                        );
+                        if (chartInstance) {
+                            chartInstance.toggleVolume(this.checked);
+                        }
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

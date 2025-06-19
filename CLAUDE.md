@@ -18,6 +18,16 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - ✅ **Re-import Functionality**: Added ability to re-import deleted trades from archived CSV files
 - ✅ **Enhanced Chart Styling**: Dark-themed chart components with proper color schemes for improved visibility
 
+**Smart Chart System & Timeframe Detection - June 2025** ✅ **COMPLETED**
+- ✅ **Automatic Timeframe Fallback**: Charts intelligently detect when requested timeframe has no data and automatically switch to best available
+- ✅ **Smart Timeframe Priority**: Preference order 1h → 1d → 4h → 15m → 5m → 1m ensures optimal chart display
+- ✅ **Enhanced UI Indicators**: Timeframe dropdowns show data availability with record counts (e.g., "1h (120 records)")
+- ✅ **Disabled State Management**: Unavailable timeframes are grayed out with "(no data)" indicators
+- ✅ **Script Loading Order Fix**: TradingView Lightweight Charts library now loads before PriceChart.js preventing initialization errors
+- ✅ **Comprehensive Debugging**: Detailed console logging throughout chart initialization for troubleshooting
+- ✅ **API Endpoint**: `/api/available-timeframes/<instrument>` provides real-time timeframe availability data
+- ✅ **Zero Configuration**: Charts work automatically with whatever OHLC data is available for any instrument
+
 **Position-Based Trading System - June 2025** ✅ **COMPLETED**
 - ✅ **Position Aggregation Engine**: Complete rewrite of trade processing to show positions instead of individual executions
 - ✅ **Intelligent Trade Grouping**: Groups related executions into complete position lifecycle (0 → +/- → 0)
@@ -57,9 +67,12 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - `/api/chart-data/<instrument>` - **High-performance OHLC data API** with automatic gap filling and Redis caching
 - `/api/trade-markers/<trade_id>` - **Trade execution overlay API** for chart markers with P&L context
 - `/api/update-data/<instrument>` - **Manual data refresh endpoint** from yfinance with rate limiting
+- `/api/available-timeframes/<instrument>` - **Smart timeframe detection API** with data availability and auto-fallback
 - **Embedded market context charts** in trade detail pages with synchronized highlighting
-- **Complete timeframe support** (1m, 5m, 15m, 1h, 4h, 1d) with intelligent switching
+- **Complete timeframe support** (1m, 5m, 15m, 1h, 4h, 1d) with intelligent switching and automatic fallback
 - **Smart backfilling system** with market hours awareness (Sun 3PM PT - Fri 2PM PT)
+- **Adaptive timeframe selection** - automatically uses best available timeframe when requested timeframe has no data
+- **Enhanced UI indicators** - shows data availability and record counts for each timeframe
 
 **✅ Enhanced Position Detail Features:**
 - `/trade/<id>` - Enhanced position detail pages with **comprehensive execution breakdown** and interactive charts

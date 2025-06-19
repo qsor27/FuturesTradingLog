@@ -2,6 +2,34 @@
 
 All notable changes to the Futures Trading Log project are documented in this file.
 
+## [2.1.0] - 2025-06-19 - Smart Chart System Release
+
+### 🎉 Major Chart System Improvements
+
+#### **Smart Timeframe Detection**
+- **Automatic Timeframe Fallback**: Charts intelligently detect when requested timeframe has no data and automatically switch to best available timeframe
+- **Intelligent Priority Order**: Smart fallback sequence (1h → 1d → 4h → 15m → 5m → 1m) ensures optimal chart display
+- **New API Endpoint**: `/api/available-timeframes/<instrument>` provides real-time timeframe availability data
+- **Zero Configuration**: Charts work automatically with whatever OHLC data is available for any instrument
+
+#### **Enhanced User Interface**
+- **Data Availability Indicators**: Timeframe dropdowns show record counts (e.g., "1h (120 records)")
+- **Disabled State Management**: Unavailable timeframes are grayed out with "(no data)" indicators
+- **Automatic UI Updates**: Chart controls update when timeframe fallback occurs
+- **Comprehensive Error Handling**: Clear user feedback when data issues occur
+
+#### **Technical Fixes**
+- **Script Loading Order Fix**: TradingView Lightweight Charts library now loads before PriceChart.js preventing initialization errors
+- **Comprehensive Debugging**: Detailed console logging throughout chart initialization pipeline for troubleshooting
+- **Robust Error Recovery**: Charts gracefully handle missing data scenarios
+- **API Response Validation**: Enhanced data validation and filtering for chart compatibility
+
+### 🐛 Bug Fixes
+- **Chart Initialization**: Fixed TradingView library undefined errors due to script loading order
+- **Empty Chart Display**: Resolved candles not displaying when timeframe has no data
+- **UI Synchronization**: Fixed timeframe dropdown not updating when automatic fallback occurs
+- **Data Validation**: Added comprehensive OHLC data validation to prevent chart rendering errors
+
 ## [2.0.0] - 2025-01-17 - OHLC Chart Integration Release
 
 ### 🎉 Major Features Added

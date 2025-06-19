@@ -12,11 +12,14 @@ A high-performance Flask-based application that transforms futures trading analy
 - **Professional Dark Theme**: Optimized color scheme for extended trading analysis sessions
 - **Interactive Position Dashboard**: Comprehensive position metrics with compact filter interface
 
-### **📈 Interactive Price Charts**
+### **📈 Smart Interactive Price Charts**
 - **TradingView Lightweight Charts**: Professional candlestick visualization with dark theme
+- **Intelligent Timeframe Detection**: Automatically uses best available timeframe when requested timeframe has no data
+- **Enhanced UI Indicators**: Shows data availability and record counts for each timeframe (e.g., "1h (120 records)")
 - **Trade Execution Overlays**: See your entries/exits on actual price action
-- **Multi-Timeframe Analysis**: 1m, 5m, 15m, 1h, 4h, 1d intervals
+- **Multi-Timeframe Analysis**: 1m, 5m, 15m, 1h, 4h, 1d intervals with automatic fallback
 - **Real-time Market Data**: Free futures data via yfinance integration
+- **Zero Configuration**: Charts work automatically with whatever OHLC data is available
 
 ### **⚡ High-Performance Database**
 - **15-50ms Chart Loading**: 100x faster than traditional implementations
