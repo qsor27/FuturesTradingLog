@@ -127,6 +127,23 @@
             color: #9ca3af;
         }
         
+        .btn-danger {
+            background-color: #dc2626;
+            color: #ffffff;
+            border: 1px solid #b91c1c;
+        }
+        
+        .btn-danger:hover {
+            background-color: #b91c1c;
+        }
+        
+        .btn-danger:disabled {
+            background-color: #4a1a1a;
+            color: #6b7280;
+            border: 1px solid #374151;
+            cursor: not-allowed;
+        }
+        
         /* Pagination */
         .pagination {
             background-color: #2a2a2a;
@@ -150,6 +167,20 @@
         
         label {
             color: #d1d5db;
+        }
+        
+        /* Checkbox styling for dark mode */
+        input[type="checkbox"] {
+            accent-color: #4ade80;
+            width: 16px;
+            height: 16px;
+        }
+        
+        .bulk-actions {
+            background-color: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #404040;
         }
     </style>
 </head>
@@ -260,11 +291,20 @@
         </form>
     </div>
 
+    <!-- Bulk Actions -->
+    <div class="bulk-actions" style="margin-bottom: 15px;">
+        <button id="deleteSelectedBtn" class="btn btn-danger" onclick="deleteSelectedPositions()" disabled>
+            Delete Selected Positions
+        </button>
+        <span id="selectedCount" style="margin-left: 10px; color: #9ca3af;">0 positions selected</span>
+    </div>
+
     <!-- Positions Table -->
     <div class="table-container">
         <table class="data-table">
             <thead>
                 <tr>
+                    <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
                     <th>Status</th>
                     <th>Instrument</th>
                     <th>Type</th>
@@ -285,6 +325,7 @@
             <tbody>
                 {% for position in positions %}
                 <tr>
+                    <td><input type="checkbox" class="position-checkbox" value="{{ position.id }}" onchange="updateDeleteButton()"></td>
                     <td>
                         <span class="position-status status-{{ position.position_status }}">
                             {{ position.position_status.title() }}
@@ -378,6 +419,87 @@
             .finally(() => {
                 btn.disabled = false;
                 btn.textContent = 'Rebuild Positions';
+            });
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.position-checkbox');
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+            
+            updateDeleteButton();
+        }
+
+        function updateDeleteButton() {
+            const checkboxes = document.querySelectorAll('.position-checkbox:checked');
+            const deleteBtn = document.getElementById('deleteSelectedBtn');
+            const countSpan = document.getElementById('selectedCount');
+            
+            const count = checkboxes.length;
+            deleteBtn.disabled = count === 0;
+            countSpan.textContent = `${count} position${count !== 1 ? 's' : ''} selected`;
+            
+            // Update select all checkbox state
+            const allCheckboxes = document.querySelectorAll('.position-checkbox');
+            const selectAll = document.getElementById('selectAll');
+            if (count === 0) {
+                selectAll.indeterminate = false;
+                selectAll.checked = false;
+            } else if (count === allCheckboxes.length) {
+                selectAll.indeterminate = false;
+                selectAll.checked = true;
+            } else {
+                selectAll.indeterminate = true;
+                selectAll.checked = false;
+            }
+        }
+
+        function deleteSelectedPositions() {
+            const checkboxes = document.querySelectorAll('.position-checkbox:checked');
+            const positionIds = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (positionIds.length === 0) {
+                alert('No positions selected for deletion.');
+                return;
+            }
+            
+            const confirmation = confirm(`Are you sure you want to delete ${positionIds.length} position${positionIds.length !== 1 ? 's' : ''}? This action cannot be undone.`);
+            
+            if (!confirmation) {
+                return;
+            }
+            
+            const deleteBtn = document.getElementById('deleteSelectedBtn');
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = 'Deleting...';
+            
+            fetch('{{ url_for("positions.delete_positions") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    position_ids: positionIds
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(`Successfully deleted ${data.deleted_count} position${data.deleted_count !== 1 ? 's' : ''}.`);
+                    window.location.reload();
+                } else {
+                    alert(`Error deleting positions: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                alert(`Error: ${error.message}`);
+            })
+            .finally(() => {
+                deleteBtn.disabled = false;
+                deleteBtn.textContent = 'Delete Selected Positions';
             });
         }
     </script>

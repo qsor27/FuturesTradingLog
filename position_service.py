@@ -570,3 +570,68 @@ class PositionService:
         except Exception as e:
             logger.error(f"Error getting position statistics: {e}")
             return {}
+    
+    def delete_positions(self, position_ids: List[int]) -> int:
+        """Delete positions and their associated executions"""
+        try:
+            if not position_ids:
+                return 0
+            
+            # First, get the trade IDs associated with these positions
+            placeholders = ','.join(['?'] * len(position_ids))
+            
+            self.cursor.execute(f"""
+                SELECT trade_id FROM position_executions 
+                WHERE position_id IN ({placeholders})
+            """, position_ids)
+            
+            trade_ids = [row[0] for row in self.cursor.fetchall()]
+            
+            # Delete from position_executions table
+            self.cursor.execute(f"""
+                DELETE FROM position_executions 
+                WHERE position_id IN ({placeholders})
+            """, position_ids)
+            
+            # Delete from positions table
+            self.cursor.execute(f"""
+                DELETE FROM positions 
+                WHERE id IN ({placeholders})
+            """, position_ids)
+            
+            deleted_positions = self.cursor.rowcount
+            
+            # Optionally delete the associated trades if they're no longer linked to any positions
+            # This is a design choice - you might want to keep the raw trades for audit purposes
+            if trade_ids:
+                trade_placeholders = ','.join(['?'] * len(trade_ids))
+                
+                # Check which trades are still linked to other positions
+                self.cursor.execute(f"""
+                    SELECT DISTINCT trade_id FROM position_executions 
+                    WHERE trade_id IN ({trade_placeholders})
+                """, trade_ids)
+                
+                still_linked_trades = [row[0] for row in self.cursor.fetchall()]
+                
+                # Delete trades that are no longer linked to any positions
+                orphaned_trades = [tid for tid in trade_ids if tid not in still_linked_trades]
+                
+                if orphaned_trades:
+                    orphaned_placeholders = ','.join(['?'] * len(orphaned_trades))
+                    self.cursor.execute(f"""
+                        DELETE FROM trades 
+                        WHERE id IN ({orphaned_placeholders})
+                    """, orphaned_trades)
+                    
+                    logger.info(f"Deleted {len(orphaned_trades)} orphaned trades along with positions")
+            
+            self.conn.commit()
+            logger.info(f"Successfully deleted {deleted_positions} positions and their executions")
+            
+            return deleted_positions
+            
+        except Exception as e:
+            logger.error(f"Error deleting positions: {e}")
+            self.conn.rollback()
+            return 0

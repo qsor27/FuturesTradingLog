@@ -271,3 +271,49 @@ def debug_account_instrument(account, instrument):
         'positions_built': len(positions),
         'positions': positions
     })
+
+
+@positions_bp.route('/delete', methods=['POST'])
+def delete_positions():
+    """Delete selected positions and their associated executions"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'position_ids' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'No position IDs provided'
+            }), 400
+        
+        position_ids = data['position_ids']
+        
+        if not position_ids:
+            return jsonify({
+                'success': False,
+                'message': 'No position IDs provided'
+            }), 400
+        
+        # Convert to integers and validate
+        try:
+            position_ids = [int(pid) for pid in position_ids]
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'message': 'Invalid position ID format'
+            }), 400
+        
+        with PositionService() as pos_service:
+            deleted_count = pos_service.delete_positions(position_ids)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} position{"s" if deleted_count != 1 else ""}',
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting positions: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting positions: {str(e)}'
+        }), 500
