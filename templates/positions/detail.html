@@ -4,8 +4,7 @@
     <title>Position Details - {{ position.instrument }} {{ position.position_type }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <!-- TradingView Lightweight Charts Library - must load before PriceChart.js -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         /* Dark mode compatible styling */
         body {
@@ -392,5 +391,8 @@
     <div style="margin-top: 30px; text-align: center;">
         <a href="{{ url_for('positions.positions_dashboard') }}" class="btn">← Back to Positions Dashboard</a>
     </div>
+
+    <!-- Load PriceChart.js after the library -->
+    <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
 </body>
 </html>
