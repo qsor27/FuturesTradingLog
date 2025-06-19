@@ -5,25 +5,31 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <style>
+        /* Dark mode compatible styling */
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+        }
+        
         .position-status {
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
             font-weight: bold;
         }
-        .status-open { background-color: #fef3c7; color: #92400e; }
-        .status-closed { background-color: #d1fae5; color: #065f46; }
-        .pnl-positive { color: #059669; font-weight: bold; }
-        .pnl-negative { color: #dc2626; font-weight: bold; }
-        .pnl-neutral { color: #6b7280; }
+        .status-open { background-color: #4a4a00; color: #ffff80; }
+        .status-closed { background-color: #1a4a1a; color: #80ff80; }
+        .pnl-positive { color: #4ade80; font-weight: bold; }
+        .pnl-negative { color: #f87171; font-weight: bold; }
+        .pnl-neutral { color: #9ca3af; }
         .position-type {
             padding: 2px 6px;
             border-radius: 3px;
             font-size: 11px;
             font-weight: bold;
         }
-        .type-long { background-color: #dcfce7; color: #166534; }
-        .type-short { background-color: #fef2f2; color: #991b1b; }
+        .type-long { background-color: #1a4a1a; color: #80ff80; }
+        .type-short { background-color: #4a1a1a; color: #ff8080; }
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -31,27 +37,119 @@
             margin-bottom: 30px;
         }
         .stat-card {
-            background: white;
+            background: #2a2a2a;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             text-align: center;
+            border: 1px solid #404040;
         }
         .stat-value {
             font-size: 24px;
             font-weight: bold;
             margin-bottom: 5px;
+            color: #e5e5e5;
         }
         .stat-label {
-            color: #6b7280;
+            color: #9ca3af;
             font-size: 14px;
         }
         .rebuild-section {
-            background: #f9fafb;
+            background: #2a2a2a;
             padding: 20px;
             border-radius: 8px;
             margin-bottom: 20px;
-            border: 1px solid #e5e7eb;
+            border: 1px solid #404040;
+        }
+        
+        /* Header styling */
+        .header {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+        }
+        
+        /* Table styling */
+        .table-container {
+            background-color: #1f1f1f;
+            border: 1px solid #404040;
+            border-radius: 8px;
+        }
+        
+        .data-table {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+        }
+        
+        .data-table th {
+            background-color: #2a2a2a;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+        }
+        
+        .data-table td {
+            border-bottom: 1px solid #333333;
+        }
+        
+        .data-table tr:hover {
+            background-color: #333333;
+        }
+        
+        /* Filters section */
+        .filters-section {
+            background-color: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .filters-form select,
+        .filters-form input {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border: 1px solid #404040;
+        }
+        
+        /* Button styling */
+        .btn {
+            background-color: #404040;
+            color: #e5e5e5;
+            border: 1px solid #606060;
+        }
+        
+        .btn:hover {
+            background-color: #505050;
+        }
+        
+        .btn-secondary {
+            background-color: #2a2a2a;
+            color: #9ca3af;
+        }
+        
+        /* Pagination */
+        .pagination {
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #404040;
+        }
+        
+        .page-info {
+            color: #9ca3af;
+        }
+        
+        /* Additional dark mode styling */
+        h1, h3 {
+            color: #e5e5e5;
+        }
+        
+        p {
+            color: #d1d5db;
+        }
+        
+        label {
+            color: #d1d5db;
         }
     </style>
 </head>
@@ -199,13 +297,13 @@
                         </span>
                     </td>
                     <td>{{ position.account }}</td>
-                    <td>{{ position.entry_time.split(' ')[0] if position.entry_time else 'N/A' }}</td>
-                    <td>{{ position.exit_time.split(' ')[0] if position.exit_time else '-' }}</td>
+                    <td>{{ position.entry_time if position.entry_time else 'N/A' }}</td>
+                    <td>{{ position.exit_time if position.exit_time else '-' }}</td>
                     <td>{{ position.total_quantity }}</td>
-                    <td>${{ "%.2f"|format(position.average_entry_price) if position.average_entry_price is not none else "-" }}</td>
+                    <td>{{ "%.2f"|format(position.average_entry_price) if position.average_entry_price is not none else "-" }}</td>
                     <td>
                         {% if position.average_exit_price %}
-                            ${{ "%.2f"|format(position.average_exit_price) }}
+                            {{ "%.2f"|format(position.average_exit_price) }}
                         {% else %}
                             -
                         {% endif %}

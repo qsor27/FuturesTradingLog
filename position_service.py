@@ -382,9 +382,17 @@ class PositionService:
         if position['position_status'] == 'closed':
             total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in executions)
             position['average_exit_price'] = total_exit_value / total_quantity if total_quantity > 0 else 0
+            
+            # Calculate position-level points P&L using average prices
+            if position['position_type'] == 'Long':
+                position['total_points_pnl'] = position['average_exit_price'] - position['average_entry_price']
+            else:  # Short
+                position['total_points_pnl'] = position['average_entry_price'] - position['average_exit_price']
+        else:
+            # Open position - no points P&L yet
+            position['total_points_pnl'] = 0
         
-        # Sum P&L and commission
-        position['total_points_pnl'] = sum(ex['points_gain_loss'] for ex in executions)
+        # Sum P&L and commission from individual executions
         position['total_dollars_pnl'] = sum(ex['dollars_gain_loss'] for ex in executions)
         position['total_commission'] = sum(ex['commission'] for ex in executions)
         position['execution_count'] = len(executions)
