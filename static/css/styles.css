@@ -1,36 +1,20 @@
-/* Base styles */
+/* Base styles - Force dark theme */
 :root {
-    --bg-color: #ffffff;
-    --text-color: #000000;
-    --border-color: #ddd;
-    --table-header-bg: #f2f2f2;
-    --link-color: #0066cc;
-    --positive-bg: rgba(72, 187, 120, 0.1);
-    --negative-bg: rgba(245, 101, 101, 0.1);
-    --positive-text: #48bb78;
-    --negative-text: #f56565;
-    --btn-primary-bg: #007bff;
-    --btn-primary-hover: #0056b3;
-    --btn-secondary-bg: #6c757d;
-    --btn-secondary-hover: #545b62;
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg-color: #1a1a1a;
-        --text-color: #e0e0e0;
-        --border-color: #404040;
-        --table-header-bg: #2d2d2d;
-        --link-color: #66b3ff;
-        --positive-bg: rgba(72, 187, 120, 0.2);
-        --negative-bg: rgba(245, 101, 101, 0.2);
-        --positive-text: #68d391;
-        --negative-text: #fc8181;
-        --btn-primary-bg: #2563eb;
-        --btn-primary-hover: #1d4ed8;
-        --btn-secondary-bg: #4b5563;
-        --btn-secondary-hover: #374151;
-    }
+    --bg-color: #1a1a1a;
+    --text-color: #e5e5e5;
+    --border-color: #404040;
+    --table-header-bg: #2a2a2a;
+    --link-color: #66b3ff;
+    --positive-bg: rgba(74, 222, 128, 0.2);
+    --negative-bg: rgba(248, 113, 113, 0.2);
+    --positive-text: #4ade80;
+    --negative-text: #f87171;
+    --btn-primary-bg: #404040;
+    --btn-primary-hover: #505050;
+    --btn-secondary-bg: #2a2a2a;
+    --btn-secondary-hover: #374151;
+    --card-bg: #2a2a2a;
+    --section-bg: #1f1f1f;
 }
 
 body {
@@ -210,13 +194,76 @@ table td a.trade-link:hover {
 
 /* Form inputs and selects */
 input, select, textarea {
-    background-color: var(--bg-color);
+    background-color: var(--section-bg);
     color: var(--text-color);
     border: 1px solid var(--border-color);
     border-radius: 4px;
+    padding: 8px;
 }
 
 input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--btn-primary-bg);
+    background-color: var(--bg-color);
+}
+
+/* Additional dark theme styles */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-color);
+}
+
+/* Navigation and headers */
+.header {
+    background-color: var(--section-bg);
+    color: var(--text-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Cards and sections */
+.card, .section {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Filter sections */
+.filters {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+}
+
+.filter-form {
+    background-color: var(--card-bg);
+}
+
+/* Statistics sections */
+.stats-grid {
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+
+/* Button improvements */
+.btn {
+    background-color: var(--btn-primary-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    text-decoration: none;
+}
+
+.btn:hover {
+    background-color: var(--btn-primary-hover);
+    color: var(--text-color);
+}
+
+.btn.reset-btn {
+    background-color: var(--btn-secondary-bg);
+}
+
+.btn.reset-btn:hover {
+    background-color: var(--btn-secondary-hover);
 }

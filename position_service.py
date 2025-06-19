@@ -153,235 +153,137 @@ class PositionService:
             return {'positions_created': 0, 'trades_processed': 0}
     
     def _build_positions_from_execution_flow(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Build position objects by grouping related trade records (corrected logic)"""
+        """Build position objects based on quantity-based position lifecycle (0 -> +/- -> 0)"""
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
         logger.info(f"Processing {len(trades)} trade records")
         
-        # Log all trades first for debugging
-        for i, trade in enumerate(trades):
-            logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade['exit_price']} | P&L: ${trade['dollars_gain_loss']} | ID: {trade['entry_execution_id']}")
-        
-        # Group related trades that belong to the same original position
-        position_groups = self._group_related_trades(trades)
-        logger.info(f"Grouped {len(trades)} trades into {len(position_groups)} position groups")
-        
-        positions = []
-        for i, group in enumerate(position_groups):
-            logger.info(f"\n--- Building Position {i+1} from {len(group)} trade records ---")
-            position = self._create_position_from_trade_group(group, account, instrument)
-            positions.append(position)
-            logger.info(f"Created position: {position['position_type']} {position['total_quantity']} contracts, P&L: ${position['total_dollars_pnl']:.2f}")
-        
-        logger.info(f"=== POSITION BUILDING COMPLETE ===")
-        logger.info(f"Created {len(positions)} positions from {len(trades)} trade records")
-        return positions
-    
-    def _group_related_trades(self, trades: List[Dict]) -> List[List[Dict]]:
-        """Group trade records that belong to the same original position - Enhanced Aggregation"""
-        if not trades:
-            return []
-        
-        logger.info(f"Grouping {len(trades)} trades...")
-        
-        # Strategy 1: Group by link_group_id if available
-        linked_groups = {}
-        unlinked_trades = []
-        
-        for trade in trades:
-            link_group_id = trade.get('link_group_id')
-            if link_group_id:
-                if link_group_id not in linked_groups:
-                    linked_groups[link_group_id] = []
-                linked_groups[link_group_id].append(trade)
-                logger.info(f"Trade {trade['entry_execution_id']} added to link group {link_group_id}")
-            else:
-                unlinked_trades.append(trade)
-        
-        # Strategy 2: Aggressive time-based position grouping
-        # Group by account, instrument, side, and close entry times (within 5 minutes)
-        position_groups = self._group_by_position_lifecycle(unlinked_trades)
-        
-        # Combine all groups
-        final_groups = []
-        
-        # Add linked groups
-        for group_trades in linked_groups.values():
-            final_groups.append(group_trades)
-            logger.info(f"Added linked group with {len(group_trades)} trades")
-        
-        # Add position lifecycle groups
-        final_groups.extend(position_groups)
-        
-        logger.info(f"Final grouping: {len(final_groups)} position groups")
-        return final_groups
-    
-    def _group_by_position_lifecycle(self, trades: List[Dict]) -> List[List[Dict]]:
-        """Group trades by position lifecycle - account, instrument, side, and time proximity"""
-        if not trades:
-            return []
-        
-        logger.info(f"Grouping {len(trades)} trades by position lifecycle...")
-        
-        # Sort trades by account, instrument, side, entry time
-        trades_sorted = sorted(trades, key=lambda t: (
-            t['account'], 
-            t['instrument'], 
-            t['side_of_market'], 
-            t['entry_time']
-        ))
-        
-        groups = []
-        current_group = []
-        current_account = None
-        current_instrument = None
-        current_side = None
-        current_time_window = None
-        
-        for trade in trades_sorted:
-            account = trade['account']
-            instrument = trade['instrument']
-            side = trade['side_of_market']
-            entry_time = trade['entry_time']
-            
-            # Parse entry time for comparison
-            try:
-                from datetime import datetime, timedelta
-                trade_dt = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
-            except:
-                # Fallback to string comparison
-                trade_dt = entry_time
-            
-            # Check if this trade belongs to the current group
-            should_start_new_group = False
-            
-            if current_group == []:
-                # First trade
-                should_start_new_group = False
-            elif (account != current_account or 
-                  instrument != current_instrument or 
-                  side != current_side):
-                # Different account, instrument, or side
-                should_start_new_group = True
-            elif isinstance(trade_dt, datetime) and isinstance(current_time_window, datetime):
-                # Check if trade is within 5 minutes of the current group
-                time_diff = abs((trade_dt - current_time_window).total_seconds())
-                if time_diff > 300:  # 5 minutes
-                    should_start_new_group = True
-            elif entry_time != current_time_window:
-                # Fallback string comparison
-                should_start_new_group = True
-            
-            if should_start_new_group and current_group:
-                # Save current group and start new one
-                groups.append(current_group)
-                logger.info(f"Created position group: {len(current_group)} trades for {current_account} {current_side} {current_instrument}")
-                current_group = []
-            
-            # Add trade to current group
-            current_group.append(trade)
-            current_account = account
-            current_instrument = instrument
-            current_side = side
-            current_time_window = trade_dt if isinstance(trade_dt, datetime) else entry_time
-        
-        # Add final group
-        if current_group:
-            groups.append(current_group)
-            logger.info(f"Created final position group: {len(current_group)} trades for {current_account} {current_side} {current_instrument}")
-        
-        logger.info(f"Position lifecycle grouping: {len(trades)} trades -> {len(groups)} position groups")
-        return groups
-    
-    def _group_by_time_and_side(self, trades: List[Dict]) -> List[List[Dict]]:
-        """Group trades by entry time and side to separate distinct positions"""
-        if not trades:
-            return []
-        
-        # Sort by entry time
+        # Sort trades by entry time to process in chronological order
         trades_sorted = sorted(trades, key=lambda t: t['entry_time'])
         
-        groups = []
-        current_group = []
-        current_time = None
-        current_side = None
+        # Log all trades first for debugging
+        for i, trade in enumerate(trades_sorted):
+            logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade['exit_price']} | P&L: ${trade['dollars_gain_loss']} | ID: {trade['entry_execution_id']}")
         
-        for trade in trades_sorted:
-            trade_time = trade['entry_time']
-            trade_side = trade['side_of_market']
-            
-            # If this is the first trade or matches current group criteria
-            if (current_time is None or 
-                trade_time == current_time and trade_side == current_side):
-                current_group.append(trade)
-                current_time = trade_time
-                current_side = trade_side
-            else:
-                # Start new group
-                if current_group:
-                    groups.append(current_group)
-                current_group = [trade]
-                current_time = trade_time
-                current_side = trade_side
+        # Track position based on contract quantity changes
+        positions = self._track_quantity_based_positions(trades_sorted, account, instrument)
         
-        # Add final group
-        if current_group:
-            groups.append(current_group)
-        
-        logger.info(f"Time/side grouping: {len(trades)} trades -> {len(groups)} groups")
-        return groups
+        logger.info(f"=== POSITION BUILDING COMPLETE ===")
+        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} trade records")
+        return positions
     
-    def _create_position_from_trade_group(self, trades: List[Dict], account: str, instrument: str) -> Dict:
-        """Create a position object from a group of related trade records"""
+    def _track_quantity_based_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
+        """Track positions based purely on contract quantity changes (0 -> +/- -> 0)"""
         if not trades:
-            return None
+            return []
         
-        # All trades in group should have same side (Long/Short)
-        position_type = trades[0]['side_of_market']
+        logger.info(f"Tracking quantity-based positions for {len(trades)} trades...")
         
-        # Calculate total position size by summing all trade quantities
-        total_quantity = sum(trade['quantity'] for trade in trades)
+        positions = []
+        current_position = None
+        current_quantity = 0
         
-        # Find earliest entry time and latest exit time
-        entry_times = [trade['entry_time'] for trade in trades]
-        exit_times = [trade['exit_time'] for trade in trades if trade['exit_time']]
+        for i, trade in enumerate(trades):
+            # Determine quantity change based on side
+            if trade['side_of_market'] == 'Long':
+                quantity_change = trade['quantity']
+            else:  # Short
+                quantity_change = -trade['quantity']
+            
+            # Calculate new position quantity
+            new_quantity = current_quantity + quantity_change
+            
+            logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} | Position: {current_quantity} -> {new_quantity}")
+            
+            # Start new position if we're going from 0 to non-zero
+            if current_quantity == 0 and new_quantity != 0:
+                logger.info(f"Starting new position: {new_quantity} contracts")
+                current_position = {
+                    'instrument': instrument,
+                    'account': account,
+                    'position_type': 'Long' if new_quantity > 0 else 'Short',
+                    'entry_time': trade['entry_time'],
+                    'exit_time': None,
+                    'executions': [trade],
+                    'total_quantity': abs(new_quantity),
+                    'max_quantity': abs(new_quantity),
+                    'position_status': 'open',
+                    'execution_count': 1
+                }
+            
+            # Add execution to current position if position exists
+            elif current_position is not None:
+                current_position['executions'].append(trade)
+                current_position['execution_count'] += 1
+                current_position['max_quantity'] = max(current_position['max_quantity'], abs(new_quantity))
+                
+                # Close position if we're back to 0
+                if new_quantity == 0:
+                    logger.info(f"Closing position: {current_quantity} -> 0")
+                    current_position['exit_time'] = trade['exit_time'] or trade['entry_time']
+                    current_position['position_status'] = 'closed'
+                    
+                    # Calculate position totals
+                    self._calculate_position_totals(current_position)
+                    
+                    # Save position and reset
+                    positions.append(current_position)
+                    logger.info(f"Position closed: {current_position['position_type']} {current_position['total_quantity']} contracts, P&L: ${current_position['total_dollars_pnl']:.2f}")
+                    current_position = None
+            
+            # Update current quantity
+            current_quantity = new_quantity
         
-        position = {
-            'instrument': instrument,
-            'account': account,
-            'position_type': position_type,
-            'entry_time': min(entry_times),
-            'exit_time': max(exit_times) if exit_times else None,
-            'executions': trades,
-            'total_quantity': total_quantity,
-            'max_quantity': total_quantity,  # For now, assume this is the max
-            'position_status': 'closed' if exit_times else 'open',
-            'execution_count': len(trades),
-            'total_points_pnl': 0,
-            'total_dollars_pnl': 0,
-            'total_commission': 0
-        }
+        # Handle any remaining open position
+        if current_position is not None:
+            logger.info(f"Open position remains: {current_position['position_type']} {abs(current_quantity)} contracts")
+            self._calculate_position_totals(current_position)
+            positions.append(current_position)
         
-        # Calculate totals
-        self._calculate_position_totals(position)
-        
-        logger.info(f"Created {position_type} position: {total_quantity} contracts from {len(trades)} trade records")
-        return position
+        logger.info(f"Created {len(positions)} positions from quantity tracking")
+        return positions
+    
     
     def _calculate_position_totals(self, position: Dict):
-        """Calculate totals for a position from its executions"""
+        """Calculate totals for a position from its executions using proper FIFO accounting"""
         executions = position['executions']
         
         if not executions:
             return
         
-        # Calculate weighted average prices
-        total_entry_value = sum(ex['entry_price'] * ex['quantity'] for ex in executions)
-        total_quantity = sum(ex['quantity'] for ex in executions)
-        position['average_entry_price'] = total_entry_value / total_quantity if total_quantity > 0 else 0
+        # Separate entry and exit executions based on position flow
+        entry_executions = []
+        exit_executions = []
+        running_quantity = 0
         
-        if position['position_status'] == 'closed':
-            total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in executions)
-            position['average_exit_price'] = total_exit_value / total_quantity if total_quantity > 0 else 0
+        for execution in executions:
+            if position['position_type'] == 'Long':
+                if execution['side_of_market'] == 'Long':
+                    # Long execution adds to long position
+                    entry_executions.append(execution)
+                else:
+                    # Short execution reduces long position
+                    exit_executions.append(execution)
+            else:  # Short position
+                if execution['side_of_market'] == 'Short':
+                    # Short execution adds to short position 
+                    entry_executions.append(execution)
+                else:
+                    # Long execution reduces short position
+                    exit_executions.append(execution)
+        
+        # Calculate average entry price from entry executions
+        if entry_executions:
+            total_entry_value = sum(ex['entry_price'] * ex['quantity'] for ex in entry_executions)
+            total_entry_quantity = sum(ex['quantity'] for ex in entry_executions)
+            position['average_entry_price'] = total_entry_value / total_entry_quantity if total_entry_quantity > 0 else 0
+        else:
+            position['average_entry_price'] = 0
+        
+        # Calculate average exit price from exit executions if position is closed
+        if position['position_status'] == 'closed' and exit_executions:
+            total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in exit_executions)
+            total_exit_quantity = sum(ex['quantity'] for ex in exit_executions)
+            position['average_exit_price'] = total_exit_value / total_exit_quantity if total_exit_quantity > 0 else 0
             
             # Calculate position-level points P&L using average prices
             if position['position_type'] == 'Long':
@@ -389,10 +291,11 @@ class PositionService:
             else:  # Short
                 position['total_points_pnl'] = position['average_entry_price'] - position['average_exit_price']
         else:
-            # Open position - no points P&L yet
+            # Open position - no exit price or points P&L yet
+            position['average_exit_price'] = None
             position['total_points_pnl'] = 0
         
-        # Sum P&L and commission from individual executions
+        # Sum P&L and commission from all executions
         position['total_dollars_pnl'] = sum(ex['dollars_gain_loss'] for ex in executions)
         position['total_commission'] = sum(ex['commission'] for ex in executions)
         position['execution_count'] = len(executions)

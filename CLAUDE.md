@@ -8,6 +8,16 @@ This is a Flask-based web application for futures traders to track, analyze, and
 
 ### Recent Major Updates (✅ COMPLETED)
 
+**Position Logic & UI Improvements - December 2024** ✅ **COMPLETED**
+- ✅ **Quantity-Based Position Tracking**: Complete rewrite of position building logic to track contract quantity changes (0 → +/- → 0)
+- ✅ **Eliminated Time-Based Pairing**: Removed invalid time-based grouping logic for accurate position lifecycle tracking
+- ✅ **Pure FIFO Position Flow**: Positions now correctly track from first non-zero quantity until return to zero quantity
+- ✅ **OHLC Chart Integration**: Added TradingView Lightweight Charts to position detail pages showing market context
+- ✅ **Universal Dark Theme**: Implemented comprehensive dark theme across all pages and components
+- ✅ **Compact Filter Interface**: Redesigned position dashboard filters for reduced screen space usage
+- ✅ **Re-import Functionality**: Added ability to re-import deleted trades from archived CSV files
+- ✅ **Enhanced Chart Styling**: Dark-themed chart components with proper color schemes for improved visibility
+
 **Position-Based Trading System - June 2025** ✅ **COMPLETED**
 - ✅ **Position Aggregation Engine**: Complete rewrite of trade processing to show positions instead of individual executions
 - ✅ **Intelligent Trade Grouping**: Groups related executions into complete position lifecycle (0 → +/- → 0)
@@ -77,12 +87,15 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - ✅ **Enhanced Database Logging**: Comprehensive error handling and timestamp conversion fixes
 
 **New Features Available:**
-- `/positions/` - **Position-based dashboard** showing aggregated trading positions instead of individual executions
-- `/positions/<id>` - **Detailed position analysis** with complete execution breakdown and lifecycle tracking
+- `/positions/` - **Position-based dashboard** with compact filters and dark theme styling
+- `/positions/<id>` - **Enhanced position detail pages** with OHLC market context charts and execution breakdown
 - `/positions/debug` - **Position building troubleshooting** interface for debugging trade grouping logic
 - `/settings` - Instrument multiplier management interface with common futures reference guide
-- Account-separated trade processing maintaining independent P&L calculations
-- Real-time multiplier updates affecting new trade imports immediately
+- **Quantity-Based Position Logic** - Accurate position tracking based on contract quantity flow (0 → +/- → 0)
+- **OHLC Chart Integration** - TradingView Lightweight Charts showing market context during position lifecycle
+- **Universal Dark Theme** - Professional dark color scheme across all pages and components
+- **Compact Dashboard Filters** - Space-efficient filter controls with inline layout
+- **CSV Re-import System** - Scan and re-import trades from archived CSV files with `/positions/list-csv-files` and `/positions/reimport-csv` endpoints
 - **Position rebuild functionality** - Regenerate positions from existing trade data
 - **Comprehensive position metrics** - Win rate, total P&L, risk/reward ratios at position level
 
@@ -467,8 +480,9 @@ All tests validate against our performance targets:
 - Database automatically creates indexes and applies performance optimizations on startup
 - Cursor-based pagination scales to millions of trades efficiently
 - **Position-Based Architecture**: Complete trade aggregation system showing positions instead of individual executions
-- **Intelligent Trade Grouping**: Multiple strategies for grouping related trades (link groups, execution IDs, time proximity)
-- **Position Lifecycle Tracking**: Accurate position start/end detection and quantity management
+- **Quantity-Based Position Logic**: Positions tracked purely on contract quantity changes (0 → +/- → 0) without time-based grouping
+- **Pure FIFO Position Flow**: Accurate position lifecycle from first non-zero quantity to return to zero quantity
+- **Eliminated Time Pairing**: Removed invalid time-based grouping logic for proper position tracking
 - **Multi-Account Processing**: Proper separation and FIFO tracking for NinjaTrader trade copying
 - **Execution Pairing**: Uses Entry/Exit markers (not Buy/Sell) for accurate position matching
 - **Instrument Multipliers**: Web-based management with real-time updates to trade processing
@@ -483,6 +497,10 @@ All tests validate against our performance targets:
 - **Background Services**: Automated gap-filling every 15 minutes with extended 4-hour cycles
 - **Chart-Table Synchronization**: Bidirectional highlighting between execution tables and TradingView charts
 - **Position Analysis**: Comprehensive FIFO tracking with execution flow visualization and lifecycle status
+- **OHLC Chart Integration**: TradingView Lightweight Charts embedded in position detail pages for market context
+- **Universal Dark Theme**: Professional dark color scheme enforced across all pages via base.html template
+- **Compact UI Design**: Space-efficient filter controls and optimized dashboard layouts
+- **CSV Re-import System**: Ability to scan data directory and re-import trades from archived CSV files
 
 ## Documentation and Guides
 

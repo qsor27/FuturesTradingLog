@@ -3,10 +3,114 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="light dark">
+    <meta name="color-scheme" content="dark">
     <title>{% block title %}Futures Trades{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <style>
+        /* Global dark theme enforcement */
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        h1, h2, h3, h4, h5, h6 {
+            color: #e5e5e5;
+        }
+        
+        p {
+            color: #d1d5db;
+        }
+        
+        /* Form elements */
+        input, select, textarea {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        
+        input:focus, select:focus, textarea:focus {
+            border-color: #606060;
+            outline: none;
+        }
+        
+        /* Tables */
+        table {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border: 1px solid #404040;
+        }
+        
+        table th {
+            background-color: #2a2a2a;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+        }
+        
+        table td {
+            border-bottom: 1px solid #333333;
+        }
+        
+        table tr:hover {
+            background-color: #333333;
+        }
+        
+        /* Buttons */
+        .btn {
+            background-color: #404040;
+            color: #e5e5e5;
+            border: 1px solid #606060;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background-color: #505050;
+            color: #e5e5e5;
+        }
+        
+        .btn-secondary {
+            background-color: #2a2a2a;
+            color: #9ca3af;
+        }
+        
+        /* Cards and sections */
+        .card, .section {
+            background-color: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        /* Header */
+        .header {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        /* Links */
+        a {
+            color: #66b3ff;
+        }
+        
+        a:hover {
+            color: #80ccff;
+        }
+    </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>

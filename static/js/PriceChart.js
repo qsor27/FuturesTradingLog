@@ -20,21 +20,21 @@ class PriceChart {
             width: this.container.clientWidth,
             height: 400,
             layout: {
-                background: { color: '#ffffff' },
-                textColor: '#333333',
+                background: { color: '#1a1a1a' },
+                textColor: '#e5e5e5',
             },
             grid: {
-                vertLines: { color: '#f0f0f0' },
-                horzLines: { color: '#f0f0f0' },
+                vertLines: { color: '#333333' },
+                horzLines: { color: '#333333' },
             },
             crosshair: {
                 mode: LightweightCharts.CrosshairMode.Normal,
             },
             rightPriceScale: {
-                borderColor: '#cccccc',
+                borderColor: '#404040',
             },
             timeScale: {
-                borderColor: '#cccccc',
+                borderColor: '#404040',
                 timeVisible: true,
                 secondsVisible: false,
             },

@@ -6,6 +6,9 @@ This guide explains how to use the new enhanced position detail pages with compr
 
 The enhanced position detail pages provide:
 
+- **Quantity-Based Position Tracking**: Accurate position lifecycle based on contract quantity changes (0 → +/- → 0)
+- **OHLC Market Context Charts**: TradingView Lightweight Charts showing market conditions during position lifecycle
+- **Professional Dark Theme**: Optimized color scheme for extended trading analysis sessions
 - **Comprehensive Execution Breakdown**: Detailed FIFO analysis with entry/exit pairing
 - **Interactive Chart-Table Synchronization**: Click table rows to highlight chart markers and vice versa
 - **Position Lifecycle Tracking**: Real-time status (Open Long/Short/Closed) with cumulative position tracking
@@ -14,14 +17,79 @@ The enhanced position detail pages provide:
 
 ## Accessing Enhanced Position Details
 
-### From Trade List
+### From Position Dashboard
+1. Navigate to the **Positions Dashboard** at `/positions/`
+2. Click on **View Details** for any position row
+3. This opens the enhanced position detail page with full execution breakdown
+
+### From Trade List (Legacy)
 1. Navigate to the main trade list page
 2. Click on any **Trade ID** number in the leftmost column
 3. This opens the enhanced position detail page for that trade/position
 
 ### Direct URL Access
-- Use `/trade/<trade_id>` to access any position directly
-- Example: `/trade/123` opens position detail for trade ID 123
+- Use `/positions/<position_id>` to access any position directly
+- Example: `/positions/123` opens position detail for position ID 123
+- Legacy route `/trade/<trade_id>` still supported for backwards compatibility
+
+## Quantity-Based Position Logic
+
+### How Positions Are Built
+The system now uses **pure quantity-based position tracking** for accurate position lifecycle management:
+
+#### Position Start
+- A position **begins** when contract quantity changes from **0 to non-zero**
+- Example: Buy 4 contracts → Position starts as +4 Long
+
+#### Position Tracking  
+- **Long positions**: Positive contract quantity (+1, +2, +4, etc.)
+- **Short positions**: Negative contract quantity (-1, -2, -4, etc.)
+- **Running quantity**: Maintained through all executions
+- **No time-based grouping**: Only quantity changes matter
+
+#### Position End
+- A position **closes** when contract quantity returns to **0**
+- Example: Long 4 → Sell 4 → Position closes at 0
+
+#### Complex Position Example
+1. Buy 4 contracts → Position: +4 Long
+2. Buy 2 more → Position: +6 Long  
+3. Sell 3 → Position: +3 Long
+4. Sell 3 → Position: 0 (Closed)
+
+**Result**: One complete position lifecycle with 4 executions
+
+### Dark Theme Interface
+
+#### Professional Color Scheme
+- **Background**: Dark gray (#1a1a1a) for reduced eye strain
+- **Text**: Light colors (#e5e5e5) for optimal contrast
+- **P&L Colors**: Green for profits, red for losses
+- **Chart Integration**: Dark-themed TradingView charts
+- **Consistent Styling**: All pages use the same dark theme
+
+#### Benefits for Traders
+- **Extended Analysis Sessions**: Reduced eye fatigue during long review periods
+- **Better Chart Visibility**: Dark backgrounds enhance candlestick pattern recognition
+- **Professional Appearance**: Modern trading platform aesthetic
+- **Focus Enhancement**: Important data stands out with improved contrast
+
+## Market Context Charts
+
+### OHLC Chart Integration
+Each position detail page now includes:
+- **TradingView Lightweight Charts**: Professional candlestick charts
+- **Market Context**: See market conditions during your position lifecycle
+- **Multiple Timeframes**: 1m, 5m, 15m, 1h, 4h, 1d support
+- **Dark Theme**: Charts match the application's dark color scheme
+- **Real-time Data**: yfinance integration for current market data
+
+### Chart Features
+- **Professional Candlesticks**: OHLC data with volume bars
+- **Automatic Timeframe**: Default 5-minute charts with 3-day range
+- **Interactive Controls**: Change timeframe and date range
+- **Responsive Design**: Charts adapt to screen size
+- **Fast Loading**: Optimized for quick data display
 
 ## Enhanced Position Summary
 
@@ -175,6 +243,39 @@ Monitor and control the system via API endpoints:
 3. **Force Refresh**: Use manual gap-filling if data seems incomplete
 4. **Review Background Services**: Check `/api/background-services/status`
 
+## Position Dashboard Enhancements
+
+### Compact Filter Interface
+The position dashboard now features:
+- **Inline Filter Layout**: All filters in a single compact row
+- **Space Efficient**: Reduced vertical space usage by 60%
+- **Shortened Labels**: "Sort" instead of "Sort by", arrow symbols for order
+- **Responsive Design**: Adapts to different screen sizes
+- **Dark Theme**: Consistent styling across all filter controls
+
+### Re-import Functionality
+New CSV re-import system allows:
+- **Scan Data Directory**: Automatically finds available CSV files
+- **Selective Import**: Choose specific files to re-import
+- **Duplicate Protection**: Won't re-import existing trades
+- **Position Rebuild**: Automatically rebuilds positions after import
+- **Progress Feedback**: Real-time status updates during import
+
+#### How to Re-import Trades
+1. Navigate to **Position Dashboard** (`/positions/`)
+2. In the **Position Management** section, click **Re-import Trades**
+3. System scans data directory for CSV files
+4. Select desired CSV file from dropdown
+5. Click **Import Selected File**
+6. System imports trades and rebuilds positions automatically
+
+### Enhanced Management Tools
+- **Rebuild Positions**: Regenerate all positions from existing trade data
+- **Bulk Delete**: Select multiple positions for deletion
+- **Status Filtering**: Filter by open/closed positions
+- **Account Separation**: View positions by trading account
+- **Instrument Filtering**: Focus on specific contracts
+
 ## Migration from Legacy Pages
 
 ### Key Improvements
@@ -184,6 +285,11 @@ Monitor and control the system via API endpoints:
 - **From Basic P&L**: Now comprehensive performance metrics
 
 ### What's New
+- **Quantity-based position tracking** (accurate lifecycle based on contract quantities)
+- **OHLC market context charts** (TradingView integration showing market conditions)
+- **Universal dark theme** (professional color scheme optimized for trading analysis)
+- **Compact dashboard filters** (space-efficient interface design)
+- **CSV re-import functionality** (recover deleted trades from archived files)
 - Interactive chart-table synchronization (no manual correlation needed)
 - Comprehensive execution breakdown (see every individual fill)
 - Professional performance analytics (average prices, cumulative tracking)
@@ -193,14 +299,19 @@ Monitor and control the system via API endpoints:
 ## Technical Architecture
 
 ### Enhanced Database Methods
+- `_track_quantity_based_positions()`: **NEW** - Pure quantity-based position building
 - `get_position_executions()`: Comprehensive position analysis
 - `_analyze_execution_flow()`: FIFO tracking and lifecycle determination
-- `_calculate_position_summary()`: Performance statistics calculation
+- `_calculate_position_totals()`: **UPDATED** - Proper FIFO entry/exit separation
+- `list_csv_files()`: **NEW** - Scan data directory for available CSV files
+- `reimport_csv()`: **NEW** - Re-import trades from selected CSV files
 
 ### Frontend Enhancements
+- **Universal Dark Theme**: Base template with enforced dark styling
+- **OHLC Chart Integration**: TradingView Lightweight Charts component
+- **Compact UI Design**: Space-efficient filter layouts
 - Chart-table synchronization JavaScript
-- TradingView Lightweight Charts integration
-- Professional UI components with Tailwind CSS
+- Professional UI components with dark theme CSS
 - Real-time highlighting and smooth animations
 
 ### Background Services

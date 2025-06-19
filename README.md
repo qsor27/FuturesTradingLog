@@ -2,12 +2,18 @@
 
 ## 🚀 Professional Futures Trading Analytics Platform
 
-A high-performance Flask-based application that transforms futures trading analysis with **interactive charts**, **millisecond database performance**, and **professional-grade market data integration**.
+A high-performance Flask-based application that transforms futures trading analysis with **quantity-based position tracking**, **interactive OHLC charts**, **professional dark theme**, and **millisecond database performance**.
 
 ## ✨ Key Features
 
-### **📊 Interactive Price Charts**
-- **TradingView Lightweight Charts**: Professional candlestick visualization
+### **📊 Enhanced Position Analysis**
+- **Quantity-Based Position Tracking**: Accurate position lifecycle based on contract quantity changes (0 → +/- → 0)
+- **OHLC Market Context Charts**: TradingView Lightweight Charts showing market conditions during position lifecycle
+- **Professional Dark Theme**: Optimized color scheme for extended trading analysis sessions
+- **Interactive Position Dashboard**: Comprehensive position metrics with compact filter interface
+
+### **📈 Interactive Price Charts**
+- **TradingView Lightweight Charts**: Professional candlestick visualization with dark theme
 - **Trade Execution Overlays**: See your entries/exits on actual price action
 - **Multi-Timeframe Analysis**: 1m, 5m, 15m, 1h, 4h, 1d intervals
 - **Real-time Market Data**: Free futures data via yfinance integration
@@ -19,8 +25,9 @@ A high-performance Flask-based application that transforms futures trading analy
 - **Cross-Platform Deployment**: Docker-ready with environment-based configuration
 
 ### **🔧 Advanced Trade Management**
+- **Pure FIFO Position Logic**: Eliminates time-based pairing for accurate position tracking
+- **CSV Re-import System**: Recover deleted trades from archived files
 - **NinjaTrader Integration**: Automated CSV export with real-time capture
-- **Trade Linking**: Group related positions for strategy analysis
 - **Performance Analytics**: Comprehensive win/loss statistics with visual context
 - **Multi-Account Support**: Segregated tracking across trading accounts
 

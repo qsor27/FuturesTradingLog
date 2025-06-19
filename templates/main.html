@@ -9,6 +9,85 @@
     <title>Futures Trades</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <style>
+        /* Dark theme overrides */
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+        }
+        
+        .header {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .import-section, .import-step {
+            background-color: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .import-steps {
+            display: flex;
+            gap: 20px;
+            justify-content: flex-start;
+        }
+        
+        .import-step {
+            flex: 0 1 auto;
+        }
+        
+        h1, h2 {
+            color: #e5e5e5;
+        }
+        
+        p {
+            color: #d1d5db;
+        }
+        
+        label {
+            color: #d1d5db;
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        input[type="file"] {
+            background-color: #1f1f1f;
+            border: 1px solid #404040;
+            color: #e5e5e5;
+            border-radius: 4px;
+            padding: 8px;
+            width: 100%;
+        }
+        
+        .btn {
+            background-color: #404040;
+            color: #e5e5e5;
+            border: 1px solid #606060;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+            display: inline-block;
+            cursor: pointer;
+        }
+        
+        .btn:hover {
+            background-color: #505050;
+        }
+    </style>
 </head>
 <body>
     <!-- Header Section -->

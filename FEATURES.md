@@ -2,6 +2,32 @@
 
 Comprehensive guide to all features available in the Futures Trading Log application.
 
+## 🎯 **Recent Feature Additions (December 2024)**
+
+### **Quantity-Based Position Logic**
+- **Pure Contract Tracking**: Positions tracked by quantity changes (0 → +/- → 0) without time-based grouping
+- **Accurate FIFO**: True position lifecycle from first non-zero quantity to return to zero
+- **Complex Position Support**: Handles scaling in/out, partial fills, and multi-execution positions
+- **Eliminated Time Pairing**: Removed invalid time-based grouping for precise position tracking
+
+### **Professional Dark Theme**
+- **Universal Dark Mode**: Consistent dark color scheme across all pages and components
+- **Optimized for Trading**: Reduced eye strain for extended analysis sessions
+- **Enhanced Chart Visibility**: Dark-themed TradingView charts with improved contrast
+- **Professional Aesthetics**: Modern trading platform appearance
+
+### **Enhanced Position Dashboard**
+- **Compact Filter Interface**: 60% space reduction with inline filter layout
+- **CSV Re-import System**: Scan and selectively re-import trades from archived files
+- **Bulk Position Management**: Select and delete multiple positions
+- **Streamlined Navigation**: Optimized user experience with space-efficient design
+
+### **OHLC Market Context Charts**
+- **Position Detail Integration**: Market context charts embedded in position detail pages
+- **TradingView Charts**: Professional candlestick charts with dark theme styling
+- **Multi-Timeframe Support**: Default 5-minute charts with 3-day range
+- **Real-time Data**: yfinance integration for current market conditions
+
 ## 📊 **Interactive Chart Integration**
 
 ### **Professional Price Charts**

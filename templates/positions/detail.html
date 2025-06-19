@@ -3,13 +3,21 @@
 <head>
     <title>Position Details - {{ position.instrument }} {{ position.position_type }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
     <style>
+        /* Dark mode compatible styling */
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+        }
+        
         .position-header {
-            background: white;
+            background: #2a2a2a;
             padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             margin-bottom: 30px;
+            border: 1px solid #404040;
         }
         .position-summary {
             display: grid;
@@ -18,14 +26,15 @@
             margin-top: 20px;
         }
         .summary-card {
-            background: #f8fafc;
+            background: #1f1f1f;
             padding: 15px;
             border-radius: 6px;
             border-left: 4px solid #3b82f6;
+            border: 1px solid #404040;
         }
         .summary-label {
             font-size: 12px;
-            color: #6b7280;
+            color: #9ca3af;
             text-transform: uppercase;
             font-weight: 600;
             margin-bottom: 5px;
@@ -33,10 +42,10 @@
         .summary-value {
             font-size: 18px;
             font-weight: bold;
-            color: #1f2937;
+            color: #e5e5e5;
         }
-        .pnl-positive { color: #059669; }
-        .pnl-negative { color: #dc2626; }
+        .pnl-positive { color: #4ade80; }
+        .pnl-negative { color: #f87171; }
         .position-status {
             padding: 6px 12px;
             border-radius: 6px;
@@ -44,8 +53,8 @@
             font-weight: bold;
             display: inline-block;
         }
-        .status-open { background-color: #fef3c7; color: #92400e; }
-        .status-closed { background-color: #d1fae5; color: #065f46; }
+        .status-open { background-color: #4a4a00; color: #ffff80; }
+        .status-closed { background-color: #1a4a1a; color: #80ff80; }
         .position-type {
             padding: 4px 8px;
             border-radius: 4px;
@@ -53,16 +62,17 @@
             font-weight: bold;
             display: inline-block;
         }
-        .type-long { background-color: #dcfce7; color: #166534; }
-        .type-short { background-color: #fef2f2; color: #991b1b; }
+        .type-long { background-color: #1a4a1a; color: #80ff80; }
+        .type-short { background-color: #4a1a1a; color: #ff8080; }
         .executions-section {
-            background: white;
+            background: #2a2a2a;
             padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            border: 1px solid #404040;
         }
         .execution-row {
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid #404040;
             padding: 12px 0;
         }
         .execution-row:last-child {
@@ -74,8 +84,8 @@
             font-size: 11px;
             font-weight: bold;
         }
-        .type-entry { background-color: #e0f2fe; color: #01579b; }
-        .type-exit { background-color: #fff3e0; color: #e65100; }
+        .type-entry { background-color: #1a4a4a; color: #80ffff; }
+        .type-exit { background-color: #4a3a1a; color: #ffcc80; }
         .back-nav {
             margin-bottom: 20px;
         }
@@ -84,6 +94,79 @@
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-top: 20px;
+        }
+        
+        /* Chart section */
+        .chart-section {
+            background: #2a2a2a;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            border: 1px solid #404040;
+            margin-bottom: 30px;
+        }
+        
+        /* Table styling */
+        .table-container {
+            background-color: #1f1f1f;
+            border: 1px solid #404040;
+            border-radius: 8px;
+        }
+        
+        .data-table {
+            background-color: #1f1f1f;
+            color: #e5e5e5;
+        }
+        
+        .data-table th {
+            background-color: #2a2a2a;
+            color: #e5e5e5;
+            border-bottom: 1px solid #404040;
+        }
+        
+        .data-table td {
+            border-bottom: 1px solid #333333;
+        }
+        
+        .data-table tr:hover {
+            background-color: #333333;
+        }
+        
+        /* Button styling */
+        .btn {
+            background-color: #404040;
+            color: #e5e5e5;
+            border: 1px solid #606060;
+            text-decoration: none;
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 4px;
+        }
+        
+        .btn:hover {
+            background-color: #505050;
+        }
+        
+        .btn-secondary {
+            background-color: #2a2a2a;
+            color: #9ca3af;
+        }
+        
+        /* Summary section styling */
+        .position-summary-footer {
+            margin-top: 30px;
+            padding: 20px;
+            background: #1f1f1f;
+            border-radius: 6px;
+            border: 1px solid #404040;
+        }
+        
+        h1, h2, h3 {
+            color: #e5e5e5;
+        }
+        
+        p {
+            color: #d1d5db;
         }
     </style>
 </head>
@@ -190,6 +273,21 @@
         {% endif %}
     </div>
 
+    <!-- Market Context Chart -->
+    <div class="chart-section">
+        <h2>Market Context - {{ position.instrument }}</h2>
+        <p style="color: #9ca3af; margin-bottom: 20px;">
+            OHLC price chart showing market context during position lifecycle
+        </p>
+        
+        {% set chart_id = 'positionChart' %}
+        {% set chart_instrument = position.instrument %}
+        {% set chart_timeframe = '5m' %}
+        {% set chart_days = 3 %}
+        {% set chart_height = '400px' %}
+        {% include 'components/price_chart.html' %}
+    </div>
+
     <!-- Execution Breakdown -->
     <div class="executions-section">
         <h2>Execution Breakdown</h2>
@@ -249,7 +347,7 @@
         </div>
 
         <!-- Position Summary -->
-        <div style="margin-top: 30px; padding: 20px; background: #f8fafc; border-radius: 6px;">
+        <div class="position-summary-footer">
             <h3>Position Summary</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
                 <div>
