@@ -6,6 +6,8 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from position_service import PositionService
 from TradingLog_db import FuturesDB
 import logging
+import os
+import glob
 
 positions_bp = Blueprint('positions', __name__)
 logger = logging.getLogger('positions')
@@ -316,4 +318,100 @@ def delete_positions():
         return jsonify({
             'success': False,
             'message': f'Error deleting positions: {str(e)}'
+        }), 500
+
+
+@positions_bp.route('/list-csv-files')
+def list_csv_files():
+    """List available CSV files for re-import"""
+    try:
+        from config import config
+        data_dir = config.data_dir
+        
+        # Look for CSV files in data directory
+        csv_pattern = os.path.join(data_dir, "*.csv")
+        csv_files = glob.glob(csv_pattern)
+        
+        # Get just the filenames
+        filenames = [os.path.basename(f) for f in csv_files]
+        filenames.sort(reverse=True)  # Most recent first
+        
+        return jsonify({
+            'success': True,
+            'files': filenames,
+            'count': len(filenames)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing CSV files: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error listing CSV files: {str(e)}'
+        }), 500
+
+
+@positions_bp.route('/reimport-csv', methods=['POST'])
+def reimport_csv():
+    """Re-import trades from a selected CSV file"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'filename' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'No filename provided'
+            }), 400
+        
+        filename = data['filename']
+        
+        if not filename:
+            return jsonify({
+                'success': False,
+                'message': 'No filename provided'
+            }), 400
+        
+        # Security check - ensure filename contains no path traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid filename'
+            }), 400
+        
+        from config import config
+        data_dir = config.data_dir
+        csv_path = os.path.join(data_dir, filename)
+        
+        # Verify file exists
+        if not os.path.exists(csv_path):
+            return jsonify({
+                'success': False,
+                'message': f'File not found: {filename}'
+            }), 404
+        
+        # Import the CSV file
+        with FuturesDB() as db:
+            success = db.import_csv(csv_path)
+        
+        if success:
+            # Rebuild positions after successful import
+            with PositionService() as pos_service:
+                result = pos_service.rebuild_positions_from_trades()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully re-imported trades from {filename}. Rebuilt {result["positions_created"]} positions.',
+                'positions_created': result['positions_created'],
+                'trades_processed': result['trades_processed']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Failed to import trades from {filename}'
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error re-importing CSV: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error re-importing CSV: {str(e)}'
         }), 500
