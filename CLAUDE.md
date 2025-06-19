@@ -99,9 +99,68 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - **Position rebuild functionality** - Regenerate positions from existing trade data
 - **Comprehensive position metrics** - Win rate, total P&L, risk/reward ratios at position level
 
-## Development Commands
+## Deployment Architecture & Development Workflow
 
-### Local Development
+### 🚨 **CRITICAL: Container-Based Deployment**
+
+**This application runs in production via containerized deployment with automatic updates:**
+
+1. **Code Changes** → Push to GitHub main branch
+2. **GitHub Actions** → Builds Docker image and pushes to GitHub Container Registry
+3. **Watchtower Service** → Detects new image and automatically updates running container
+4. **Live Application** → Updated with new code (no manual restart needed)
+
+**⚠️ Important**: Code changes are NOT immediately visible until this full pipeline completes (typically 5-10 minutes).
+
+### Container Deployment Commands
+
+#### Production Deployment (Automatic)
+```bash
+# 1. Commit and push changes
+git add .
+git commit -m "Your changes"
+git push origin main
+
+# 2. Wait for GitHub Actions to complete (~3-5 minutes)
+# 3. Wait for Watchtower to update container (~2-5 minutes)
+# 4. Verify deployment
+curl http://localhost:5000/health
+```
+
+#### Manual Container Management
+```bash
+# Check running containers
+docker ps
+
+# View container logs (for debugging)
+docker logs futurestradinglog
+
+# Force container restart (if watchtower fails)
+docker restart futurestradinglog
+
+# Manual update (emergency only)
+docker pull ghcr.io/qsor27/futurestradinglog:main
+docker restart futurestradinglog
+
+# Check watchtower status
+docker logs watchtower
+```
+
+### Local Development (Development/Testing Only)
+
+#### Option A: Docker Compose (Recommended)
+```bash
+# Build and run locally
+docker-compose up --build
+
+# Run in background
+docker-compose up -d --build
+
+# Stop local containers
+docker-compose down
+```
+
+#### Option B: Direct Python (For quick testing)
 ```bash
 # Setup virtual environment
 python -m venv venv
@@ -114,26 +173,117 @@ pip install -r requirements.txt
 
 # Run application
 python app.py
-# or
-flask run
 
 # Run tests
-pytest
-
-# Run tests with coverage
 pytest --cov=. --cov-report=html
 ```
 
-### Docker Commands
+### 🔧 **Troubleshooting Development Issues**
+
+#### Problem: "Code changes not showing"
 ```bash
-# Build and run with compose
-docker-compose up --build
+# 1. Verify changes are committed and pushed
+git status
+git log --oneline -5
 
-# Build standalone
-docker build -t futures-trading-log .
+# 2. Check GitHub Actions status
+# Visit: https://github.com/qsor27/FuturesTradingLog/actions
 
-# Run standalone
-docker run -p 5000:5000 futures-trading-log
+# 3. Check watchtower logs
+docker logs watchtower --tail 50
+
+# 4. Force container update (if needed)
+docker restart futurestradinglog
+```
+
+#### Problem: "Container not responding"
+```bash
+# 1. Check container status
+docker ps -a
+
+# 2. View recent logs
+docker logs futurestradinglog --tail 100
+
+# 3. Check health endpoint
+curl http://localhost:5000/health
+
+# 4. Restart if needed
+docker restart futurestradinglog
+```
+
+#### Problem: "Database/API issues after changes"
+```bash
+# 1. Check if container has latest code
+docker inspect futurestradinglog | grep -A 5 "Image"
+
+# 2. Test API endpoints directly
+curl "http://localhost:5000/api/chart-data/MNQ%20SEP25?timeframe=1h&days=7"
+
+# 3. Check database connectivity
+docker exec futurestradinglog python -c "from TradingLog_db import FuturesDB; print('DB OK')"
+
+# 4. View application logs for errors
+docker logs futurestradinglog | grep -i error
+```
+
+#### Problem: "Frontend/JavaScript not working"
+```bash
+# 1. Clear browser cache (hard refresh)
+# Ctrl+F5 or Cmd+Shift+R
+
+# 2. Check browser console for errors
+# F12 → Console tab
+
+# 3. Verify static files are updated
+curl -I http://localhost:5000/static/js/PriceChart.js
+
+# 4. Test in incognito mode
+```
+
+### Development Best Practices
+
+#### Code Testing Before Deployment
+```bash
+# 1. Run tests locally
+pytest tests/ -v
+
+# 2. Test container build
+docker build -t test-build .
+
+# 3. Quick integration test
+docker run --rm -p 5000:5000 test-build &
+sleep 10
+curl http://localhost:5000/health
+```
+
+#### Debugging Container Issues
+```bash
+# Execute commands inside running container
+docker exec -it futurestradinglog bash
+
+# View container file system
+docker exec futurestradinglog ls -la /app
+
+# Test Python imports
+docker exec futurestradinglog python -c "import app; print('App imports OK')"
+
+# Check environment variables
+docker exec futurestradinglog env | grep FLASK
+```
+
+#### Log Analysis
+```bash
+# Application logs (structured)
+docker logs futurestradinglog | grep "ERROR\|WARNING"
+
+# Real-time log monitoring
+docker logs -f futurestradinglog
+
+# Export logs for analysis
+docker logs futurestradinglog > container_logs.txt
+
+# Watchtower update logs
+docker logs watchtower | grep -A 10 -B 10 "futurestradinglog"
 ```
 
 ## Architecture Overview
