@@ -197,19 +197,27 @@ class PositionService:
             else:
                 unlinked_trades.append(trade)
         
-        # Strategy 2: Group unlinked trades by execution ID patterns
+        # Strategy 2: Group unlinked trades by execution ID patterns (FIXED)
         execution_groups = {}
         for trade in unlinked_trades:
             exec_id = trade['entry_execution_id']
-            # Extract base execution ID (remove _to_ suffixes)
-            base_id = exec_id.split('_to_')[0] if '_to_' in exec_id else exec_id
             
-            if base_id not in execution_groups:
-                execution_groups[base_id] = []
-            execution_groups[base_id].append(trade)
-            logger.info(f"Trade {exec_id} grouped with base ID {base_id}")
+            # Extract entry execution pattern for grouping partial fills
+            # Pattern: entryID_exitID_sequenceNumber -> group by entryID
+            if '_to_' in exec_id:
+                # Split by _to_ and take the first part as the entry execution
+                entry_part = exec_id.split('_to_')[0]
+                # Further extract just the base entry ID (remove any trailing _1, _2, etc)
+                base_entry_id = '_'.join(entry_part.split('_')[:-1]) if entry_part.count('_') > 0 else entry_part
+            else:
+                base_entry_id = exec_id
+            
+            if base_entry_id not in execution_groups:
+                execution_groups[base_entry_id] = []
+            execution_groups[base_entry_id].append(trade)
+            logger.info(f"Trade {exec_id} grouped with base entry ID {base_entry_id}")
         
-        # Strategy 3: For remaining singles, group by time proximity and side
+        # Strategy 3: Time-based grouping for remaining trades with similar entry times
         final_groups = []
         
         # Add linked groups
@@ -217,18 +225,57 @@ class PositionService:
             final_groups.append(group_trades)
             logger.info(f"Added linked group with {len(group_trades)} trades")
         
-        # Add execution ID groups
-        for group_trades in execution_groups.values():
+        # Process execution ID groups - look for time-based sub-grouping
+        for base_id, group_trades in execution_groups.items():
             if len(group_trades) > 1:
-                final_groups.append(group_trades)
-                logger.info(f"Added execution group with {len(group_trades)} trades")
+                # Group by entry time and side for large groups (handles multiple positions from same entry)
+                time_groups = self._group_by_time_and_side(group_trades)
+                final_groups.extend(time_groups)
+                logger.info(f"Added {len(time_groups)} time-based groups from execution group {base_id}")
             else:
-                # Single trade - might need time-based grouping
                 final_groups.append(group_trades)
                 logger.info(f"Added single trade as individual position")
         
         logger.info(f"Final grouping: {len(final_groups)} position groups")
         return final_groups
+    
+    def _group_by_time_and_side(self, trades: List[Dict]) -> List[List[Dict]]:
+        """Group trades by entry time and side to separate distinct positions"""
+        if not trades:
+            return []
+        
+        # Sort by entry time
+        trades_sorted = sorted(trades, key=lambda t: t['entry_time'])
+        
+        groups = []
+        current_group = []
+        current_time = None
+        current_side = None
+        
+        for trade in trades_sorted:
+            trade_time = trade['entry_time']
+            trade_side = trade['side_of_market']
+            
+            # If this is the first trade or matches current group criteria
+            if (current_time is None or 
+                trade_time == current_time and trade_side == current_side):
+                current_group.append(trade)
+                current_time = trade_time
+                current_side = trade_side
+            else:
+                # Start new group
+                if current_group:
+                    groups.append(current_group)
+                current_group = [trade]
+                current_time = trade_time
+                current_side = trade_side
+        
+        # Add final group
+        if current_group:
+            groups.append(current_group)
+        
+        logger.info(f"Time/side grouping: {len(trades)} trades -> {len(groups)} groups")
+        return groups
     
     def _create_position_from_trade_group(self, trades: List[Dict], account: str, instrument: str) -> Dict:
         """Create a position object from a group of related trade records"""
