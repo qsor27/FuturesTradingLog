@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from TradingLog_db import FuturesDB
+from position_service import PositionService
 import os
 import time
 import shutil
@@ -8,6 +9,13 @@ main_bp = Blueprint('main', __name__)
 
 @main_bp.route('/')
 def index():
+    """Main page now shows positions instead of individual trades"""
+    # Redirect to positions dashboard for better organization
+    return redirect(url_for('positions.positions_dashboard'))
+
+@main_bp.route('/trades')
+def trades_legacy():
+    """Legacy trades view - individual trade executions (for debugging/admin)"""
     # Get all query parameters with defaults
     sort_by = request.args.get('sort_by', 'entry_time')
     sort_order = request.args.get('sort_order', 'DESC')
@@ -50,7 +58,7 @@ def index():
     # Ensure page is within valid range
     if page > total_pages and total_pages > 0:
         page = total_pages
-        return redirect(url_for('main.index', 
+        return redirect(url_for('main.trades_legacy', 
             page=page,
             page_size=page_size,
             sort_by=sort_by,
