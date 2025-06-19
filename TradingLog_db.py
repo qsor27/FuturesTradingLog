@@ -1816,3 +1816,67 @@ class FuturesDB:
         except Exception as e:
             print(f"Error getting OHLC count: {e}")
             return 0
+    
+    def migrate_instrument_names_to_base_symbols(self) -> Dict[str, int]:
+        """Migrate OHLC data to use base instrument symbols for consistency.
+        
+        Converts instruments like 'MNQ SEP25' to 'MNQ' for normalized storage.
+        Returns count of records migrated per instrument.
+        """
+        try:
+            # Find instruments with expiration dates (contain spaces)
+            self.cursor.execute("""
+                SELECT DISTINCT instrument 
+                FROM ohlc_data 
+                WHERE instrument LIKE '% %'
+            """)
+            
+            instruments_with_expiry = [row[0] for row in self.cursor.fetchall()]
+            migration_results = {}
+            
+            for full_instrument in instruments_with_expiry:
+                base_instrument = full_instrument.split()[0]  # Extract base symbol
+                
+                # Check if base symbol already has data
+                self.cursor.execute("""
+                    SELECT COUNT(*) FROM ohlc_data 
+                    WHERE instrument = ?
+                """, (base_instrument,))
+                
+                existing_count = self.cursor.fetchone()[0]
+                
+                if existing_count == 0:
+                    # No conflicts - migrate all data to base symbol
+                    self.cursor.execute("""
+                        UPDATE ohlc_data 
+                        SET instrument = ?
+                        WHERE instrument = ?
+                    """, (base_instrument, full_instrument))
+                    
+                    migration_results[f"{full_instrument} -> {base_instrument}"] = self.cursor.rowcount
+                    
+                else:
+                    # Conflicts exist - copy unique records only
+                    self.cursor.execute("""
+                        INSERT OR IGNORE INTO ohlc_data 
+                        (instrument, timeframe, timestamp, open_price, high_price, low_price, close_price, volume)
+                        SELECT ?, timeframe, timestamp, open_price, high_price, low_price, close_price, volume
+                        FROM ohlc_data 
+                        WHERE instrument = ?
+                    """, (base_instrument, full_instrument))
+                    
+                    copied_count = self.cursor.rowcount
+                    
+                    # Delete the original records
+                    self.cursor.execute("DELETE FROM ohlc_data WHERE instrument = ?", (full_instrument,))
+                    deleted_count = self.cursor.rowcount
+                    
+                    migration_results[f"{full_instrument} -> {base_instrument} (merged)"] = copied_count
+            
+            self.conn.commit()
+            return migration_results
+            
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error migrating instrument names: {e}")
+            return {}
