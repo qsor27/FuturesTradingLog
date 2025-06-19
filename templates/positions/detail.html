@@ -3,6 +3,8 @@
 <head>
     <title>Position Details - {{ position.instrument }} {{ position.position_type }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- TradingView Lightweight Charts Library - must load before PriceChart.js -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
     <style>
         /* Dark mode compatible styling */
