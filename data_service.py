@@ -232,33 +232,36 @@ class OHLCDataService:
                       start_date: datetime, end_date: datetime) -> List[Dict]:
         """Get chart data with Redis caching and automatic gap filling"""
         try:
-            # Use base symbol for OHLC lookups to handle instrument variations
-            base_instrument = self._get_base_instrument(instrument)
             start_timestamp = int(start_date.timestamp())
             end_timestamp = int(end_date.timestamp())
             
             # Try cache first if enabled
             if self.cache_service:
                 cached_data = self.cache_service.get_cached_ohlc_data(
-                    base_instrument, timeframe, start_timestamp, end_timestamp
+                    instrument, timeframe, start_timestamp, end_timestamp
                 )
                 if cached_data:
-                    self.logger.debug(f"Returning cached data for {instrument} ({base_instrument}) {timeframe}")
+                    self.logger.debug(f"Returning cached data for {instrument} {timeframe}")
                     return cached_data
             
-            # Cache miss - fetch from database with gap filling
-            self.detect_and_fill_gaps(base_instrument, timeframe, start_date, end_date)
-            
+            # Try to get data using exact instrument name first
             with FuturesDB() as db:
-                data = db.get_ohlc_data(base_instrument, timeframe, start_timestamp, end_timestamp, limit=None)
+                data = db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
+                
+                # If no data found with exact name, try base instrument name
+                if not data:
+                    base_instrument = self._get_base_instrument(instrument)
+                    if base_instrument != instrument:
+                        self.logger.debug(f"No data for {instrument}, trying base instrument {base_instrument}")
+                        data = db.get_ohlc_data(base_instrument, timeframe, start_timestamp, end_timestamp, limit=None)
             
             # Cache the data if cache service is available
             if self.cache_service and data:
                 self.cache_service.cache_ohlc_data(
-                    base_instrument, timeframe, start_timestamp, end_timestamp, 
+                    instrument, timeframe, start_timestamp, end_timestamp, 
                     data, ttl_days=config.cache_ttl_days
                 )
-                self.logger.debug(f"Cached {len(data)} records for {instrument} ({base_instrument}) {timeframe}")
+                self.logger.debug(f"Cached {len(data)} records for {instrument} {timeframe}")
             
             return data
                 
