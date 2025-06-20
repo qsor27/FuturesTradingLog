@@ -28,6 +28,17 @@ class PriceChart {
     }
     
     buildChartOptions() {
+        // Check if TradingView library and its properties are fully loaded
+        const crosshairMode = (typeof LightweightCharts !== 'undefined' && 
+                              LightweightCharts.CrosshairMode && 
+                              LightweightCharts.CrosshairMode.Magnet) ? 
+                              LightweightCharts.CrosshairMode.Magnet : 1; // fallback to normal mode
+        
+        const lineStyle = (typeof LightweightCharts !== 'undefined' && 
+                          LightweightCharts.CrosshairLineStyle && 
+                          LightweightCharts.CrosshairLineStyle.Solid) ? 
+                          LightweightCharts.CrosshairLineStyle.Solid : 0; // fallback to solid
+
         // Build default options (now that TradingView library is available)
         this.options = {
             instrument: 'MNQ',
@@ -44,18 +55,18 @@ class PriceChart {
                 horzLines: { color: '#333333' },
             },
             crosshair: {
-                mode: LightweightCharts.CrosshairMode.Magnet, // Snap to nearest data point
+                mode: crosshairMode,
                 vertLine: {
                     visible: true,
                     labelVisible: false,
-                    style: LightweightCharts.CrosshairLineStyle.Solid,
+                    style: lineStyle,
                     color: '#758696',
                     width: 1,
                 },
                 horzLine: {
                     visible: true,
                     labelVisible: false,
-                    style: LightweightCharts.CrosshairLineStyle.Solid,
+                    style: lineStyle,
                     color: '#758696',
                     width: 1,
                 },
