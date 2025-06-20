@@ -149,6 +149,26 @@ class FuturesDB:
         
         self.conn.commit()
         
+        # Create chart settings table for user preferences  
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chart_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                default_timeframe TEXT NOT NULL DEFAULT '1h',
+                default_data_range TEXT NOT NULL DEFAULT '1week',
+                volume_visibility BOOLEAN NOT NULL DEFAULT 1,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Initialize default chart settings if table is empty
+        self.cursor.execute("SELECT COUNT(*) FROM chart_settings")
+        if self.cursor.fetchone()[0] == 0:
+            self.cursor.execute("""
+                INSERT INTO chart_settings (id, default_timeframe, default_data_range, volume_visibility)
+                VALUES (1, '1h', '1week', 1)
+            """)
+            print("Initialized default chart settings")
+        
         # Run ANALYZE to update query planner statistics
         self.cursor.execute("ANALYZE")
         self.conn.commit()
@@ -1901,3 +1921,103 @@ class FuturesDB:
         except Exception as e:
             print(f"Error getting active instruments: {e}")
             return []
+
+    def get_chart_settings(self) -> Dict[str, Any]:
+        """Get chart settings with fallback to defaults"""
+        try:
+            self.cursor.execute("""
+                SELECT default_timeframe, default_data_range, volume_visibility, last_updated
+                FROM chart_settings 
+                WHERE id = 1
+            """)
+            row = self.cursor.fetchone()
+            
+            if row:
+                return {
+                    'default_timeframe': row[0],
+                    'default_data_range': row[1], 
+                    'volume_visibility': bool(row[2]),
+                    'last_updated': row[3]
+                }
+            else:
+                # Return system defaults if no settings found
+                return {
+                    'default_timeframe': '1h',
+                    'default_data_range': '1week',
+                    'volume_visibility': True,
+                    'last_updated': None
+                }
+                
+        except Exception as e:
+            db_logger.error(f"Error getting chart settings: {e}")
+            # Return system defaults on error
+            return {
+                'default_timeframe': '1h',
+                'default_data_range': '1week', 
+                'volume_visibility': True,
+                'last_updated': None
+            }
+
+    def update_chart_settings(self, default_timeframe: str = None, default_data_range: str = None, 
+                            volume_visibility: bool = None) -> bool:
+        """Update chart settings"""
+        try:
+            # Validate timeframe options
+            valid_timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+            if default_timeframe and default_timeframe not in valid_timeframes:
+                raise ValueError(f"Invalid timeframe: {default_timeframe}. Must be one of {valid_timeframes}")
+            
+            # Validate data range options
+            valid_ranges = ['1day', '3days', '1week', '2weeks', '1month', '3months', '6months']
+            if default_data_range and default_data_range not in valid_ranges:
+                raise ValueError(f"Invalid data range: {default_data_range}. Must be one of {valid_ranges}")
+            
+            # Build update query dynamically
+            updates = []
+            params = []
+            
+            if default_timeframe is not None:
+                updates.append("default_timeframe = ?")
+                params.append(default_timeframe)
+            
+            if default_data_range is not None:
+                updates.append("default_data_range = ?")
+                params.append(default_data_range)
+            
+            if volume_visibility is not None:
+                updates.append("volume_visibility = ?")
+                params.append(volume_visibility)
+            
+            if not updates:
+                return True  # Nothing to update
+            
+            updates.append("last_updated = CURRENT_TIMESTAMP")
+            
+            # Use INSERT OR REPLACE to handle first-time settings
+            if len(params) == 0:
+                return True
+                
+            query = f"""
+                INSERT OR REPLACE INTO chart_settings (id, default_timeframe, default_data_range, volume_visibility, last_updated)
+                VALUES (1, 
+                    COALESCE(?, (SELECT default_timeframe FROM chart_settings WHERE id = 1), '1h'),
+                    COALESCE(?, (SELECT default_data_range FROM chart_settings WHERE id = 1), '1week'), 
+                    COALESCE(?, (SELECT volume_visibility FROM chart_settings WHERE id = 1), 1),
+                    CURRENT_TIMESTAMP
+                )
+            """
+            
+            # Pad params to match query parameters
+            while len(params) < 3:
+                params.append(None)
+            
+            self.cursor.execute(query, params)
+            self.conn.commit()
+            
+            db_logger.info(f"Updated chart settings: timeframe={default_timeframe}, range={default_data_range}, volume={volume_visibility}")
+            return True
+            
+        except Exception as e:
+            db_logger.error(f"Error updating chart settings: {e}")
+            self.conn.rollback()
+            return False

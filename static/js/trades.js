@@ -56,6 +56,8 @@ function deleteSelected() {
     const selectedRows = document.querySelectorAll('tbody input[type="checkbox"]:checked');
     const tradeIds = Array.from(selectedRows).map(checkbox => checkbox.value);
     
+    console.log(`🗑️ Deleting ${tradeIds.length} selected trades:`, tradeIds);
+    
     fetch('/delete-trades', {
         method: 'POST',
         headers: {
@@ -66,15 +68,17 @@ function deleteSelected() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            console.log(`✅ Successfully deleted ${tradeIds.length} trades`);
             selectedRows.forEach(checkbox => checkbox.closest('tr').remove());
             updateActionButtons();
             alert('Trades deleted successfully');
         } else {
+            console.error('❌ Failed to delete trades:', data);
             alert('Error deleting trades');
         }
     })
     .catch(error => {
-        console.error('Error:', error);
+        console.error('❌ Error deleting trades:', error);
         alert('Error deleting trades');
     });
 }
@@ -88,8 +92,12 @@ function linkSelectedTrades() {
         return;
     }
 
+    console.log(`🔗 Linking ${tradeIds.length} trades:`, tradeIds);
+
     const notes = prompt('Enter any notes for this trade group (optional):');
     const chartUrl = prompt('Enter a chart URL for this trade group (optional):');
+    
+    console.log(`📝 Link metadata - Notes: "${notes}", Chart URL: "${chartUrl}"`);
     
     fetch('/link-trades', {
         method: 'POST',
@@ -105,13 +113,15 @@ function linkSelectedTrades() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            console.log(`✅ Successfully linked ${tradeIds.length} trades`, data);
             window.location.reload();
         } else {
+            console.error('❌ Failed to link trades:', data);
             alert('Error linking trades: ' + (data.message || 'Unknown error'));
         }
     })
     .catch(error => {
-        console.error('Error:', error);
+        console.error('❌ Error linking trades:', error);
         alert('Error linking trades');
     });
 }
@@ -120,6 +130,8 @@ function unlinkTrade(tradeId) {
     if (!confirm('Are you sure you want to unlink this trade from its group?')) {
         return;
     }
+    
+    console.log(`🔗💔 Unlinking trade:`, tradeId);
     
     fetch('/unlink-trades', {
         method: 'POST',
@@ -131,13 +143,15 @@ function unlinkTrade(tradeId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            console.log(`✅ Successfully unlinked trade ${tradeId}`, data);
             window.location.reload();
         } else {
+            console.error('❌ Failed to unlink trade:', data);
             alert('Error unlinking trade');
         }
     })
     .catch(error => {
-        console.error('Error:', error);
+        console.error('❌ Error unlinking trade:', error);
         alert('Error unlinking trade');
     });
 }

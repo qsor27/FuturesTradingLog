@@ -28,10 +28,13 @@ function updateSort(column) {
 }
 
 function submitFilterForm() {
+    console.log('🔍 Submitting filter form...');
     const form = document.getElementById('filterForm');
     if (form) {
         const selectedAccounts = Array.from(document.querySelectorAll('#accountSelect option:checked'))
             .map(option => option.value);
+        
+        console.log('📋 Selected accounts:', selectedAccounts);
         
         // Create URLSearchParams object
         const params = new URLSearchParams();
@@ -63,7 +66,10 @@ function submitFilterForm() {
         params.set('page', '1');
         
         // Update URL
+        console.log('🔄 Applying filters with parameters:', params.toString());
         window.location.search = params.toString();
+    } else {
+        console.warn('⚠️ Filter form not found');
     }
 }
 
@@ -120,7 +126,10 @@ function deleteTrades() {
     const selectedRows = document.querySelectorAll('tbody input[type="checkbox"]:checked');
     const tradeIds = Array.from(selectedRows).map(checkbox => checkbox.value);
     
+    console.log(`🗑️ Attempting to delete ${tradeIds.length} trades:`, tradeIds);
+    
     if (confirm(`Are you sure you want to delete ${tradeIds.length} trade(s)?`)) {
+        console.log('✅ User confirmed deletion, sending request...');
         fetch('/delete-trades', {
             method: 'POST',
             headers: {
@@ -131,13 +140,15 @@ function deleteTrades() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                console.log(`✅ Successfully deleted ${tradeIds.length} trades`);
                 window.location.reload();
             } else {
+                console.error('❌ Failed to delete trades:', data);
                 alert('Failed to delete trades: ' + (data.error || 'Unknown error'));
             }
         })
         .catch(error => {
-            console.error('Error:', error);
+            console.error('❌ Error deleting trades:', error);
             alert('Failed to delete trades: ' + error);
         });
     }

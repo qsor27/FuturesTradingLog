@@ -5,6 +5,8 @@
 {% block extra_head %}
 <!-- TradingView Lightweight Charts Library - must load before PriceChart.js -->
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Chart Settings API - must load before PriceChart.js -->
+<script src="{{ url_for('static', filename='js/ChartSettingsAPI.js') }}"></script>
 <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
 {% endblock %}
 

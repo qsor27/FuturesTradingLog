@@ -7,7 +7,7 @@
     <h1>Settings</h1>
     
     <div class="row">
-        <div class="col-md-8">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
                     <h3>Instrument Multipliers</h3>
@@ -89,10 +89,74 @@
             </div>
         </div>
         
-        <div class="col-md-4">
+        <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h5>Help</h5>
+                    <h3>Chart Settings</h3>
+                    <p class="text-muted">Configure default chart preferences and behavior</p>
+                </div>
+                <div class="card-body">
+                    <form id="chart-settings-form">
+                        <div class="mb-3">
+                            <label for="default-timeframe" class="form-label">Default Timeframe</label>
+                            <select id="default-timeframe" name="default_timeframe" class="form-select">
+                                <option value="1m" {% if chart_settings.default_timeframe == '1m' %}selected{% endif %}>1 Minute</option>
+                                <option value="3m" {% if chart_settings.default_timeframe == '3m' %}selected{% endif %}>3 Minutes</option>
+                                <option value="5m" {% if chart_settings.default_timeframe == '5m' %}selected{% endif %}>5 Minutes</option>
+                                <option value="15m" {% if chart_settings.default_timeframe == '15m' %}selected{% endif %}>15 Minutes</option>
+                                <option value="1h" {% if chart_settings.default_timeframe == '1h' %}selected{% endif %}>1 Hour</option>
+                                <option value="4h" {% if chart_settings.default_timeframe == '4h' %}selected{% endif %}>4 Hours</option>
+                                <option value="1d" {% if chart_settings.default_timeframe == '1d' %}selected{% endif %}>1 Day</option>
+                            </select>
+                            <div class="form-text">Timeframe used when opening new charts</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="default-data-range" class="form-label">Default Data Range</label>
+                            <select id="default-data-range" name="default_data_range" class="form-select">
+                                <option value="1day" {% if chart_settings.default_data_range == '1day' %}selected{% endif %}>1 Day</option>
+                                <option value="3days" {% if chart_settings.default_data_range == '3days' %}selected{% endif %}>3 Days</option>
+                                <option value="1week" {% if chart_settings.default_data_range == '1week' %}selected{% endif %}>1 Week</option>
+                                <option value="2weeks" {% if chart_settings.default_data_range == '2weeks' %}selected{% endif %}>2 Weeks</option>
+                                <option value="1month" {% if chart_settings.default_data_range == '1month' %}selected{% endif %}>1 Month</option>
+                                <option value="3months" {% if chart_settings.default_data_range == '3months' %}selected{% endif %}>3 Months</option>
+                                <option value="6months" {% if chart_settings.default_data_range == '6months' %}selected{% endif %}>6 Months</option>
+                            </select>
+                            <div class="form-text">Amount of historical data to display by default</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" id="volume-visibility" name="volume_visibility" class="form-check-input" 
+                                       {% if chart_settings.volume_visibility %}checked{% endif %}>
+                                <label for="volume-visibility" class="form-check-label">
+                                    Show Volume by Default
+                                </label>
+                                <div class="form-text">Display volume histogram in new charts</div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-success" id="save-chart-settings">Save Chart Settings</button>
+                            <button type="button" class="btn btn-secondary" id="reset-chart-settings">Reset to Defaults</button>
+                        </div>
+                        
+                        {% if chart_settings.last_updated %}
+                        <div class="mt-2">
+                            <small class="text-muted">Last updated: {{ chart_settings.last_updated }}</small>
+                        </div>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Multipliers Help</h5>
                 </div>
                 <div class="card-body">
                     <p><strong>What are multipliers?</strong></p>
@@ -104,6 +168,27 @@
                     
                     <p><strong>Note:</strong></p>
                     <p>Changes take effect immediately for new trades. Existing trades maintain their original calculations.</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Chart Settings Help</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Default Timeframe:</strong></p>
+                    <p>Sets the initial timeframe for all new charts. This can be changed on each chart individually.</p>
+                    
+                    <p><strong>Default Data Range:</strong></p>
+                    <p>Controls how much historical data to load by default. Larger ranges may take longer to load but show more context.</p>
+                    
+                    <p><strong>Volume Display:</strong></p>
+                    <p>Whether to show the volume histogram by default. Volume can be toggled on/off for each chart.</p>
+                    
+                    <p><strong>Performance Note:</strong></p>
+                    <p>For better performance with large data ranges, charts automatically adapt resolution (e.g., 6-month range uses hourly data instead of minute data).</p>
                 </div>
             </div>
         </div>
@@ -265,6 +350,111 @@ document.addEventListener('DOMContentLoaded', function() {
     newMultiplierInput.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
             addButton.click();
+        }
+    });
+    
+    // Chart Settings Form Handling
+    const chartSettingsForm = document.getElementById('chart-settings-form');
+    const saveChartSettingsBtn = document.getElementById('save-chart-settings');
+    const resetChartSettingsBtn = document.getElementById('reset-chart-settings');
+    
+    // Store original chart settings for reset functionality
+    let originalChartSettings = {
+        default_timeframe: document.getElementById('default-timeframe').value,
+        default_data_range: document.getElementById('default-data-range').value,
+        volume_visibility: document.getElementById('volume-visibility').checked
+    };
+    
+    // Save chart settings
+    chartSettingsForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const settings = {
+            default_timeframe: document.getElementById('default-timeframe').value,
+            default_data_range: document.getElementById('default-data-range').value,
+            volume_visibility: document.getElementById('volume-visibility').checked
+        };
+        
+        // Send to API
+        fetch('/api/v1/settings/chart', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(settings)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Chart settings saved successfully!');
+                
+                // Update localStorage cache for immediate effect
+                localStorage.setItem('chartSettings', JSON.stringify(data.settings));
+                
+                // Update original settings
+                originalChartSettings = { ...settings };
+                
+                // Dispatch custom event to notify any open charts
+                const event = new CustomEvent('chartSettingsUpdated', {
+                    detail: { settings: data.settings }
+                });
+                document.dispatchEvent(event);
+                
+            } else {
+                alert('Error saving chart settings: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error saving chart settings: ' + error);
+        });
+    });
+    
+    // Reset chart settings
+    resetChartSettingsBtn.addEventListener('click', function() {
+        if (confirm('Reset chart settings to system defaults?')) {
+            const defaults = {
+                default_timeframe: '1h',
+                default_data_range: '1week',
+                volume_visibility: true
+            };
+            
+            // Update form
+            document.getElementById('default-timeframe').value = defaults.default_timeframe;
+            document.getElementById('default-data-range').value = defaults.default_data_range;
+            document.getElementById('volume-visibility').checked = defaults.volume_visibility;
+            
+            // Save to API
+            fetch('/api/v1/settings/chart', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(defaults)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Chart settings reset to defaults!');
+                    
+                    // Update localStorage cache
+                    localStorage.setItem('chartSettings', JSON.stringify(data.settings));
+                    
+                    // Update original settings
+                    originalChartSettings = { ...defaults };
+                    
+                    // Dispatch update event
+                    const event = new CustomEvent('chartSettingsUpdated', {
+                        detail: { settings: data.settings }
+                    });
+                    document.dispatchEvent(event);
+                    
+                } else {
+                    alert('Error resetting chart settings: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('Error resetting chart settings: ' + error);
+            });
         }
     });
 });

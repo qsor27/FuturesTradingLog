@@ -12,11 +12,11 @@ class PriceChart {
             throw new Error(`Container with id '${containerId}' not found`);
         }
         
-        // Default options
+        // Default options (will be overridden by user settings)
         this.options = {
             instrument: 'MNQ',
-            timeframe: '1m',
-            days: 1,
+            timeframe: '1h', // Default timeframe
+            days: 7, // Default to 1 week
             width: this.container.clientWidth,
             height: 400,
             layout: {
@@ -64,9 +64,10 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
-        this.volumeVisible = true; // Default volume visibility
+        this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
         this.ohlcDisplayEl = null; // OHLC overlay element
         this.crosshairMoveHandler = null; // Store bound handler for cleanup
+        this.settingsLoaded = false; // Track if user settings have been applied
         
         this.init();
     }
@@ -130,13 +131,20 @@ class PriceChart {
             console.log('🎯 Setting up crosshair event handlers...');
             this.subscribeToEvents();
             
+            // Subscribe to settings updates
+            console.log('⚙️ Setting up settings update handler...');
+            this.setupSettingsListener();
+            
             // Handle resize
             console.log('🔄 Setting up resize handler...');
             this.setupResizeHandler();
             
-            // Load initial data
-            console.log('📡 Loading initial data...');
-            this.loadData();
+            // Load user settings and then data
+            console.log('⚙️ Loading user settings...');
+            this.loadUserSettings().then(() => {
+                console.log('📡 Loading initial data...');
+                this.loadData();
+            });
             
         } catch (error) {
             console.error('❌ Error during chart initialization:', error);
@@ -158,6 +166,45 @@ class PriceChart {
         });
         
         resizeObserver.observe(this.container);
+    }
+    
+    async loadUserSettings() {
+        try {
+            // Only load settings if ChartSettingsAPI is available and not already loaded
+            if (typeof window.chartSettingsAPI !== 'undefined' && !this.settingsLoaded) {
+                console.log('⚙️ Loading user chart settings...');
+                const settings = await window.chartSettingsAPI.getSettings();
+                
+                // Apply user settings only if container doesn't have explicit data attributes
+                const container = this.container;
+                
+                // Apply timeframe if not explicitly set
+                if (!container.dataset.timeframe && settings.default_timeframe) {
+                    this.options.timeframe = settings.default_timeframe;
+                    console.log(`🎯 Applied user default timeframe: ${settings.default_timeframe}`);
+                }
+                
+                // Apply data range if not explicitly set 
+                if (!container.dataset.days && settings.default_data_range) {
+                    this.options.days = window.chartSettingsAPI.convertDataRangeToDays(settings.default_data_range);
+                    console.log(`📅 Applied user default data range: ${settings.default_data_range} (${this.options.days} days)`);
+                }
+                
+                // Apply volume visibility
+                if (settings.volume_visibility !== undefined) {
+                    this.volumeVisible = settings.volume_visibility;
+                    console.log(`📊 Applied user volume visibility: ${settings.volume_visibility}`);
+                }
+                
+                this.settingsLoaded = true;
+                console.log('✅ User settings applied successfully');
+            } else {
+                console.log('⚠️ ChartSettingsAPI not available or settings already loaded, using defaults');
+            }
+        } catch (error) {
+            console.error('❌ Error loading user settings:', error);
+            // Continue with defaults
+        }
     }
     
     async loadData() {
@@ -537,6 +584,26 @@ class PriceChart {
         console.log('✅ Crosshair event subscription registered');
     }
     
+    setupSettingsListener() {
+        // Listen for global settings updates
+        this.settingsUpdateHandler = (event) => {
+            const newSettings = event.detail.settings;
+            console.log('⚙️ Received chart settings update:', newSettings);
+            
+            // Update volume visibility if it changed
+            if (newSettings.volume_visibility !== undefined && newSettings.volume_visibility !== this.volumeVisible) {
+                console.log(`📊 Updating volume visibility: ${this.volumeVisible} → ${newSettings.volume_visibility}`);
+                this.toggleVolume(newSettings.volume_visibility);
+            }
+            
+            // Note: timeframe and data range changes don't auto-reload existing charts
+            // User can manually change these via chart controls
+        };
+        
+        document.addEventListener('chartSettingsUpdated', this.settingsUpdateHandler);
+        console.log('✅ Settings update listener registered');
+    }
+    
     handleCrosshairMove(param) {
         if (param.point) {
             // Check if there's data for the candlestick series at this point
@@ -629,6 +696,12 @@ class PriceChart {
         if (this.chart && this.crosshairMoveHandler) {
             this.chart.unsubscribeCrosshairMove(this.crosshairMoveHandler);
             this.crosshairMoveHandler = null;
+        }
+        
+        // Unsubscribe from settings updates
+        if (this.settingsUpdateHandler) {
+            document.removeEventListener('chartSettingsUpdated', this.settingsUpdateHandler);
+            this.settingsUpdateHandler = null;
         }
         
         if (this.chart) {
