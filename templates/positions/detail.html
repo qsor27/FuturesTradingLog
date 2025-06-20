@@ -292,7 +292,7 @@
         </p>
         
         {% set chart_id = 'positionChart' %}
-        {% set chart_instrument = position.instrument %}
+        {% set chart_instrument = position.instrument.split()[0] %}
         {% set chart_timeframe = '1h' %}
         {% set chart_days = 7 %}
         {% set chart_height = '400px' %}
