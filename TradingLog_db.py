@@ -1880,3 +1880,24 @@ class FuturesDB:
             self.conn.rollback()
             print(f"Error migrating instrument names: {e}")
             return {}
+
+    def get_active_instruments_since(self, since_date: datetime) -> List[str]:
+        """Get list of instruments that have trade activity since the given date"""
+        try:
+            # Convert datetime to string for SQLite
+            since_str = since_date.strftime('%Y-%m-%d %H:%M:%S')
+            
+            self.cursor.execute("""
+                SELECT DISTINCT instrument 
+                FROM trades 
+                WHERE entry_time >= ? 
+                   OR exit_time >= ?
+                ORDER BY instrument
+            """, (since_str, since_str))
+            
+            instruments = [row[0] for row in self.cursor.fetchall()]
+            return instruments
+            
+        except Exception as e:
+            print(f"Error getting active instruments: {e}")
+            return []

@@ -17,7 +17,7 @@ class OHLCDataService:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.rate_limit_delay = 1.0  # 1 second between requests to be respectful
+        self.rate_limit_delay = 2.5  # 2.5 seconds between requests for reliability
         self.last_request_time = 0
         
         # Initialize cache service if enabled
@@ -26,6 +26,10 @@ class OHLCDataService:
             self.logger.info("Redis cache service initialized")
         else:
             self.logger.info("Cache service disabled or unavailable")
+        
+        # Enhanced retry configuration for production reliability
+        self.max_retries = 3
+        self.retry_delays = [5, 15, 45]  # Exponential backoff in seconds
         
         # Futures symbol mapping - yfinance symbols for major futures
         self.symbol_mapping = {
@@ -95,6 +99,7 @@ class OHLCDataService:
         """Convert our timeframe format to yfinance interval"""
         timeframe_map = {
             '1m': '1m',
+            '3m': '3m',
             '5m': '5m', 
             '15m': '15m',
             '1h': '1h',
@@ -103,11 +108,39 @@ class OHLCDataService:
         }
         return timeframe_map.get(timeframe, '1m')
 
+    def _enforce_rate_limit_with_retry(self, func, *args, **kwargs):
+        """Enhanced rate limiting with retry logic for production reliability"""
+        for attempt in range(self.max_retries + 1):
+            try:
+                self._enforce_rate_limit()
+                return func(*args, **kwargs)
+            except Exception as e:
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ["429", "too many requests", "rate limit", "quota"]):
+                    if attempt < self.max_retries:
+                        wait_time = self.retry_delays[attempt]
+                        self.logger.warning(f"Rate limited on attempt {attempt + 1}, retrying in {wait_time}s: {e}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        self.logger.error(f"Rate limited after {self.max_retries} retries, giving up: {e}")
+                        raise e
+                else:
+                    # Non-rate limit error, don't retry
+                    raise e
+        return None
+
     def fetch_ohlc_data(self, instrument: str, timeframe: str, 
                        start_date: datetime, end_date: datetime) -> List[Dict]:
-        """Fetch OHLC data from yfinance with rate limiting"""
+        """Fetch OHLC data from yfinance with enhanced retry logic"""
+        return self._enforce_rate_limit_with_retry(
+            self._fetch_ohlc_data_internal, instrument, timeframe, start_date, end_date
+        )
+    
+    def _fetch_ohlc_data_internal(self, instrument: str, timeframe: str, 
+                                 start_date: datetime, end_date: datetime) -> List[Dict]:
+        """Internal method for fetching OHLC data (used by retry wrapper)"""
         try:
-            self._enforce_rate_limit()
             
             yf_symbol = self._get_yfinance_symbol(instrument)
             yf_interval = self._convert_timeframe_to_yfinance(timeframe)
@@ -272,7 +305,7 @@ class OHLCDataService:
     def update_recent_data(self, instrument: str, timeframes: List[str] = None) -> bool:
         """Update recent data for an instrument across multiple timeframes"""
         if timeframes is None:
-            timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+            timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
         
         try:
             # Get data for last 7 days to ensure we catch up
@@ -305,6 +338,152 @@ class OHLCDataService:
         except Exception as e:
             self.logger.error(f"Error updating recent data: {e}")
             return False
+
+    def get_optimal_timeframe_order(self, timeframes: List[str]) -> List[str]:
+        """Prioritize timeframes by data availability and reliability"""
+        priority_order = {
+            '1d': 1,   # Most reliable, longest history
+            '1h': 2,   # Good balance of detail and availability  
+            '4h': 3,   # Less frequent updates needed
+            '15m': 4,  # Moderate intraday detail
+            '5m': 5,   # Higher frequency, more prone to gaps
+            '3m': 6,   # Higher frequency, limited by yfinance
+            '1m': 7,   # Highest frequency, most limited history (7 days max)
+        }
+        return sorted(timeframes, key=lambda tf: priority_order.get(tf, 999))
+
+    def get_timeframe_specific_date_range(self, timeframe: str) -> Tuple[datetime, datetime]:
+        """Get optimal date range based on yfinance timeframe limitations"""
+        end_date = datetime.now()
+        
+        # yfinance data availability constraints
+        if timeframe == '1m':
+            # 1-minute data: only last 7 days available
+            start_date = end_date - timedelta(days=7)
+        elif timeframe in ['3m', '5m', '15m', '1h', '4h']:
+            # Intraday data: only last 60 days available
+            start_date = end_date - timedelta(days=60)
+        else:  # '1d'
+            # Daily data: much longer history available
+            start_date = end_date - timedelta(days=365)
+        
+        return start_date, end_date
+
+    def batch_update_multiple_instruments(self, instruments: List[str], 
+                                        timeframes: List[str] = None) -> Dict[str, Dict[str, bool]]:
+        """
+        Efficiently update multiple instruments across multiple timeframes
+        
+        Returns:
+            Dict mapping instrument -> timeframe -> success_status
+        """
+        if timeframes is None:
+            timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+        
+        # Optimize timeframe order for best success rate
+        optimized_timeframes = self.get_optimal_timeframe_order(timeframes)
+        
+        # Calculate estimated time and log progress info
+        total_requests = len(instruments) * len(optimized_timeframes)
+        estimated_time = total_requests * self.rate_limit_delay
+        
+        self.logger.info(f"Starting batch update:")
+        self.logger.info(f"  - Instruments: {len(instruments)} ({', '.join(instruments)})")
+        self.logger.info(f"  - Timeframes: {len(optimized_timeframes)} ({', '.join(optimized_timeframes)})")
+        self.logger.info(f"  - Total requests: {total_requests}")
+        self.logger.info(f"  - Estimated time: {estimated_time/60:.1f} minutes")
+        
+        results = {}
+        start_time = time.time()
+        
+        for i, instrument in enumerate(instruments):
+            results[instrument] = {}
+            self.logger.info(f"\n📊 Processing instrument {i+1}/{len(instruments)}: {instrument}")
+            
+            for j, timeframe in enumerate(optimized_timeframes):
+                request_num = i * len(optimized_timeframes) + j + 1
+                progress = request_num / total_requests * 100
+                
+                self.logger.info(f"  🕐 [{progress:5.1f}%] Fetching {timeframe} data... (request {request_num}/{total_requests})")
+                
+                try:
+                    # Get timeframe-specific date range
+                    start_date, end_date = self.get_timeframe_specific_date_range(timeframe)
+                    
+                    # Fetch data with enhanced retry logic
+                    data = self.fetch_ohlc_data(instrument, timeframe, start_date, end_date)
+                    
+                    if data:
+                        # Store in database
+                        with FuturesDB() as db:
+                            records_inserted = 0
+                            for record in data:
+                                try:
+                                    db.insert_ohlc_data(
+                                        record['instrument'],
+                                        record['timeframe'],
+                                        record['timestamp'], 
+                                        record['open_price'],
+                                        record['high_price'],
+                                        record['low_price'],
+                                        record['close_price'],
+                                        record['volume']
+                                    )
+                                    records_inserted += 1
+                                except Exception as insert_error:
+                                    # Likely duplicate, continue
+                                    pass
+                        
+                        self.logger.info(f"    ✅ Success: {records_inserted} new records")
+                        results[instrument][timeframe] = True
+                    else:
+                        self.logger.warning(f"    ⚠️ No data returned")
+                        results[instrument][timeframe] = False
+                
+                except Exception as e:
+                    self.logger.error(f"    ❌ Failed: {e}")
+                    results[instrument][timeframe] = False
+                
+                # Extra delay between instruments to be respectful
+                if j == len(optimized_timeframes) - 1 and i < len(instruments) - 1:
+                    self.logger.info(f"  🔄 Completed {instrument}, pausing 1s before next instrument...")
+                    time.sleep(1.0)
+        
+        # Summary statistics
+        elapsed_time = time.time() - start_time
+        total_success = sum(1 for inst_results in results.values() 
+                          for success in inst_results.values() if success)
+        success_rate = (total_success / total_requests) * 100 if total_requests > 0 else 0
+        
+        self.logger.info(f"\n🏁 Batch update completed!")
+        self.logger.info(f"  - Total time: {elapsed_time/60:.1f} minutes")
+        self.logger.info(f"  - Success rate: {success_rate:.1f}% ({total_success}/{total_requests})")
+        self.logger.info(f"  - Average time per request: {elapsed_time/total_requests:.1f}s")
+        
+        return results
+
+    def update_all_active_instruments(self, timeframes: List[str] = None) -> Dict[str, Dict[str, bool]]:
+        """
+        Update all instruments that have recent trade activity
+        
+        This is more efficient than updating all possible instruments
+        """
+        if timeframes is None:
+            timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+        
+        # Get instruments that have recent trade activity
+        with FuturesDB() as db:
+            # Get instruments with trades in last 30 days
+            recent_date = datetime.now() - timedelta(days=30)
+            instruments = db.get_active_instruments_since(recent_date)
+        
+        if not instruments:
+            self.logger.warning("No active instruments found in the last 30 days")
+            return {}
+        
+        self.logger.info(f"Found {len(instruments)} active instruments: {', '.join(instruments)}")
+        
+        return self.batch_update_multiple_instruments(instruments, timeframes)
 
 # Global instance
 ohlc_service = OHLCDataService()

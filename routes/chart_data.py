@@ -201,7 +201,7 @@ def get_available_instruments():
 def get_available_timeframes(instrument):
     """Get available timeframes for an instrument with data counts"""
     try:
-        timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+        timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
         available = {}
         
         with FuturesDB() as db:
@@ -228,6 +228,147 @@ def get_available_timeframes(instrument):
         
     except Exception as e:
         logger.error(f"Error getting available timeframes for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/batch-update-instruments', methods=['POST'])
+def batch_update_instruments():
+    """API endpoint to batch update multiple instruments across all timeframes"""
+    try:
+        data = request.get_json() or {}
+        
+        # Get instruments from request or use active instruments
+        instruments = data.get('instruments', [])
+        timeframes = data.get('timeframes', ['1m', '3m', '5m', '15m', '1h', '4h', '1d'])
+        
+        if not instruments:
+            # No specific instruments provided - update all active instruments
+            logger.info("No instruments specified, updating all active instruments")
+            results = ohlc_service.update_all_active_instruments(timeframes)
+        else:
+            # Update specific instruments
+            logger.info(f"Updating specific instruments: {instruments}")
+            results = ohlc_service.batch_update_multiple_instruments(instruments, timeframes)
+        
+        # Calculate summary statistics
+        total_requests = sum(len(tf_results) for tf_results in results.values())
+        successful_requests = sum(
+            1 for tf_results in results.values() 
+            for success in tf_results.values() if success
+        )
+        success_rate = (successful_requests / total_requests * 100) if total_requests > 0 else 0
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': {
+                'total_instruments': len(results),
+                'total_requests': total_requests,
+                'successful_requests': successful_requests,
+                'success_rate': round(success_rate, 1)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in batch update: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/update-timeframes/<instrument>', methods=['POST'])
+def update_instrument_timeframes(instrument):
+    """API endpoint to update all timeframes for a specific instrument"""
+    try:
+        data = request.get_json() or {}
+        timeframes = data.get('timeframes', ['1m', '3m', '5m', '15m', '1h', '4h', '1d'])
+        
+        logger.info(f"Updating timeframes for {instrument}: {timeframes}")
+        
+        results = ohlc_service.batch_update_multiple_instruments([instrument], timeframes)
+        
+        if instrument in results:
+            timeframe_results = results[instrument]
+            successful_timeframes = [tf for tf, success in timeframe_results.items() if success]
+            failed_timeframes = [tf for tf, success in timeframe_results.items() if not success]
+            
+            return jsonify({
+                'success': True,
+                'instrument': instrument,
+                'results': timeframe_results,
+                'successful_timeframes': successful_timeframes,
+                'failed_timeframes': failed_timeframes,
+                'success_rate': round(len(successful_timeframes) / len(timeframes) * 100, 1)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f"No results returned for {instrument}"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error updating timeframes for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/batch-update-status')
+def get_batch_update_status():
+    """Get information about what instruments can be batch updated"""
+    try:
+        with FuturesDB() as db:
+            # Get active instruments from last 30 days
+            recent_date = datetime.now() - timedelta(days=30)
+            active_instruments = db.get_active_instruments_since(recent_date)
+            
+            # Get all instruments that have OHLC data
+            db.cursor.execute("""
+                SELECT DISTINCT instrument 
+                FROM ohlc_data 
+                ORDER BY instrument
+            """)
+            instruments_with_data = [row[0] for row in db.cursor.fetchall()]
+            
+            # Get count of OHLC records per instrument and timeframe
+            db.cursor.execute("""
+                SELECT instrument, timeframe, COUNT(*) as record_count,
+                       MIN(timestamp) as earliest_data,
+                       MAX(timestamp) as latest_data
+                FROM ohlc_data 
+                GROUP BY instrument, timeframe
+                ORDER BY instrument, timeframe
+            """)
+            
+            data_summary = {}
+            for row in db.cursor.fetchall():
+                instrument = row[0]
+                timeframe = row[1]
+                record_count = row[2]
+                earliest_timestamp = row[3]
+                latest_timestamp = row[4]
+                
+                if instrument not in data_summary:
+                    data_summary[instrument] = {}
+                
+                data_summary[instrument][timeframe] = {
+                    'record_count': record_count,
+                    'earliest_data': datetime.fromtimestamp(earliest_timestamp).isoformat() if earliest_timestamp else None,
+                    'latest_data': datetime.fromtimestamp(latest_timestamp).isoformat() if latest_timestamp else None
+                }
+        
+        return jsonify({
+            'success': True,
+            'active_instruments': active_instruments,
+            'instruments_with_data': instruments_with_data,
+            'data_summary': data_summary,
+            'supported_timeframes': ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting batch update status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
