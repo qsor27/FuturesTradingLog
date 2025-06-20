@@ -28,7 +28,21 @@ class PriceChart {
                 horzLines: { color: '#333333' },
             },
             crosshair: {
-                mode: LightweightCharts.CrosshairMode.Normal,
+                mode: LightweightCharts.CrosshairMode.Magnet, // Snap to nearest data point
+                vertLine: {
+                    visible: true,
+                    labelVisible: false,
+                    style: LightweightCharts.CrosshairLineStyle.Solid,
+                    color: '#758696',
+                    width: 1,
+                },
+                horzLine: {
+                    visible: true,
+                    labelVisible: false,
+                    style: LightweightCharts.CrosshairLineStyle.Solid,
+                    color: '#758696',
+                    width: 1,
+                },
             },
             rightPriceScale: {
                 borderColor: '#404040',
@@ -51,6 +65,8 @@ class PriceChart {
         this.volumeSeries = null;
         this.markers = [];
         this.volumeVisible = true; // Default volume visibility
+        this.ohlcDisplayEl = null; // OHLC overlay element
+        this.crosshairMoveHandler = null; // Store bound handler for cleanup
         
         this.init();
     }
@@ -105,6 +121,14 @@ class PriceChart {
             } else {
                 console.log('📊 Volume series skipped (hidden by default)');
             }
+            
+            // Initialize OHLC overlay
+            console.log('💱 Initializing OHLC overlay...');
+            this.initOhlcDisplay();
+            
+            // Subscribe to crosshair events
+            console.log('🎯 Setting up crosshair event handlers...');
+            this.subscribeToEvents();
             
             // Handle resize
             console.log('🔄 Setting up resize handler...');
@@ -478,6 +502,90 @@ class PriceChart {
         }
     }
     
+    initOhlcDisplay() {
+        // Create OHLC overlay element
+        this.ohlcDisplayEl = document.createElement('div');
+        this.ohlcDisplayEl.className = 'ohlc-display';
+        
+        // Apply styles for professional trading app appearance
+        Object.assign(this.ohlcDisplayEl.style, {
+            position: 'absolute',
+            zIndex: '100',
+            backgroundColor: '#2b2b2b',
+            color: '#e5e5e5',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            pointerEvents: 'none', // Prevents blocking chart interaction
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 5px rgba(0, 0, 0, 0.5)',
+            border: '1px solid #444',
+            top: '10px',
+            right: '10px',
+            display: 'none', // Hidden by default
+        });
+        
+        this.container.appendChild(this.ohlcDisplayEl);
+        console.log('✅ OHLC display overlay created');
+    }
+    
+    subscribeToEvents() {
+        // Subscribe to crosshair move events for OHLC display
+        this.crosshairMoveHandler = param => this.handleCrosshairMove(param);
+        this.chart.subscribeCrosshairMove(this.crosshairMoveHandler);
+        console.log('✅ Crosshair event subscription registered');
+    }
+    
+    handleCrosshairMove(param) {
+        if (param.point) {
+            // Check if there's data for the candlestick series at this point
+            if (param.seriesData.has(this.candlestickSeries)) {
+                const dataPoint = param.seriesData.get(this.candlestickSeries);
+                if (dataPoint) {
+                    const ohlc = {
+                        open: dataPoint.open,
+                        high: dataPoint.high,
+                        low: dataPoint.low,
+                        close: dataPoint.close,
+                    };
+                    this.updateOhlcDisplay(ohlc);
+                } else {
+                    // No candle data at this exact time (e.g., gap)
+                    this.hideOhlcDisplay();
+                }
+            } else {
+                // Candlestick series not present in param.seriesData
+                this.hideOhlcDisplay();
+            }
+        } else {
+            // Mouse is outside the chart area
+            this.hideOhlcDisplay();
+        }
+    }
+    
+    updateOhlcDisplay(ohlc) {
+        // Format values with appropriate precision for futures
+        const formattedO = ohlc.open.toFixed(2);
+        const formattedH = ohlc.high.toFixed(2);
+        const formattedL = ohlc.low.toFixed(2);
+        const formattedC = ohlc.close.toFixed(2);
+
+        this.ohlcDisplayEl.innerHTML = `
+            <span style="margin-right: 10px;">O: ${formattedO}</span>
+            <span style="margin-right: 10px;">H: ${formattedH}</span>
+            <span style="margin-right: 10px;">L: ${formattedL}</span>
+            <span>C: ${formattedC}</span>
+        `;
+        this.ohlcDisplayEl.style.display = 'block';
+    }
+    
+    hideOhlcDisplay() {
+        if (this.ohlcDisplayEl) {
+            this.ohlcDisplayEl.style.display = 'none';
+        }
+    }
+
     showLoading(show) {
         const loadingEl = this.container.querySelector('.chart-loading');
         if (loadingEl) {
@@ -517,10 +625,28 @@ class PriceChart {
     }
     
     destroy() {
+        // Unsubscribe from crosshair events to prevent memory leaks
+        if (this.chart && this.crosshairMoveHandler) {
+            this.chart.unsubscribeCrosshairMove(this.crosshairMoveHandler);
+            this.crosshairMoveHandler = null;
+        }
+        
         if (this.chart) {
             this.chart.remove();
             this.chart = null;
         }
+        
+        // Remove OHLC display element
+        if (this.ohlcDisplayEl && this.ohlcDisplayEl.parentNode) {
+            this.ohlcDisplayEl.parentNode.removeChild(this.ohlcDisplayEl);
+            this.ohlcDisplayEl = null;
+        }
+        
+        // Clear references to prevent memory leaks
+        this.candlestickSeries = null;
+        this.volumeSeries = null;
+        this.markers = [];
+        this.container = null;
     }
 }
 
