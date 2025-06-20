@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from config import config
 from logging_config import setup_application_logging, get_logger, log_system_info
+from symbol_service import symbol_service
 from routes.main import main_bp
 from routes.trades import trades_bp
 from routes.upload import upload_bp
@@ -47,6 +48,37 @@ app.register_blueprint(settings_bp)  # Settings routes
 app.register_blueprint(reports_bp)  # Reports routes
 app.register_blueprint(execution_analysis_bp)  # Execution analysis routes
 app.register_blueprint(positions_bp, url_prefix='/positions')  # Positions routes
+
+# Template filters for symbol handling
+@app.template_filter('base_symbol')
+def base_symbol_filter(instrument):
+    """Extract base symbol from instrument (e.g., 'MNQ SEP25' -> 'MNQ')"""
+    return symbol_service.get_base_symbol(instrument)
+
+@app.template_filter('display_name')
+def display_name_filter(instrument):
+    """Get human-readable name (e.g., 'MNQ' -> 'Micro NASDAQ-100')"""
+    return symbol_service.get_display_name(instrument)
+
+@app.template_filter('full_display_name')
+def full_display_name_filter(instrument):
+    """Get full display name with expiration (e.g., 'MNQ SEP25' -> 'Micro NASDAQ-100 SEP25')"""
+    return symbol_service.get_full_display_name(instrument)
+
+@app.template_filter('yfinance_symbol')
+def yfinance_symbol_filter(instrument):
+    """Get yfinance symbol (e.g., 'MNQ SEP25' -> 'MNQ=F')"""
+    return symbol_service.get_yfinance_symbol(instrument)
+
+@app.template_filter('contract_multiplier')
+def contract_multiplier_filter(instrument):
+    """Get contract multiplier (e.g., 'MNQ' -> 2.0)"""
+    return symbol_service.get_multiplier(instrument)
+
+# Make symbol_service available in templates
+@app.context_processor
+def inject_symbol_service():
+    return dict(symbol_service=symbol_service)
 
 @app.route('/health')
 def health_check():

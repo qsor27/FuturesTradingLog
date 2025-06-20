@@ -221,7 +221,7 @@
                 <h3 class="text-lg font-semibold mb-4 text-gray-800">Market Context Chart with Execution Flow</h3>
                 {% set chart_id = 'tradeChart' %}
                 {% set chart_height = '500px' %}
-                {% set chart_instrument = trade.instrument.split()[0] %}
+                {% set chart_instrument = trade.instrument|base_symbol %}
                 {% set chart_timeframe = '5m' %}
                 {% set chart_days = 1 %}
                 {% set chart_trade_id = trade.id %}

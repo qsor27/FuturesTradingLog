@@ -11,6 +11,7 @@ import logging
 from TradingLog_db import FuturesDB
 from config import config
 from redis_cache_service import get_cache_service
+from symbol_service import symbol_service
 
 class OHLCDataService:
     """Service for managing OHLC market data with gap detection and backfilling"""
@@ -31,22 +32,8 @@ class OHLCDataService:
         self.max_retries = 3
         self.retry_delays = [5, 15, 45]  # Exponential backoff in seconds
         
-        # Futures symbol mapping - yfinance symbols for major futures
-        self.symbol_mapping = {
-            'MNQ': 'NQ=F',     # Micro Nasdaq-100
-            'NQ': 'NQ=F',      # Nasdaq-100  
-            'MES': 'ES=F',     # Micro S&P 500
-            'ES': 'ES=F',      # S&P 500
-            'YM': 'YM=F',      # Dow Jones
-            'MYM': 'YM=F',     # Micro Dow Jones
-            'RTY': 'RTY=F',    # Russell 2000
-            'M2K': 'RTY=F',    # Micro Russell 2000
-            'CL': 'CL=F',      # Crude Oil
-            'GC': 'GC=F',      # Gold
-            'SI': 'SI=F',      # Silver
-            'ZN': 'ZN=F',      # 10-Year Treasury Note
-            'ZB': 'ZB=F',      # 30-Year Treasury Bond
-        }
+        # Use centralized symbol service for all symbol mappings
+        # No need for local symbol_mapping - using symbol_service
         
         # Market hours (CME Group) - UTC times
         self.market_open_utc = {
@@ -87,13 +74,11 @@ class OHLCDataService:
 
     def _get_base_instrument(self, instrument: str) -> str:
         """Extract base instrument symbol (e.g., 'MNQ SEP25' -> 'MNQ')"""
-        return instrument.split()[0]
+        return symbol_service.get_base_symbol(instrument)
     
     def _get_yfinance_symbol(self, instrument: str) -> str:
         """Convert instrument symbol to yfinance symbol"""
-        # Handle expiration dates (e.g., "MNQ SEP25" -> "MNQ")
-        base_symbol = self._get_base_instrument(instrument)
-        return self.symbol_mapping.get(base_symbol, f"{base_symbol}=F")
+        return symbol_service.get_yfinance_symbol(instrument)
 
     def _convert_timeframe_to_yfinance(self, timeframe: str) -> str:
         """Convert our timeframe format to yfinance interval"""
