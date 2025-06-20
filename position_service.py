@@ -117,7 +117,16 @@ class PositionService:
             # Group trades by account and instrument for position tracking
             account_instrument_groups = {}
             for trade in trades:
-                key = (trade['account'], trade['instrument'])
+                # Normalize account and instrument for consistent grouping
+                account = (trade.get('account') or '').strip()
+                instrument = (trade.get('instrument') or '').strip()
+                
+                # Skip trades with missing critical fields
+                if not account or not instrument:
+                    logger.warning(f"Skipping trade with missing account/instrument: {trade.get('entry_execution_id', 'Unknown')}")
+                    continue
+                
+                key = (account, instrument)
                 if key not in account_instrument_groups:
                     account_instrument_groups[key] = []
                 account_instrument_groups[key].append(trade)
@@ -157,8 +166,8 @@ class PositionService:
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
         logger.info(f"Processing {len(trades)} trade records")
         
-        # Sort trades by entry time to process in chronological order
-        trades_sorted = sorted(trades, key=lambda t: t['entry_time'])
+        # Sort trades by entry time, exit time, and ID to ensure consistent chronological order
+        trades_sorted = sorted(trades, key=lambda t: (t['entry_time'], t.get('exit_time') or t['entry_time'], t.get('id', 0)))
         
         # Log all trades first for debugging
         for i, trade in enumerate(trades_sorted):
@@ -183,16 +192,32 @@ class PositionService:
         current_quantity = 0
         
         for i, trade in enumerate(trades):
+            # Validate required trade fields
+            side_of_market = trade.get('side_of_market', '').strip()
+            quantity = trade.get('quantity', 0)
+            
+            if not side_of_market or quantity <= 0:
+                logger.warning(f"Skipping invalid trade: side={side_of_market}, quantity={quantity}, ID={trade.get('entry_execution_id', 'Unknown')}")
+                continue
+            
             # Determine quantity change based on side
-            if trade['side_of_market'] == 'Long':
-                quantity_change = trade['quantity']
-            else:  # Short
-                quantity_change = -trade['quantity']
+            if side_of_market == 'Long':
+                quantity_change = quantity
+            elif side_of_market == 'Short':
+                quantity_change = -quantity
+            else:
+                logger.warning(f"Unknown side_of_market '{side_of_market}' for trade {trade.get('entry_execution_id', 'Unknown')}, skipping")
+                continue
             
             # Calculate new position quantity
             new_quantity = current_quantity + quantity_change
             
             logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} | Position: {current_quantity} -> {new_quantity}")
+            
+            # Check for zero-crossing scenario (position reversal)
+            zero_crossing = (current_quantity != 0 and 
+                           new_quantity != 0 and 
+                           (current_quantity > 0) != (new_quantity > 0))
             
             # Start new position if we're going from 0 to non-zero
             if current_quantity == 0 and new_quantity != 0:
@@ -209,6 +234,50 @@ class PositionService:
                     'position_status': 'open',
                     'execution_count': 1
                 }
+            
+            # Handle zero-crossing: close current position and start new one
+            elif zero_crossing and current_position is not None:
+                logger.info(f"Zero-crossing detected: {current_quantity} -> {new_quantity}")
+                
+                # Split the trade for proper FIFO accounting
+                # First part closes the existing position (quantity to reach zero)
+                close_quantity = abs(current_quantity)
+                remaining_quantity = abs(new_quantity)
+                
+                # Create a closing trade for the current position
+                closing_trade = dict(trade)
+                closing_trade['quantity'] = close_quantity
+                current_position['executions'].append(closing_trade)
+                current_position['execution_count'] += 1
+                
+                # Close the current position
+                current_position['exit_time'] = trade['exit_time'] or trade['entry_time']
+                current_position['position_status'] = 'closed'
+                self._calculate_position_totals(current_position)
+                positions.append(current_position)
+                
+                logger.info(f"Position closed due to zero-crossing: {current_position['position_type']} {current_position['total_quantity']} contracts")
+                
+                # Start new position with remaining quantity
+                if remaining_quantity > 0:
+                    opening_trade = dict(trade)
+                    opening_trade['quantity'] = remaining_quantity
+                    
+                    current_position = {
+                        'instrument': instrument,
+                        'account': account,
+                        'position_type': 'Long' if new_quantity > 0 else 'Short',
+                        'entry_time': trade['entry_time'],
+                        'exit_time': None,
+                        'executions': [opening_trade],
+                        'total_quantity': remaining_quantity,
+                        'max_quantity': remaining_quantity,
+                        'position_status': 'open',
+                        'execution_count': 1
+                    }
+                    logger.info(f"New position started after zero-crossing: {current_position['position_type']} {remaining_quantity} contracts")
+                else:
+                    current_position = None
             
             # Add execution to current position if position exists
             elif current_position is not None:

@@ -336,6 +336,54 @@ After the script loading fix:
 
 **Final Result**: Charts now work automatically with any available timeframe data, providing intelligent fallback and enhanced user experience.
 
+## 🚨 Current Critical Issues - June 2025
+
+### TradingView Chart Initialization Fixed ✅ COMPLETED
+**Status**: ✅ **RESOLVED** - PriceChart.js TradingView library loading issue fixed
+
+**Issue**: Chart initialization was failing with "Cannot read properties of undefined (reading 'Solid')" error
+**Root Cause**: TradingView library options were being referenced in constructor before library was fully loaded
+**Solution Applied**: Moved chart options building to init() method after library availability check
+
+### Price Display Format Fixed ✅ COMPLETED  
+**Status**: ✅ **RESOLVED** - Entry/exit prices already display correctly without $ signs
+
+**Issue**: Request to remove $ signs from entry/exit price displays
+**Investigation Result**: All templates already correctly display entry/exit prices without $ signs (e.g. "22089.25") and P&L fields with $ signs (e.g. "$1,234.56")
+
+### Available Timeframes API Mismatch 🚨 CRITICAL
+**Status**: 🔍 **UNDER INVESTIGATION** - High Priority
+
+**Issue**: Available timeframes API returns empty `{}` but chart data API returns 58 OHLC records
+**Symptoms**: 
+- `/api/available-timeframes/MNQ%20SEP25` returns `"available_timeframes": {}`
+- `/api/chart-data/MNQ%20SEP25?timeframe=1h&days=7` returns 58 valid OHLC candles
+- Chart timeframe dropdowns show "(no data)" for all timeframes
+
+**Investigation Status**: 
+- Chart data exists and is properly formatted
+- Database query methods need investigation
+- Possible timeframe column mismatch in OHLC table
+- Cache vs database consistency issue suspected
+
+**Impact**: Charts load data but timeframe controls appear broken to users
+
+### Position Overlap Prevention 🚨 CRITICAL
+**Status**: 🔍 **NEEDS INVESTIGATION** - High Priority  
+
+**Issue**: Trades may be combining into positions improperly with overlapping logic
+**Requirements**: 
+- Positions should have clear non-overlapping boundaries
+- Position lifecycle: quantity 0 → +/- → 0 with no ambiguity
+- FIFO execution tracking within each position
+- No trade should belong to multiple positions
+
+**Investigation Needed**:
+- Review position_service.py aggregation logic
+- Check for edge cases in quantity-based position detection
+- Validate position boundary detection algorithms
+- Test with complex multi-entry/exit scenarios
+
 ## 🔧 Development Improvements
 
 ### Enhanced Browser Console Debugging

@@ -207,13 +207,13 @@
             
             <div class="summary-card">
                 <div class="summary-label">Average Entry Price</div>
-                <div class="summary-value">${{ "%.2f"|format(position.average_entry_price) }}</div>
+                <div class="summary-value">{{ "%.2f"|format(position.average_entry_price) }}</div>
             </div>
             
             {% if position.average_exit_price %}
             <div class="summary-card">
                 <div class="summary-label">Average Exit Price</div>
-                <div class="summary-value">${{ "%.2f"|format(position.average_exit_price) }}</div>
+                <div class="summary-value">{{ "%.2f"|format(position.average_exit_price) }}</div>
             </div>
             {% endif %}
             
@@ -335,10 +335,10 @@
                             </span>
                         </td>
                         <td>{{ execution.quantity }}</td>
-                        <td>${{ "%.2f"|format(execution.entry_price) }}</td>
+                        <td>{{ "%.2f"|format(execution.entry_price) }}</td>
                         <td>
                             {% if execution.exit_price %}
-                                ${{ "%.2f"|format(execution.exit_price) }}
+                                {{ "%.2f"|format(execution.exit_price) }}
                             {% else %}
                                 -
                             {% endif %}

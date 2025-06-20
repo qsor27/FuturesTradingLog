@@ -12,7 +12,23 @@ class PriceChart {
             throw new Error(`Container with id '${containerId}' not found`);
         }
         
-        // Default options (will be overridden by user settings)
+        // Store user options for later merging
+        this.userOptions = options;
+        
+        this.chart = null;
+        this.candlestickSeries = null;
+        this.volumeSeries = null;
+        this.markers = [];
+        this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
+        this.ohlcDisplayEl = null; // OHLC overlay element
+        this.crosshairMoveHandler = null; // Store bound handler for cleanup
+        this.settingsLoaded = false; // Track if user settings have been applied
+        
+        this.init();
+    }
+    
+    buildChartOptions() {
+        // Build default options (now that TradingView library is available)
         this.options = {
             instrument: 'MNQ',
             timeframe: '1h', // Default timeframe
@@ -57,26 +73,14 @@ class PriceChart {
                 timeVisible: true,
                 secondsVisible: false,
             },
-            ...options
+            ...this.userOptions
         };
-        
-        this.chart = null;
-        this.candlestickSeries = null;
-        this.volumeSeries = null;
-        this.markers = [];
-        this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
-        this.ohlcDisplayEl = null; // OHLC overlay element
-        this.crosshairMoveHandler = null; // Store bound handler for cleanup
-        this.settingsLoaded = false; // Track if user settings have been applied
-        
-        this.init();
     }
     
     init() {
         console.log('🚀 Initializing PriceChart...');
         console.log(`📦 LightweightCharts available: ${typeof LightweightCharts}`);
         console.log(`📊 Container element:`, this.container);
-        console.log(`⚙️ Chart options:`, this.options);
         
         // Check if TradingView library is available
         if (typeof LightweightCharts === 'undefined') {
@@ -85,6 +89,10 @@ class PriceChart {
             this.showError(error);
             return;
         }
+        
+        // Build chart options now that library is available
+        this.buildChartOptions();
+        console.log(`⚙️ Chart options:`, this.options);
         
         try {
             // Create chart
