@@ -1,13 +1,140 @@
-# Chart System Completely Resolved ✅
+# Futures Trading Log - Development Roadmap
 
-## Current Status - ALL ISSUES FIXED
-- ✅ **Backend Fix Complete**: Instrument mapping solution implemented and committed
-- ✅ **API Working**: Chart data API returns correct OHLC data (120+ records confirmed)
-- ✅ **JavaScript Correct**: Frontend chart initialization and data processing fully debugged
-- ✅ **Script Loading Fixed**: TradingView library now loads before PriceChart.js preventing initialization errors
-- ✅ **Timeframe Detection**: Smart automatic fallback to available timeframes implemented
-- ✅ **Enhanced UI**: Timeframe availability indicators and data counts in dropdowns
-- ✅ **Charts Fully Working**: Candles display properly with any available timeframe data
+## ✅ Completed Major Features
+
+### Chart System Foundation ✅ COMPLETED
+- ✅ **Backend Integration**: Complete yfinance OHLC data pipeline with multi-timeframe support
+- ✅ **API Endpoints**: Robust chart data API with automatic fallback and gap detection
+- ✅ **TradingView Charts**: Interactive candlestick charts with volume display toggle
+- ✅ **Multi-Timeframe Support**: 1m, 3m, 5m, 15m, 1h, 4h, 1d timeframes with intelligent priority
+- ✅ **Batch Data Processing**: Efficient bulk updates with rate limiting and retry logic
+- ✅ **Auto-Scaling**: Price axis automatically fits all candles with optimal margins
+- ✅ **Volume Toggle**: Interactive checkbox to show/hide volume histogram
+
+### Position-Based Trading System ✅ COMPLETED  
+- ✅ **Position Aggregation**: Complete rewrite showing positions instead of individual executions
+- ✅ **FIFO Position Tracking**: Accurate quantity-based position lifecycle (0 → +/- → 0)
+- ✅ **Enhanced UI**: Dark theme with compact filters and comprehensive position metrics
+- ✅ **Market Context Charts**: OHLC charts embedded in position detail pages
+
+## 🚧 Active Development - Chart Enhancement Phase
+
+### OHLC Hover Display & Crosshair System
+**Priority: High | Status: Planning**
+
+#### Requirements:
+- **Crosshair Functionality**: Interactive crosshair that follows mouse movement across chart
+- **OHLC Data Display**: Corner overlay showing Open, High, Low, Close values for hovered candle
+- **Real-time Updates**: OHLC values update instantly as mouse moves between candles
+- **Professional Styling**: Consistent with existing dark theme and layout
+
+#### Technical Scope:
+- Implement TradingView Lightweight Charts crosshair mode and event handlers
+- Create OHLC overlay component with precise positioning
+- Add mouse tracking and data coordinate mapping
+- Ensure performance optimization for smooth interaction
+
+### Chart Settings & User Preferences
+**Priority: High | Status: Planning**
+
+#### Requirements:
+- **Default Timeframe Setting**: User-configurable default timeframe (1m, 3m, 5m, 15m, 1h, 4h, 1d)
+- **Default Data Range Setting**: User-configurable default period (1 day, 3 days, 1 week, 2 weeks, 1 month, 3 months, 6 months)
+- **Settings Integration**: Add chart preferences to existing settings page
+- **Persistent Storage**: Settings saved per user and applied to all new chart instances
+
+#### Technical Scope:
+- Extend settings.py routes and templates for chart configuration
+- Update PriceChart.js to read user preferences from API or localStorage
+- Implement settings validation and defaults
+- Create settings migration system for existing users
+
+### Extended Data Range Support  
+**Priority: Medium | Status: Planning**
+
+#### Requirements:
+- **6-Month Maximum**: Extend current 1-month limit to 6-month maximum data display
+- **Performance Optimization**: Ensure smooth rendering for larger datasets (10k+ candles)
+- **Smart Loading**: Progressive loading or pagination for very large timeframes
+- **Memory Management**: Efficient data handling to prevent browser performance issues
+
+#### Technical Scope:
+- Update API endpoints to support extended date ranges
+- Implement client-side data chunking if needed for performance
+- Add database query optimization for larger date ranges
+- Test performance impact across different timeframes and data volumes
+
+## 🔬 Research Phase - ✅ COMPLETED
+
+### Research Results Summary
+**Status**: ✅ **COMPLETE** - All three research agents deployed successfully  
+**Documentation**: See [RESEARCH_RESULTS.md](RESEARCH_RESULTS.md) for comprehensive findings  
+**Confidence Level**: **HIGH** - Based on thorough technical analysis and industry best practices  
+
+#### ✅ Agent 1: TradingView Crosshair & OHLC Research (COMPLETED)
+**Key Findings**:
+- **CrosshairMode.Magnet** optimal for trading applications
+- **Custom HTML overlay** approach recommended over built-in primitives
+- **param.seriesData.get()** provides direct, efficient OHLC data access
+- **Top-right corner positioning** standard for professional trading UIs
+
+#### ✅ Agent 2: Settings Page Integration Research (COMPLETED)
+**Key Findings**:
+- **Hybrid storage** (Database + localStorage) optimal for performance
+- **Structured SQLite table** recommended over JSON storage
+- **RESTful API** with proper validation essential
+- **Migration strategy** defined for existing users
+
+#### ✅ Agent 3: Extended Data Range Research (COMPLETED)
+**Key Findings**:
+- **260k candles (6-month 1m)** exceed browser limits (~50k-100k practical max)
+- **Resolution adaptation** mandatory for performance
+- **Progressive loading** required for acceptable user experience
+- **Pre-aggregated database tables** essential for query performance
+
+### Critical Implementation Requirements
+Based on research findings, the following are **mandatory** for 6-month data support:
+
+1. **Resolution Adaptation**: Auto-switch timeframes based on data range
+2. **Database Pre-Aggregation**: Separate tables for each timeframe (1m, 5m, 1h, 4h, 1d)
+3. **Progressive Loading**: Load initial view, fetch details on zoom/scroll
+4. **Performance Validation**: Comprehensive testing across devices and network conditions
+
+## 📋 Implementation Roadmap
+
+### Phase 1: Research & Planning ✅ COMPLETED
+- [x] Deploy specialized research agents for technical investigation
+- [x] Analyze TradingView Lightweight Charts crosshair capabilities
+- [x] Design settings integration architecture
+- [x] Evaluate performance implications of extended data ranges
+- [x] Document comprehensive findings in RESEARCH_RESULTS.md
+
+### Phase 2: OHLC Hover Implementation  
+- [ ] Implement crosshair functionality in PriceChart.js
+- [ ] Create OHLC overlay component with corner positioning
+- [ ] Add mouse event handlers and data coordinate mapping
+- [ ] Style overlay consistent with dark theme
+- [ ] Test across different timeframes and data ranges
+
+### Phase 3: Settings Integration
+- [ ] Add chart settings section to settings page
+- [ ] Implement default timeframe and data range preferences
+- [ ] Create settings API endpoints and storage
+- [ ] Update PriceChart.js to use user preferences
+- [ ] Add settings validation and migration system
+
+### Phase 4: Extended Data Range  
+- [ ] Update API endpoints to support 6-month ranges
+- [ ] Implement performance optimizations for large datasets
+- [ ] Add progressive loading if needed
+- [ ] Test performance across different scenarios
+- [ ] Update UI controls for extended range selection
+
+### Phase 5: Integration Testing
+- [ ] Test all features together for compatibility
+- [ ] Performance testing with realistic data volumes
+- [ ] Cross-browser compatibility validation
+- [ ] User experience testing and refinement
 
 ## Investigation Results
 

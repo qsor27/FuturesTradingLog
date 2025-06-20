@@ -112,6 +112,42 @@ This is a Flask-based web application for futures traders to track, analyze, and
 - **Position rebuild functionality** - Regenerate positions from existing trade data
 - **Comprehensive position metrics** - Win rate, total P&L, risk/reward ratios at position level
 
+## 🔬 Chart Enhancement Research Phase ✅ **COMPLETED - June 2025**
+
+**Comprehensive Technical Research for Advanced Chart Features**
+
+### Research Scope & Methodology
+- ✅ **Three Specialized Research Agents**: Deployed focused research teams for crosshair implementation, settings integration, and performance analysis
+- ✅ **Industry Best Practices Analysis**: TradingView Lightweight Charts optimization, Flask application patterns, and browser performance limits
+- ✅ **Performance Benchmarking**: Memory usage, rendering limits, and database optimization strategies
+- ✅ **Technical Feasibility Assessment**: 6-month data range support with realistic performance constraints
+
+### Key Research Findings ✅ **DOCUMENTED in RESEARCH_RESULTS.md**
+
+#### OHLC Hover Display & Crosshair Implementation
+- ✅ **CrosshairMode.Magnet**: Optimal approach for snapping to actual candle data points
+- ✅ **Custom HTML Overlay**: Top-right corner positioning with professional trading application standards
+- ✅ **Direct Data Access**: param.seriesData.get(candlestickSeries) provides efficient OHLC retrieval
+- ✅ **Performance Validation**: No interference with existing features, minimal memory overhead
+
+#### Settings Integration Architecture  
+- ✅ **Hybrid Storage Strategy**: Database (source of truth) + localStorage (performance cache) optimal approach
+- ✅ **Database Schema Design**: Structured SQLite table with proper foreign keys and migration strategy
+- ✅ **RESTful API Design**: GET/PUT `/api/v1/settings/chart` with comprehensive validation
+- ✅ **User Experience**: Settings hierarchy (Local Override > User Default > System Default)
+
+#### Extended Data Range Performance Analysis
+- ✅ **Critical Performance Constraint**: 6-month 1-minute data (~260k candles) exceeds browser practical limits (50k-100k)
+- ✅ **Mandatory Technical Solutions**: Resolution adaptation, progressive loading, database pre-aggregation
+- ✅ **Performance Targets**: <200-500ms initial load, <100-200ms zoom interactions, <100MB mobile memory
+- ✅ **Implementation Requirements**: Separate OHLC tables per timeframe, intelligent resolution switching
+
+### Implementation Readiness ✅ **HIGH CONFIDENCE**
+- **Technical Specifications**: Complete with code examples, database schemas, and API designs
+- **Risk Assessment**: All major risks identified with mitigation strategies
+- **Performance Benchmarks**: Specific targets established for cross-platform compatibility  
+- **Architecture Validation**: Research-backed approach using industry standard patterns
+
 ## Deployment Architecture & Development Workflow
 
 ### 🚨 **CRITICAL: Container-Based Deployment**
@@ -678,6 +714,14 @@ All tests validate against our performance targets:
   - Chart-table synchronization features
   - Position lifecycle tracking and FIFO analysis
   - Performance optimization and troubleshooting
+
+### Research and Development
+- **`RESEARCH_RESULTS.md`**: Comprehensive research findings for chart enhancement features
+  - TradingView Lightweight Charts crosshair and OHLC display implementation
+  - Settings page integration with user preference persistence
+  - Extended data range support (6-month) with performance analysis
+  - Technical specifications, performance benchmarks, and implementation recommendations
+- **`TODO.md`**: Development roadmap with completed research phase and implementation plan
 
 ### Technical References
 - **`CLAUDE.md`**: This file - comprehensive technical documentation for developers
