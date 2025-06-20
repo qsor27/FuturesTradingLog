@@ -630,6 +630,7 @@ class PriceChart {
                 const dataPoint = param.seriesData.get(this.candlestickSeries);
                 if (dataPoint) {
                     const ohlc = {
+                        time: param.time, // Include timestamp from crosshair position
                         open: dataPoint.open,
                         high: dataPoint.high,
                         low: dataPoint.low,
@@ -656,8 +657,43 @@ class PriceChart {
         const formattedH = ohlc.high.toFixed(2);
         const formattedL = ohlc.low.toFixed(2);
         const formattedC = ohlc.close.toFixed(2);
+        
+        // Format timestamp based on timeframe
+        let formattedTime = '';
+        if (ohlc.time) {
+            const date = new Date(ohlc.time * 1000); // Convert from seconds to milliseconds
+            
+            // Format based on current timeframe for best readability
+            if (this.options.timeframe === '1m' || this.options.timeframe === '5m' || this.options.timeframe === '15m') {
+                // For intraday timeframes, show date and time
+                formattedTime = date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+            } else if (this.options.timeframe === '1h' || this.options.timeframe === '4h') {
+                // For hourly timeframes, show date and hour
+                formattedTime = date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+            } else {
+                // For daily timeframes, show just the date
+                formattedTime = date.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                });
+            }
+        }
 
         this.ohlcDisplayEl.innerHTML = `
+            <div style="margin-bottom: 4px; font-weight: bold; color: #ffd700;">${formattedTime}</div>
             <span style="margin-right: 10px;">O: ${formattedO}</span>
             <span style="margin-right: 10px;">H: ${formattedH}</span>
             <span style="margin-right: 10px;">L: ${formattedL}</span>
