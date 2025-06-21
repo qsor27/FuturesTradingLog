@@ -1437,6 +1437,94 @@ class FuturesDB:
             print(f"Error importing CSV: {e}")
             self.conn.rollback()
             return False
+    
+    def import_raw_executions(self, csv_path: str) -> bool:
+        """Import raw NinjaTrader executions directly as individual execution records"""
+        try:
+            print(f"\nImporting raw executions from {csv_path}...")
+            
+            # Read CSV file using pandas
+            df = pd.read_csv(csv_path)
+            print(f"Read {len(df)} raw executions from CSV")
+            
+            # Clean up column names and data
+            df.columns = df.columns.str.strip()  # Remove whitespace from column names
+            
+            # Convert timestamps
+            df['Time'] = pd.to_datetime(df['Time'])
+            
+            executions_added = 0
+            executions_skipped = 0
+            
+            for _, execution in df.iterrows():
+                try:
+                    # Clean up data
+                    instrument = str(execution['Instrument']).strip()
+                    action = str(execution['Action']).strip()
+                    quantity = int(execution['Quantity'])
+                    price = float(execution['Price'])
+                    timestamp = execution['Time'].strftime('%Y-%m-%d %H:%M:%S')
+                    exec_id = str(execution['ID']).strip()
+                    entry_exit = str(execution['E/X']).strip()
+                    position = str(execution['Position']).strip()
+                    account = str(execution['Account']).strip()
+                    commission = float(str(execution['Commission']).replace('$', ''))
+                    
+                    # Check for duplicate execution ID
+                    self.cursor.execute("""
+                        SELECT COUNT(*) FROM trades
+                        WHERE entry_execution_id = ? AND account = ?
+                    """, (exec_id, account))
+                    
+                    if self.cursor.fetchone()[0] > 0:
+                        executions_skipped += 1
+                        print(f"Skipping duplicate execution: {exec_id}")
+                        continue
+                    
+                    # Determine side of market based on E/X and Action
+                    if entry_exit == 'Entry':
+                        side_of_market = 'Long' if action == 'Buy' else 'Short'
+                    else:  # Exit
+                        # For exits, the side is opposite of the action
+                        side_of_market = 'Short' if action == 'Buy' else 'Long'
+                    
+                    # Insert as individual execution (not completed trade)
+                    self.cursor.execute("""
+                        INSERT INTO trades (
+                            instrument, side_of_market, quantity, entry_price,
+                            entry_time, exit_time, exit_price, points_gain_loss,
+                            dollars_gain_loss, commission, account, entry_execution_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        instrument,
+                        side_of_market,
+                        quantity,
+                        price,  # Use execution price as entry price
+                        timestamp,
+                        timestamp,  # Same time for exit
+                        price,  # Same price for exit
+                        0,  # No P&L for individual executions
+                        0,  # No P&L for individual executions
+                        commission,
+                        account,
+                        exec_id
+                    ))
+                    
+                    executions_added += 1
+                    
+                except Exception as e:
+                    print(f"Error processing execution {execution.get('ID', 'Unknown')}: {e}")
+                    continue
+            
+            self.conn.commit()
+            print(f"Import complete: {executions_added} executions added, {executions_skipped} duplicates skipped")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error importing raw executions: {e}")
+            self.conn.rollback()
+            return False
             
     def _rebuild_positions_for_accounts(self) -> Dict[str, int]:
         """Rebuild positions for all accounts using the position service"""

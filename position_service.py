@@ -324,19 +324,31 @@ class PositionService:
         
         # Check if most trades have both entry and exit prices with P&L
         completed_count = 0
+        raw_execution_count = 0
+        
         for trade in trades:
             entry_price = trade.get('entry_price', 0)
             exit_price = trade.get('exit_price', 0)
             pnl = trade.get('dollars_gain_loss', 0)
             
+            # Check if this looks like a raw execution (entry_price == exit_price and P&L == 0)
+            if (entry_price == exit_price and pnl == 0):
+                raw_execution_count += 1
             # Consider completed if has exit price different from entry and non-zero P&L
-            if (exit_price and exit_price != entry_price and pnl != 0):
+            elif (exit_price and exit_price != entry_price and pnl != 0):
                 completed_count += 1
         
-        # If 80% or more trades look completed, treat as completed trades
+        raw_execution_ratio = raw_execution_count / len(trades) if trades else 0
         completion_ratio = completed_count / len(trades) if trades else 0
-        logger.info(f"Completed trade detection: {completed_count}/{len(trades)} trades ({completion_ratio:.1%}) appear completed")
         
+        logger.info(f"Trade detection: {completed_count}/{len(trades)} completed trades ({completion_ratio:.1%}), {raw_execution_count}/{len(trades)} raw executions ({raw_execution_ratio:.1%})")
+        
+        # If 80% or more are raw executions, treat as raw executions
+        if raw_execution_ratio >= 0.8:
+            logger.info("Detected raw executions - will build positions from execution flow")
+            return False
+        
+        # If 80% or more trades look completed, treat as completed trades
         return completion_ratio >= 0.8
     
     def _build_positions_from_completed_trades(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:

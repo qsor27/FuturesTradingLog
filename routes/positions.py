@@ -389,63 +389,34 @@ def reimport_csv():
                 'message': f'File not found: {filename}'
             }), 404
         
-        # Process the raw NinjaTrader CSV file first
+        # Import raw executions directly without pre-processing into completed trades
         import pandas as pd
-        from ExecutionProcessing import process_trades
         
-        # Load multipliers
-        multipliers_path = config.data_dir / 'config' / 'instrument_multipliers.json'
-        with open(multipliers_path, 'r') as f:
-            multipliers = json.load(f)
-        
-        # Read and process the raw CSV
+        # Read the raw CSV
         df = pd.read_csv(csv_path)
         print(f"Read {len(df)} raw executions from {filename}")
         
-        # Process the trades
-        processed_trades = process_trades(df, multipliers)
-        print(f"Processed into {len(processed_trades)} completed trades")
+        # Import raw executions directly to database
+        with FuturesDB() as db:
+            success = db.import_raw_executions(csv_path)
         
-        if not processed_trades:
+        if success:
+            # Rebuild positions after successful import
+            with PositionService() as pos_service:
+                result = pos_service.rebuild_positions_from_trades()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully imported {len(df)} executions from {filename}. Rebuilt {result["positions_created"]} positions.',
+                'executions_imported': len(df),
+                'positions_created': result['positions_created'],
+                'trades_processed': result['trades_processed']
+            })
+        else:
             return jsonify({
                 'success': False,
-                'message': 'No completed trades found in CSV file'
-            }), 400
-        
-        # Create a processed DataFrame for import
-        processed_df = pd.DataFrame(processed_trades)
-        
-        # Save processed file temporarily
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as temp_file:
-            processed_df.to_csv(temp_file.name, index=False)
-            temp_csv_path = temp_file.name
-        
-        try:
-            # Import the processed CSV file
-            with FuturesDB() as db:
-                success = db.import_csv(temp_csv_path)
-            
-            if success:
-                # Rebuild positions after successful import
-                with PositionService() as pos_service:
-                    result = pos_service.rebuild_positions_from_trades()
-                
-                return jsonify({
-                    'success': True,
-                    'message': f'Successfully processed and imported {len(processed_trades)} trades from {filename}. Rebuilt {result["positions_created"]} positions.',
-                    'trades_imported': len(processed_trades),
-                    'positions_created': result['positions_created'],
-                    'trades_processed': result['trades_processed']
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': f'Failed to import processed trades from {filename}'
-                }), 500
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_csv_path)
+                'message': f'Failed to import executions from {filename}'
+            }), 500
         
     except Exception as e:
         logger.error(f"Error re-importing CSV: {e}")
