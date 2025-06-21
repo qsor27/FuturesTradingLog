@@ -144,63 +144,97 @@ def get_position_entry_lines(trade_id):
             
             entry_lines = []
             
-            # Simple approach: use the trade's entry price as the position entry line
-            if trade.get('entry_price') and trade.get('side_of_market'):
-                side = trade.get('side_of_market')
-                entry_price = float(trade['entry_price'])
+            # Get position data using the same method as the trade detail page
+            try:
+                position_data = db.get_position_analysis(trade_id)
                 
-                entry_lines.append({
-                    'price': entry_price,
-                    'side': side,
-                    'type': 'trade_entry',
-                    'label': f"{side} Entry: {entry_price:.2f}"
-                })
-            
-            # Try to get linked trades for more comprehensive position view
-            if trade.get('link_group_id'):
-                db.cursor.execute("""
-                    SELECT entry_price, side_of_market, quantity, entry_time
-                    FROM trades 
-                    WHERE link_group_id = ? AND entry_price IS NOT NULL
-                    ORDER BY entry_time ASC
-                """, (trade['link_group_id'],))
-                
-                linked_trades = db.cursor.fetchall()
-                
-                if len(linked_trades) > 1:  # Multiple linked trades = position
-                    # Calculate average entry price from linked trades
-                    total_value = 0
-                    total_quantity = 0
+                # Use position summary average entry price if available
+                if (position_data and 
+                    position_data.get('position_summary') and 
+                    position_data['position_summary'].get('average_entry_price')):
                     
-                    for linked_trade in linked_trades:
-                        if linked_trade[0] and linked_trade[2]:  # entry_price and quantity
-                            price = float(linked_trade[0])
-                            qty = int(linked_trade[2])
-                            total_value += price * qty
-                            total_quantity += qty
+                    avg_entry_price = float(position_data['position_summary']['average_entry_price'])
+                    side = trade.get('side_of_market', 'Unknown')
                     
-                    if total_quantity > 0:
-                        avg_price = total_value / total_quantity
+                    # Add the main green average entry price line
+                    entry_lines.append({
+                        'price': avg_entry_price,
+                        'side': side,
+                        'type': 'average_entry',
+                        'label': f"{side} Avg Entry: {avg_entry_price:.2f}",
+                        'color': '#4CAF50'  # Green color for average entry
+                    })
+                    
+                    logger.info(f"Added average entry price line for trade {trade_id}: {avg_entry_price:.2f}")
+                    
+                else:
+                    # Fallback to simple trade entry price if position data unavailable
+                    if trade.get('entry_price') and trade.get('side_of_market'):
+                        side = trade.get('side_of_market')
+                        entry_price = float(trade['entry_price'])
                         
-                        # Replace the simple entry line with average
-                        entry_lines = [{
-                            'price': avg_price,
+                        entry_lines.append({
+                            'price': entry_price,
                             'side': side,
-                            'type': 'average_entry',
-                            'label': f"{side} Avg Entry: {avg_price:.2f}"
-                        }]
+                            'type': 'trade_entry',
+                            'label': f"{side} Entry: {entry_price:.2f}",
+                            'color': '#4CAF50'  # Green color
+                        })
                         
-                        # Add individual entry lines for context
-                        for i, linked_trade in enumerate(linked_trades):
-                            if linked_trade[0]:  # has entry_price
-                                entry_lines.append({
-                                    'price': float(linked_trade[0]),
-                                    'side': linked_trade[1] or side,
-                                    'type': 'individual_entry',
-                                    'label': f"Entry {i+1}: {linked_trade[0]:.2f}",
-                                    'quantity': linked_trade[2],
-                                    'timestamp': linked_trade[3]
-                                })
+                        logger.info(f"Using fallback trade entry price for trade {trade_id}: {entry_price:.2f}")
+                
+            except Exception as pos_error:
+                logger.warning(f"Could not get position data for trade {trade_id}: {pos_error}")
+                
+                # Fallback to legacy linked trades approach
+                if trade.get('link_group_id'):
+                    db.cursor.execute("""
+                        SELECT entry_price, side_of_market, quantity, entry_time
+                        FROM trades 
+                        WHERE link_group_id = ? AND entry_price IS NOT NULL
+                        ORDER BY entry_time ASC
+                    """, (trade['link_group_id'],))
+                    
+                    linked_trades = db.cursor.fetchall()
+                    
+                    if len(linked_trades) > 1:  # Multiple linked trades = position
+                        # Calculate average entry price from linked trades
+                        total_value = 0
+                        total_quantity = 0
+                        
+                        for linked_trade in linked_trades:
+                            if linked_trade[0] and linked_trade[2]:  # entry_price and quantity
+                                price = float(linked_trade[0])
+                                qty = int(linked_trade[2])
+                                total_value += price * qty
+                                total_quantity += qty
+                        
+                        if total_quantity > 0:
+                            avg_price = total_value / total_quantity
+                            side = trade.get('side_of_market', 'Unknown')
+                            
+                            entry_lines.append({
+                                'price': avg_price,
+                                'side': side,
+                                'type': 'average_entry',
+                                'label': f"{side} Avg Entry: {avg_price:.2f}",
+                                'color': '#4CAF50'  # Green color
+                            })
+                            
+                            logger.info(f"Calculated average entry from linked trades for {trade_id}: {avg_price:.2f}")
+                
+                # Final fallback to simple trade entry
+                if not entry_lines and trade.get('entry_price') and trade.get('side_of_market'):
+                    side = trade.get('side_of_market')
+                    entry_price = float(trade['entry_price'])
+                    
+                    entry_lines.append({
+                        'price': entry_price,
+                        'side': side,
+                        'type': 'trade_entry',
+                        'label': f"{side} Entry: {entry_price:.2f}",
+                        'color': '#4CAF50'  # Green color
+                    })
             
             return jsonify({
                 'success': True,

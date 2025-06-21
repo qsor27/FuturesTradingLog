@@ -811,29 +811,45 @@ class PriceChart {
                 return;
             }
             
-            // Determine color based on position side
-            let color;
-            if (entryData.side === 'Long' || entryData.side === 'Buy') {
-                color = '#4CAF50'; // Green for long positions
-            } else if (entryData.side === 'Short' || entryData.side === 'Sell') {
-                color = '#F44336'; // Red for short positions
-            } else {
-                color = '#FFD700'; // Gold for unknown/neutral
+            // Use the color from entry data if provided, otherwise determine based on position side and type
+            let color = entryData.color;
+            if (!color) {
+                if (entryData.type === 'average_entry') {
+                    color = '#4CAF50'; // Green for average entry price
+                } else if (entryData.side === 'Long' || entryData.side === 'Buy') {
+                    color = '#4CAF50'; // Green for long positions
+                } else if (entryData.side === 'Short' || entryData.side === 'Sell') {
+                    color = '#F44336'; // Red for short positions
+                } else {
+                    color = '#FFD700'; // Gold for unknown/neutral
+                }
             }
             
-            // Create line style - dashed for visual distinction
-            const lineStyle = (typeof LightweightCharts !== 'undefined' && 
-                              LightweightCharts.LineStyle && 
-                              LightweightCharts.LineStyle.Dashed) ? 
-                              LightweightCharts.LineStyle.Dashed : 1;
+            // Use solid line for average entry, dashed for others
+            let lineStyle = (typeof LightweightCharts !== 'undefined' && 
+                            LightweightCharts.LineStyle && 
+                            LightweightCharts.LineStyle.Solid) ? 
+                            LightweightCharts.LineStyle.Solid : 0;
+            
+            if (entryData.type === 'individual_entry') {
+                lineStyle = (typeof LightweightCharts !== 'undefined' && 
+                            LightweightCharts.LineStyle && 
+                            LightweightCharts.LineStyle.Dashed) ? 
+                            LightweightCharts.LineStyle.Dashed : 1;
+            }
+            
+            // Set line width - thicker for average entry
+            const lineWidth = (entryData.type === 'average_entry') ? 3 : 2;
             
             this.addPriceLine(entryData.price, {
                 color: color,
-                title: `${entryData.side || 'Position'} Entry: ${entryData.price.toFixed(2)}`,
+                title: entryData.label || `${entryData.side || 'Position'} Entry: ${entryData.price.toFixed(2)}`,
                 lineStyle: lineStyle,
-                lineWidth: 2,
+                lineWidth: lineWidth,
                 axisLabelVisible: true
             });
+            
+            console.log(`📊 Added ${entryData.type || 'entry'} price line at ${entryData.price.toFixed(2)} (${color})`);
         });
         
         console.log(`✅ Added ${entryPrices.length} position entry price lines`);
