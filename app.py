@@ -13,8 +13,10 @@ from routes.settings import settings_bp
 from routes.reports import reports_bp
 from routes.execution_analysis import execution_analysis_bp
 from routes.positions import positions_bp
+from routes.data_monitoring import data_monitoring_bp
 from TradingLog_db import FuturesDB
 from background_services import start_background_services, stop_background_services, get_services_status
+from automated_data_sync import start_automated_data_sync, stop_automated_data_sync, get_data_sync_status, force_data_sync
 import atexit
 
 # Setup logging before any other operations
@@ -48,6 +50,7 @@ app.register_blueprint(settings_bp)  # Settings routes
 app.register_blueprint(reports_bp)  # Reports routes
 app.register_blueprint(execution_analysis_bp)  # Execution analysis routes
 app.register_blueprint(positions_bp, url_prefix='/positions')  # Positions routes
+app.register_blueprint(data_monitoring_bp)  # Data monitoring routes
 
 # Template filters for symbol handling
 @app.template_filter('base_symbol')
@@ -98,12 +101,22 @@ def health_check():
     # Check background services
     services_status = get_services_status()
     
+    # Check data sync system
+    try:
+        data_sync_status = get_data_sync_status()
+        data_sync_healthy = data_sync_status.get('is_running', False)
+    except Exception as e:
+        logger.error(f"Data sync status check failed: {e}")
+        data_sync_healthy = False
+        data_sync_status = {'error': str(e)}
+    
     health_data = {
         'status': 'healthy' if db_status == 'healthy' else 'degraded',
         'database': db_status,
         'file_watcher_running': file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False,
         'file_watcher_available': FILE_WATCHER_AVAILABLE,
         'background_services': services_status,
+        'automated_data_sync': data_sync_status,
         'logs_accessible': logs_accessible,
         'log_directory': str(log_dir)
     }
@@ -173,6 +186,36 @@ def cache_clean():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/data-sync/status')
+def data_sync_status():
+    """Get automated data sync system status"""
+    try:
+        status = get_data_sync_status()
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/data-sync/force/<sync_type>', methods=['POST'])
+def force_data_sync_api(sync_type):
+    """Force a data sync operation"""
+    try:
+        valid_types = ['startup', 'hourly', 'daily', 'weekly']
+        if sync_type not in valid_types:
+            return jsonify({
+                'error': f'Invalid sync type. Must be one of: {", ".join(valid_types)}'
+            }), 400
+        
+        logger.info(f"Force data sync requested: {sync_type}")
+        results = force_data_sync(sync_type)
+        
+        return jsonify({
+            'message': f'{sync_type.title()} data sync completed',
+            'results': results
+        }), 200
+    except Exception as e:
+        logger.error(f"Error in force data sync: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/gap-filling/force/<instrument>', methods=['POST'])
 def force_gap_filling(instrument):
     """Manually trigger gap filling for specific instrument"""
@@ -237,8 +280,18 @@ if __name__ == '__main__':
         logger.warning(f"Background services failed to start: {e}")
         print(f"Warning: Background services failed to start: {e}")
     
+    # Start automated data sync system
+    try:
+        start_automated_data_sync()
+        logger.info("Automated data sync system started successfully")
+        print("Automated data sync system started (continuous OHLC data updates)")
+    except Exception as e:
+        logger.warning(f"Automated data sync system failed to start: {e}")
+        print(f"Warning: Automated data sync system failed to start: {e}")
+    
     # Register cleanup on exit
     atexit.register(stop_background_services)
+    atexit.register(stop_automated_data_sync)
     
     logger.info(f"Starting Flask application on {config.host}:{config.port}")
     
@@ -255,5 +308,8 @@ if __name__ == '__main__':
         
         logger.info("Stopping background services")
         stop_background_services()
+        
+        logger.info("Stopping automated data sync system")
+        stop_automated_data_sync()
         
         logger.info("Application shutdown complete")
