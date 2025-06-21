@@ -373,3 +373,89 @@ def get_batch_update_status():
             'success': False,
             'error': str(e)
         }), 500
+
+@chart_data_bp.route('/api/gap-filling/force/<instrument>')
+def force_gap_fill_api(instrument):
+    """API endpoint to force gap filling for a specific instrument"""
+    try:
+        from background_services import gap_filling_service
+        
+        # Get optional parameters
+        timeframes = request.args.getlist('timeframes') or ['5m', '15m', '1h', '1d']
+        days_back = int(request.args.get('days', 7))
+        
+        logger.info(f"Force gap filling requested for {instrument}: {timeframes}, {days_back} days back")
+        
+        # Trigger gap filling
+        results = gap_filling_service.force_gap_fill(instrument, timeframes, days_back)
+        
+        # Calculate success statistics
+        successful_timeframes = [tf for tf, success in results.items() if success]
+        failed_timeframes = [tf for tf, success in results.items() if not success]
+        success_rate = (len(successful_timeframes) / len(timeframes) * 100) if timeframes else 0
+        
+        return jsonify({
+            'success': True,
+            'instrument': instrument,
+            'results': results,
+            'successful_timeframes': successful_timeframes,
+            'failed_timeframes': failed_timeframes,
+            'success_rate': round(success_rate, 1),
+            'message': f"Gap filling completed for {instrument}"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in force gap fill API for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/gap-filling/emergency', methods=['POST'])
+def emergency_gap_fill_api():
+    """API endpoint for emergency gap filling of instruments with recent trades"""
+    try:
+        from background_services import gap_filling_service
+        
+        data = request.get_json() or {}
+        days_back = data.get('days_back', 7)
+        
+        logger.warning(f"Emergency gap filling API triggered: {days_back} days back")
+        
+        # Trigger emergency gap filling
+        results = gap_filling_service.emergency_gap_fill_for_trades(days_back)
+        
+        if not results:
+            return jsonify({
+                'success': True,
+                'message': 'No instruments needed emergency gap filling',
+                'results': {}
+            })
+        
+        # Calculate summary statistics
+        total_instruments = len(results)
+        total_requests = sum(len(tf_results) for tf_results in results.values())
+        successful_requests = sum(
+            1 for tf_results in results.values() 
+            for success in tf_results.values() if success
+        )
+        overall_success_rate = (successful_requests / total_requests * 100) if total_requests > 0 else 0
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'summary': {
+                'total_instruments': total_instruments,
+                'total_requests': total_requests,
+                'successful_requests': successful_requests,
+                'overall_success_rate': round(overall_success_rate, 1)
+            },
+            'message': f"Emergency gap filling completed for {total_instruments} instruments"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in emergency gap fill API: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

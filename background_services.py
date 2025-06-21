@@ -225,6 +225,74 @@ class BackgroundGapFillingService:
         
         return results
     
+    def emergency_gap_fill_for_trades(self, days_back: int = 7) -> Dict[str, Dict[str, bool]]:
+        """Emergency gap filling for instruments with recent trades but missing OHLC data"""
+        bg_logger.warning("🚨 EMERGENCY GAP FILLING TRIGGERED")
+        
+        try:
+            from TradingLog_db import FuturesDB
+            
+            with FuturesDB() as db:
+                # Get instruments with recent trades
+                cutoff_date = datetime.now() - timedelta(days=days_back)
+                recent_instruments_query = db.execute_query("""
+                    SELECT DISTINCT instrument 
+                    FROM trades 
+                    WHERE entry_time >= ?
+                """, (cutoff_date.strftime('%Y-%m-%d'),))
+                
+                instruments_needing_data = []
+                
+                for (instrument,) in recent_instruments_query:
+                    # Extract base instrument (e.g., "MNQ SEP25" -> "MNQ")
+                    base_instrument = instrument.split(' ')[0] if ' ' in instrument else instrument
+                    
+                    # Check if OHLC data is current
+                    latest_data_query = db.execute_query("""
+                        SELECT MAX(timestamp) 
+                        FROM ohlc_data 
+                        WHERE instrument IN (?, ?)
+                    """, (instrument, base_instrument))
+                    
+                    if latest_data_query and latest_data_query[0] and latest_data_query[0][0]:
+                        latest_timestamp = latest_data_query[0][0]
+                        latest_date = datetime.fromtimestamp(latest_timestamp)
+                        days_behind = (datetime.now() - latest_date).days
+                        
+                        if days_behind > 1:  # More than 1 day behind
+                            bg_logger.warning(f"{base_instrument}: {days_behind} days behind OHLC data")
+                            instruments_needing_data.append(base_instrument)
+                    else:
+                        bg_logger.warning(f"{base_instrument}: No OHLC data found")
+                        instruments_needing_data.append(base_instrument)
+                
+                # Remove duplicates
+                instruments_needing_data = list(set(instruments_needing_data))
+                
+                if not instruments_needing_data:
+                    bg_logger.info("No instruments need emergency gap filling")
+                    return {}
+                
+                bg_logger.warning(f"Emergency gap filling needed for: {', '.join(instruments_needing_data)}")
+                
+                # Focus on critical timeframes for trading analysis
+                critical_timeframes = ['5m', '15m', '1h', '1d']
+                
+                results = {}
+                for instrument in instruments_needing_data:
+                    bg_logger.info(f"Emergency processing {instrument}...")
+                    results[instrument] = self.force_gap_fill(
+                        instrument, 
+                        critical_timeframes, 
+                        days_back * 2  # Extended range for safety
+                    )
+                
+                return results
+                
+        except Exception as e:
+            bg_logger.error(f"Error in emergency gap filling: {e}")
+            return {}
+    
     def get_service_status(self) -> Dict[str, Any]:
         """Get status information about the background service"""
         return {
