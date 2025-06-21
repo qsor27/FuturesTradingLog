@@ -103,10 +103,10 @@ class PositionService:
             self.cursor.execute("DELETE FROM positions")
             self.cursor.execute("DELETE FROM position_executions")
             
-            # Get all trades ordered by account, instrument, and time
+            # Get all trades ordered by account, instrument, and execution ID (chronological without time dependency)
             self.cursor.execute("""
                 SELECT * FROM trades 
-                ORDER BY account, instrument, entry_time, exit_time
+                ORDER BY account, instrument, id
             """)
             
             trades = [dict(row) for row in self.cursor.fetchall()]
@@ -166,8 +166,8 @@ class PositionService:
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
         logger.info(f"Processing {len(trades)} trade records")
         
-        # Sort trades by entry time, exit time, and ID to ensure consistent chronological order
-        trades_sorted = sorted(trades, key=lambda t: (t['entry_time'], t.get('exit_time') or t['entry_time'], t.get('id', 0)))
+        # Sort trades by database ID only (chronological order based on insertion, not timestamps)
+        trades_sorted = sorted(trades, key=lambda t: t.get('id', 0))
         
         # Detect if these are completed trades vs live executions
         if self._are_completed_trades(trades_sorted):
@@ -187,11 +187,17 @@ class PositionService:
         return positions
     
     def _track_quantity_based_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Track positions based purely on contract quantity changes (0 -> +/- -> 0)"""
+        """Track positions based purely on contract quantity changes (0 -> +/- -> 0)
+        
+        IMPORTANT: This method uses ONLY quantity-based logic. 
+        NO time-based logic should be present in position building.
+        Position pairing is solely based on contract quantity flow.
+        """
         if not trades:
             return []
         
-        logger.info(f"Tracking quantity-based positions for {len(trades)} trades...")
+        logger.info(f"🔄 PURE QUANTITY-BASED POSITION TRACKING for {len(trades)} trades...")
+        logger.info("📊 Using ONLY contract quantity changes (0 → +/- → 0) for position boundaries")
         
         positions = []
         current_position = None
@@ -256,8 +262,8 @@ class PositionService:
                 current_position['executions'].append(closing_trade)
                 current_position['execution_count'] += 1
                 
-                # Close the current position
-                current_position['exit_time'] = trade['exit_time'] or trade['entry_time']
+                # Close the current position (use entry_time from closing trade, not exit_time)
+                current_position['exit_time'] = trade['entry_time']
                 current_position['position_status'] = 'closed'
                 self._calculate_position_totals(current_position)
                 positions.append(current_position)
@@ -294,7 +300,7 @@ class PositionService:
                 # Close position if we're back to 0
                 if new_quantity == 0:
                     logger.info(f"Closing position: {current_quantity} -> 0")
-                    current_position['exit_time'] = trade['exit_time'] or trade['entry_time']
+                    current_position['exit_time'] = trade['entry_time']
                     current_position['position_status'] = 'closed'
                     
                     # Calculate position totals
@@ -363,7 +369,7 @@ class PositionService:
                 'account': account,
                 'position_type': trade['side_of_market'],  # 'Long' or 'Short'
                 'entry_time': trade['entry_time'],
-                'exit_time': trade.get('exit_time') or trade['entry_time'],
+                'exit_time': trade.get('exit_time') or trade['entry_time'],  # Use actual exit time if available
                 'executions': [trade],
                 'total_quantity': trade['quantity'],
                 'max_quantity': trade['quantity'],

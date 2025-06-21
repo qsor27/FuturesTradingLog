@@ -19,6 +19,7 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
+        this.priceLines = []; // Store active price lines for position entry prices
         this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
         this.ohlcDisplayEl = null; // OHLC overlay element
         this.crosshairMoveHandler = null; // Store bound handler for cleanup
@@ -746,7 +747,146 @@ class PriceChart {
         }
     }
     
+    /**
+     * Add a horizontal price line at the specified price level
+     * @param {number} price - Price level for the horizontal line
+     * @param {Object} options - Configuration options for the price line
+     * @returns {Object} The created price line object
+     */
+    addPriceLine(price, options = {}) {
+        if (!this.candlestickSeries) {
+            console.warn('Cannot add price line: candlestick series not initialized');
+            return null;
+        }
+        
+        const defaultOptions = {
+            price: price,
+            color: '#FFD700', // Gold color for default entry price
+            lineWidth: 2,
+            lineStyle: (typeof LightweightCharts !== 'undefined' && 
+                       LightweightCharts.LineStyle && 
+                       LightweightCharts.LineStyle.Solid) ? 
+                       LightweightCharts.LineStyle.Solid : 0,
+            axisLabelVisible: true,
+            title: `Entry: ${price.toFixed(2)}`
+        };
+        
+        const lineOptions = { ...defaultOptions, ...options };
+        
+        try {
+            const priceLine = this.candlestickSeries.createPriceLine(lineOptions);
+            
+            const lineData = {
+                line: priceLine,
+                price: price,
+                ...lineOptions
+            };
+            
+            this.priceLines.push(lineData);
+            console.log(`✅ Added price line at ${price} with color ${lineOptions.color}`);
+            
+            return lineData;
+        } catch (error) {
+            console.error('❌ Error adding price line:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Add position entry price lines based on position data
+     * @param {Array} entryPrices - Array of entry price data objects
+     */
+    addPositionEntryLines(entryPrices) {
+        if (!Array.isArray(entryPrices)) {
+            console.warn('entryPrices must be an array');
+            return;
+        }
+        
+        // Clear existing position lines first
+        this.clearPositionLines();
+        
+        entryPrices.forEach((entryData, index) => {
+            if (!entryData.price || isNaN(entryData.price)) {
+                console.warn(`Invalid price data at index ${index}:`, entryData);
+                return;
+            }
+            
+            // Determine color based on position side
+            let color;
+            if (entryData.side === 'Long' || entryData.side === 'Buy') {
+                color = '#4CAF50'; // Green for long positions
+            } else if (entryData.side === 'Short' || entryData.side === 'Sell') {
+                color = '#F44336'; // Red for short positions
+            } else {
+                color = '#FFD700'; // Gold for unknown/neutral
+            }
+            
+            // Create line style - dashed for visual distinction
+            const lineStyle = (typeof LightweightCharts !== 'undefined' && 
+                              LightweightCharts.LineStyle && 
+                              LightweightCharts.LineStyle.Dashed) ? 
+                              LightweightCharts.LineStyle.Dashed : 1;
+            
+            this.addPriceLine(entryData.price, {
+                color: color,
+                title: `${entryData.side || 'Position'} Entry: ${entryData.price.toFixed(2)}`,
+                lineStyle: lineStyle,
+                lineWidth: 2,
+                axisLabelVisible: true
+            });
+        });
+        
+        console.log(`✅ Added ${entryPrices.length} position entry price lines`);
+    }
+    
+    /**
+     * Clear all position-specific price lines
+     */
+    clearPositionLines() {
+        if (!this.candlestickSeries) {
+            return;
+        }
+        
+        this.priceLines.forEach(lineData => {
+            try {
+                this.candlestickSeries.removePriceLine(lineData.line);
+            } catch (error) {
+                console.warn('Error removing price line:', error);
+            }
+        });
+        
+        this.priceLines = [];
+        console.log('✅ Cleared all position price lines');
+    }
+    
+    /**
+     * Remove a specific price line
+     * @param {Object} lineData - The price line data object returned by addPriceLine
+     */
+    removePriceLine(lineData) {
+        if (!this.candlestickSeries || !lineData || !lineData.line) {
+            return;
+        }
+        
+        try {
+            this.candlestickSeries.removePriceLine(lineData.line);
+            
+            // Remove from tracked lines
+            const index = this.priceLines.indexOf(lineData);
+            if (index > -1) {
+                this.priceLines.splice(index, 1);
+            }
+            
+            console.log(`✅ Removed price line at ${lineData.price}`);
+        } catch (error) {
+            console.error('❌ Error removing price line:', error);
+        }
+    }
+    
     destroy() {
+        // Clear position price lines before destroying chart
+        this.clearPositionLines();
+        
         // Unsubscribe from crosshair events to prevent memory leaks
         if (this.chart && this.crosshairMoveHandler) {
             this.chart.unsubscribeCrosshairMove(this.crosshairMoveHandler);
@@ -774,6 +914,7 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
+        this.priceLines = [];
         this.container = null;
     }
 }

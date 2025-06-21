@@ -371,6 +371,65 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 2000);
     
+    async function loadPositionEntryLines(chart) {
+        try {
+            // Check if we have position data and chart has the method
+            if (!chart || !chart.addPositionEntryLines) {
+                console.warn('Chart does not support position entry lines');
+                return;
+            }
+            
+            // Get position ID from the trade data or URL
+            const tradeId = {{ trade.id }};
+            
+            // Try to get position entry lines from API
+            const response = await fetch(`/api/position-entry-lines/${tradeId}`);
+            if (!response.ok) {
+                console.warn('Could not fetch position entry lines, using fallback method');
+                useFallbackEntryLines(chart);
+                return;
+            }
+            
+            const data = await response.json();
+            if (data.success && data.entry_lines && data.entry_lines.length > 0) {
+                console.log(`📊 Loading ${data.entry_lines.length} position entry price lines`);
+                chart.addPositionEntryLines(data.entry_lines);
+            } else {
+                console.log('📊 No position entry lines available, using fallback');
+                useFallbackEntryLines(chart);
+            }
+        } catch (error) {
+            console.error('❌ Error loading position entry lines:', error);
+            useFallbackEntryLines(chart);
+        }
+    }
+    
+    function useFallbackEntryLines(chart) {
+        // Fallback: use position summary data from template
+        try {
+            {% if position_data and position_data.position_summary %}
+            const entryPrice = {{ position_data.position_summary.average_entry_price or 'null' }};
+            const positionSide = {{ trade.side_of_market | tojson }};
+            
+            if (entryPrice && !isNaN(entryPrice)) {
+                const entryData = [{
+                    price: entryPrice,
+                    side: positionSide,
+                    type: 'average_entry',
+                    label: `${positionSide} Avg Entry: ${entryPrice.toFixed(2)}`
+                }];
+                
+                console.log('📊 Using fallback entry price line:', entryData);
+                chart.addPositionEntryLines(entryData);
+            }
+            {% else %}
+            console.log('📊 No position summary data available for entry lines');
+            {% endif %}
+        } catch (error) {
+            console.error('❌ Error in fallback entry lines:', error);
+        }
+    }
+    
     function initializeChartSync() {
         const chart = chartContainer.chartInstance;
         
@@ -388,6 +447,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (executions.length > 0) {
             chart.addExecutionMarkers(executions);
         }
+        
+        // Add position entry price lines
+        loadPositionEntryLines(chart);
         
         // Table row click handlers
         executionRows.forEach(row => {
