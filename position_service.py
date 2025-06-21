@@ -169,12 +169,18 @@ class PositionService:
         # Sort trades by entry time, exit time, and ID to ensure consistent chronological order
         trades_sorted = sorted(trades, key=lambda t: (t['entry_time'], t.get('exit_time') or t['entry_time'], t.get('id', 0)))
         
-        # Log all trades first for debugging
-        for i, trade in enumerate(trades_sorted):
-            logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade['exit_price']} | P&L: ${trade['dollars_gain_loss']} | ID: {trade['entry_execution_id']}")
-        
-        # Track position based on contract quantity changes
-        positions = self._track_quantity_based_positions(trades_sorted, account, instrument)
+        # Detect if these are completed trades vs live executions
+        if self._are_completed_trades(trades_sorted):
+            logger.info("Detected completed round-trip trades - treating each as individual position")
+            positions = self._build_positions_from_completed_trades(trades_sorted, account, instrument)
+        else:
+            logger.info("Detected live execution data - building cumulative positions")
+            # Log all trades first for debugging
+            for i, trade in enumerate(trades_sorted):
+                logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade['exit_price']} | P&L: ${trade['dollars_gain_loss']} | ID: {trade['entry_execution_id']}")
+            
+            # Track position based on contract quantity changes
+            positions = self._track_quantity_based_positions(trades_sorted, account, instrument)
         
         logger.info(f"=== POSITION BUILDING COMPLETE ===")
         logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} trade records")
@@ -311,6 +317,59 @@ class PositionService:
         logger.info(f"Created {len(positions)} positions from quantity tracking")
         return positions
     
+    def _are_completed_trades(self, trades: List[Dict]) -> bool:
+        """Detect if trades are completed round-trips vs live executions"""
+        if not trades:
+            return False
+        
+        # Check if most trades have both entry and exit prices with P&L
+        completed_count = 0
+        for trade in trades:
+            entry_price = trade.get('entry_price', 0)
+            exit_price = trade.get('exit_price', 0)
+            pnl = trade.get('dollars_gain_loss', 0)
+            
+            # Consider completed if has exit price different from entry and non-zero P&L
+            if (exit_price and exit_price != entry_price and pnl != 0):
+                completed_count += 1
+        
+        # If 80% or more trades look completed, treat as completed trades
+        completion_ratio = completed_count / len(trades) if trades else 0
+        logger.info(f"Completed trade detection: {completed_count}/{len(trades)} trades ({completion_ratio:.1%}) appear completed")
+        
+        return completion_ratio >= 0.8
+    
+    def _build_positions_from_completed_trades(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
+        """Build positions from completed round-trip trades (each trade = one position)"""
+        logger.info(f"Building {len(trades)} individual positions from completed trades")
+        
+        positions = []
+        for i, trade in enumerate(trades):
+            # Each completed trade becomes its own position
+            position = {
+                'instrument': instrument,
+                'account': account,
+                'position_type': trade['side_of_market'],  # 'Long' or 'Short'
+                'entry_time': trade['entry_time'],
+                'exit_time': trade.get('exit_time') or trade['entry_time'],
+                'executions': [trade],
+                'total_quantity': trade['quantity'],
+                'max_quantity': trade['quantity'],
+                'position_status': 'closed',  # Completed trades are closed
+                'execution_count': 1
+            }
+            
+            # Calculate position totals (this will set prices and P&L)
+            self._calculate_position_totals(position)
+            
+            positions.append(position)
+            
+            if (i + 1) % 20 == 0:  # Log progress every 20 positions
+                logger.info(f"Created {i + 1} positions from completed trades...")
+        
+        logger.info(f"Successfully created {len(positions)} individual positions from completed trades")
+        return positions
+    
     
     def _calculate_position_totals(self, position: Dict):
         """Calculate totals for a position from its executions using proper FIFO accounting"""
@@ -319,50 +378,68 @@ class PositionService:
         if not executions:
             return
         
-        # Separate entry and exit executions based on position flow
-        entry_executions = []
-        exit_executions = []
-        running_quantity = 0
-        
-        for execution in executions:
-            if position['position_type'] == 'Long':
-                if execution['side_of_market'] == 'Long':
-                    # Long execution adds to long position
-                    entry_executions.append(execution)
-                else:
-                    # Short execution reduces long position
-                    exit_executions.append(execution)
-            else:  # Short position
-                if execution['side_of_market'] == 'Short':
-                    # Short execution adds to short position 
-                    entry_executions.append(execution)
-                else:
-                    # Long execution reduces short position
-                    exit_executions.append(execution)
-        
-        # Calculate average entry price from entry executions
-        if entry_executions:
-            total_entry_value = sum(ex['entry_price'] * ex['quantity'] for ex in entry_executions)
-            total_entry_quantity = sum(ex['quantity'] for ex in entry_executions)
-            position['average_entry_price'] = total_entry_value / total_entry_quantity if total_entry_quantity > 0 else 0
-        else:
-            position['average_entry_price'] = 0
-        
-        # Calculate average exit price from exit executions if position is closed
-        if position['position_status'] == 'closed' and exit_executions:
-            total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in exit_executions)
-            total_exit_quantity = sum(ex['quantity'] for ex in exit_executions)
-            position['average_exit_price'] = total_exit_value / total_exit_quantity if total_exit_quantity > 0 else 0
+        # Check if this is a single completed trade (has both entry and exit prices)
+        if (len(executions) == 1 and 
+            executions[0].get('exit_price') and 
+            executions[0].get('entry_price') and
+            executions[0].get('exit_price') != executions[0].get('entry_price')):
             
-            # Calculate position-level points P&L using average prices
+            # Single completed trade - use the trade's prices directly
+            trade = executions[0]
+            position['average_entry_price'] = trade['entry_price']
+            position['average_exit_price'] = trade['exit_price']
+            
+            # Calculate points P&L using trade's prices
             if position['position_type'] == 'Long':
-                position['total_points_pnl'] = position['average_exit_price'] - position['average_entry_price']
+                position['total_points_pnl'] = trade['exit_price'] - trade['entry_price']
             else:  # Short
-                position['total_points_pnl'] = position['average_entry_price'] - position['average_exit_price']
+                position['total_points_pnl'] = trade['entry_price'] - trade['exit_price']
+                
         else:
-            # Open position - no exit price or points P&L yet
-            position['average_exit_price'] = None
-            position['total_points_pnl'] = 0
+            # Multiple executions - use original FIFO logic
+            # Separate entry and exit executions based on position flow
+            entry_executions = []
+            exit_executions = []
+            
+            for execution in executions:
+                if position['position_type'] == 'Long':
+                    if execution['side_of_market'] == 'Long':
+                        # Long execution adds to long position
+                        entry_executions.append(execution)
+                    else:
+                        # Short execution reduces long position
+                        exit_executions.append(execution)
+                else:  # Short position
+                    if execution['side_of_market'] == 'Short':
+                        # Short execution adds to short position 
+                        entry_executions.append(execution)
+                    else:
+                        # Long execution reduces short position
+                        exit_executions.append(execution)
+            
+            # Calculate average entry price from entry executions
+            if entry_executions:
+                total_entry_value = sum(ex['entry_price'] * ex['quantity'] for ex in entry_executions)
+                total_entry_quantity = sum(ex['quantity'] for ex in entry_executions)
+                position['average_entry_price'] = total_entry_value / total_entry_quantity if total_entry_quantity > 0 else 0
+            else:
+                position['average_entry_price'] = 0
+            
+            # Calculate average exit price from exit executions if position is closed
+            if position['position_status'] == 'closed' and exit_executions:
+                total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in exit_executions)
+                total_exit_quantity = sum(ex['quantity'] for ex in exit_executions)
+                position['average_exit_price'] = total_exit_value / total_exit_quantity if total_exit_quantity > 0 else 0
+                
+                # Calculate position-level points P&L using average prices
+                if position['position_type'] == 'Long':
+                    position['total_points_pnl'] = position['average_exit_price'] - position['average_entry_price']
+                else:  # Short
+                    position['total_points_pnl'] = position['average_entry_price'] - position['average_exit_price']
+            else:
+                # Open position - no exit price or points P&L yet
+                position['average_exit_price'] = None
+                position['total_points_pnl'] = 0
         
         # Sum P&L and commission from all executions
         position['total_dollars_pnl'] = sum(ex['dollars_gain_loss'] for ex in executions)
