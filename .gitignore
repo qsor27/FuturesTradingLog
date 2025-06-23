@@ -9,6 +9,11 @@ venv/
 .env
 env/
 .venv/
+gap_fill_env/
+vdev/
+
+# Serena IDE files
+.serena/
 
 # Database files
 *.db
@@ -65,3 +70,16 @@ MANIFEST
 
 # CSV files
 *.csv
+
+# Development tools and local configs
+serena_config.yml
+dev.sh
+dev-update.sh
+
+# Runtime data files
+data/*.json
+data/last_sync.json
+
+# Backup files
+*.backup
+*.bak

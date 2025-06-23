@@ -1,0 +1,210 @@
+version: '3.8'
+
+services:
+  # Main Flask application
+  app:
+    image: ghcr.io/qsor27/futurestradinglog:main
+    container_name: futurestradinglog-app
+    restart: unless-stopped
+    environment:
+      - DATA_DIR=/data
+      - FLASK_ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_ENABLED=true
+      - CACHE_TTL_DAYS=14
+      - AUTO_IMPORT_ENABLED=true
+      - AUTO_IMPORT_INTERVAL=300
+      # Backup configuration
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-futurestradinglog-backups}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      - ${BACKUP_DIR:-./backups}:/data/backups
+      - ./config/litestream.yml:/etc/litestream.yml:ro
+    ports:
+      - "${EXTERNAL_PORT:-5000}:5000"
+    depends_on:
+      - redis
+      - litestream
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis cache service
+  redis:
+    image: redis:7-alpine
+    container_name: futurestradinglog-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Litestream real-time backup service
+  litestream:
+    image: litestream/litestream:0.3.13
+    container_name: futurestradinglog-litestream
+    restart: unless-stopped
+    environment:
+      # S3 configuration
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-futurestradinglog-backups}
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      - ${BACKUP_DIR:-./backups}:/data/backups
+      - ./config/litestream.yml:/etc/litestream.yml:ro
+    command: replicate
+    depends_on:
+      - app
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Prometheus monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: futurestradinglog-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+      - litestream
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Grafana dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: futurestradinglog-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # Backup validation service (runs daily)
+  backup-validator:
+    image: ghcr.io/qsor27/futurestradinglog:main
+    container_name: futurestradinglog-backup-validator
+    restart: unless-stopped
+    environment:
+      - DATA_DIR=/data
+      - BACKUP_VALIDATION_ENABLED=true
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+      - ${BACKUP_DIR:-./backups}:/data/backups
+      - ./scripts:/scripts:ro
+    command: python -c "
+      import time
+      import schedule
+      import subprocess
+      import sys
+      
+      def run_validation():
+          try:
+              result = subprocess.run(['/scripts/backup-database.sh', 'validate'], 
+                                    capture_output=True, text=True, timeout=300)
+              if result.returncode == 0:
+                  print('Backup validation successful')
+              else:
+                  print(f'Backup validation failed: {result.stderr}', file=sys.stderr)
+          except Exception as e:
+              print(f'Backup validation error: {e}', file=sys.stderr)
+      
+      schedule.every().day.at('02:00').do(run_validation)
+      print('Backup validator started - daily validation at 02:00')
+      
+      while True:
+          schedule.run_pending()
+          time.sleep(60)
+    "
+    depends_on:
+      - litestream
+    networks:
+      - trading-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  trading-network:
+    driver: bridge
+    name: trading-network
+
+volumes:
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local

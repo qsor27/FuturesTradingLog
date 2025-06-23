@@ -152,14 +152,37 @@ This is a Flask-based web application for futures traders to track, analyze, and
 
 ### 🚨 **CRITICAL: Container-Based Deployment**
 
-**This application runs in production via containerized deployment with automatic updates:**
+**This application runs in production via containerized deployment with two update methods:**
 
+#### Production Deployment (Automatic)
 1. **Code Changes** → Push to GitHub main branch
 2. **GitHub Actions** → Builds Docker image and pushes to GitHub Container Registry
 3. **Watchtower Service** → Detects new image and automatically updates running container
 4. **Live Application** → Updated with new code (no manual restart needed)
 
 **⚠️ Important**: Code changes are NOT immediately visible until this full pipeline completes (typically 5-10 minutes).
+
+#### 🚀 **NEW: Direct Development Deployment (Immediate)**
+For faster development cycles, bypass GitHub Actions using the direct update script:
+
+```bash
+# Make code changes, then immediately deploy
+./dev-update.sh
+
+# Other useful commands
+./dev-update.sh status    # Check container status
+./dev-update.sh logs      # View container logs
+./dev-update.sh restart   # Restart existing container
+./dev-update.sh clean     # Remove old dev images
+```
+
+**✅ Advantages of Direct Development**:
+- **Immediate Updates**: Changes live in ~30-60 seconds vs 5-10 minutes
+- **No GitHub Actions Wait**: Skip CI/CD pipeline during development
+- **Local Testing**: Build and test locally before pushing to GitHub
+- **Faster Iteration**: Ideal for development and debugging
+
+**⚠️ Important**: Always push to GitHub after development to maintain code sync.
 
 ### Container Deployment Commands
 
@@ -230,6 +253,18 @@ pytest --cov=. --cov-report=html
 ### 🔧 **Troubleshooting Development Issues**
 
 #### Problem: "Code changes not showing"
+
+**Option A: Direct Development Update (Fastest)**
+```bash
+# Immediate local deployment (30-60 seconds)
+./dev-update.sh
+
+# Check if update worked
+./dev-update.sh status
+curl http://localhost:5000/health
+```
+
+**Option B: Production Pipeline Troubleshooting**
 ```bash
 # 1. Verify changes are committed and pushed
 git status

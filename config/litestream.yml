@@ -1,0 +1,62 @@
+# Litestream Configuration for FuturesTradingLog
+# Real-time SQLite database replication and backup
+
+# Global settings
+addr: ":9090"  # Litestream metrics endpoint
+prometheus: true
+
+# Database replication configurations
+dbs:
+  # Main trading database
+  - path: /data/db/futures_trades.db
+    replicas:
+      # Local filesystem backup with 72h retention
+      - type: file
+        path: /data/backups/local/futures_trades
+        retention: 72h
+        sync-interval: 1s
+        snapshot-interval: 1m
+        validation-interval: 1h
+        
+      # S3 backup configuration (requires AWS credentials)
+      - type: s3
+        bucket: ${BACKUP_S3_BUCKET:-futurestradinglog-backups}
+        path: db/futures_trades
+        region: ${AWS_REGION:-us-east-1}
+        retention: 30d
+        sync-interval: 10s
+        snapshot-interval: 1h
+        validation-interval: 6h
+        # AWS credentials via environment variables:
+        # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+        
+  # OHLC cache database (if exists separately)
+  - path: /data/db/ohlc_cache.db
+    replicas:
+      - type: file
+        path: /data/backups/local/ohlc_cache
+        retention: 24h
+        sync-interval: 5s
+        snapshot-interval: 15m
+        
+      - type: s3
+        bucket: ${BACKUP_S3_BUCKET:-futurestradinglog-backups}
+        path: db/ohlc_cache
+        region: ${AWS_REGION:-us-east-1}
+        retention: 7d
+        sync-interval: 30s
+        snapshot-interval: 6h
+
+# Monitoring and logging
+log:
+  level: info
+  output: stdout
+
+# Health check endpoint for container monitoring
+health:
+  enabled: true
+  addr: ":8080"
+
+# Performance settings
+wal-checkpoint: 1000
+wal-checkpoint-timeout: 30s

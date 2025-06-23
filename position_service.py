@@ -162,315 +162,166 @@ class PositionService:
             return {'positions_created': 0, 'trades_processed': 0}
     
     def _build_positions_from_execution_flow(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Build position objects based on quantity-based position lifecycle (0 -> +/- -> 0)"""
+        """Build position objects from completed trade data
+        
+        PURE COMPLETED TRADE MODEL: Each trade record is a complete position.
+        Each trade already has entry/exit prices and calculated P&L from ExecutionProcessing.py
+        """
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
-        logger.info(f"Processing {len(trades)} trade records")
+        logger.info(f"Processing {len(trades)} completed trades using PURE COMPLETED TRADE MODEL")
         
         # Sort trades by database ID only (chronological order based on insertion, not timestamps)
         trades_sorted = sorted(trades, key=lambda t: t.get('id', 0))
         
-        # Detect if these are completed trades vs live executions
-        if self._are_completed_trades(trades_sorted):
-            logger.info("Detected completed round-trip trades - treating each as individual position")
-            positions = self._build_positions_from_completed_trades(trades_sorted, account, instrument)
-        else:
-            logger.info("Detected live execution data - building cumulative positions")
-            # Log all trades first for debugging
-            for i, trade in enumerate(trades_sorted):
-                logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade['exit_price']} | P&L: ${trade['dollars_gain_loss']} | ID: {trade['entry_execution_id']}")
-            
-            # Track position based on contract quantity changes
-            positions = self._track_quantity_based_positions(trades_sorted, account, instrument)
+        # Log all completed trades for debugging
+        for i, trade in enumerate(trades_sorted):
+            logger.info(f"Completed Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade.get('exit_price', 'N/A')} | P&L: ${trade['dollars_gain_loss']} | ID: {trade.get('entry_execution_id', 'N/A')}")
+        
+        # Convert each completed trade into a position record
+        positions = self._convert_completed_trades_to_positions(trades_sorted, account, instrument)
         
         logger.info(f"=== POSITION BUILDING COMPLETE ===")
-        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} trade records")
+        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} completed trades")
         return positions
     
-    def _track_quantity_based_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Track positions based purely on contract quantity changes (0 -> +/- -> 0)
+    def _convert_completed_trades_to_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
+        """Convert completed trades into position records (1:1 mapping)
         
-        IMPORTANT: This method uses ONLY quantity-based logic. 
-        NO time-based logic should be present in position building.
-        Position pairing is solely based on contract quantity flow.
+        PURE COMPLETED TRADE MODEL: Each completed trade = one position
+        No complex position building needed - trades already have proper entry/exit and P&L
         """
         if not trades:
             return []
         
-        logger.info(f"🔄 PURE QUANTITY-BASED POSITION TRACKING for {len(trades)} trades...")
-        logger.info("📊 Using ONLY contract quantity changes (0 → +/- → 0) for position boundaries")
+        logger.info(f"Converting {len(trades)} completed trades to positions")
+        
+        # Validate that these are indeed completed trades
+        self._validate_completed_trades(trades)
         
         positions = []
-        current_position = None
-        current_quantity = 0
+        skipped_trades = 0
         
         for i, trade in enumerate(trades):
-            # Validate required trade fields
-            side_of_market = trade.get('side_of_market', '').strip()
-            quantity = trade.get('quantity', 0)
-            
-            if not side_of_market or quantity <= 0:
-                logger.warning(f"Skipping invalid trade: side={side_of_market}, quantity={quantity}, ID={trade.get('entry_execution_id', 'Unknown')}")
+            # Validate individual trade
+            if not self._validate_trade_data(trade):
+                skipped_trades += 1
+                logger.warning(f"Skipping invalid trade {i+1}: {trade.get('entry_execution_id', 'Unknown ID')}")
                 continue
-            
-            # Determine quantity change based on side
-            if side_of_market == 'Long':
-                quantity_change = quantity
-            elif side_of_market == 'Short':
-                quantity_change = -quantity
-            else:
-                logger.warning(f"Unknown side_of_market '{side_of_market}' for trade {trade.get('entry_execution_id', 'Unknown')}, skipping")
-                continue
-            
-            # Calculate new position quantity
-            new_quantity = current_quantity + quantity_change
-            
-            logger.info(f"Trade {i+1}: {trade['side_of_market']} {trade['quantity']} | Position: {current_quantity} -> {new_quantity}")
-            
-            # Check for zero-crossing scenario (position reversal)
-            zero_crossing = (current_quantity != 0 and 
-                           new_quantity != 0 and 
-                           (current_quantity > 0) != (new_quantity > 0))
-            
-            # Start new position if we're going from 0 to non-zero
-            if current_quantity == 0 and new_quantity != 0:
-                logger.info(f"Starting new position: {new_quantity} contracts")
-                current_position = {
-                    'instrument': instrument,
-                    'account': account,
-                    'position_type': 'Long' if new_quantity > 0 else 'Short',
-                    'entry_time': trade['entry_time'],
-                    'exit_time': None,
-                    'executions': [trade],
-                    'total_quantity': abs(new_quantity),
-                    'max_quantity': abs(new_quantity),
-                    'position_status': 'open',
-                    'execution_count': 1
-                }
-            
-            # Handle zero-crossing: close current position and start new one
-            elif zero_crossing and current_position is not None:
-                logger.info(f"Zero-crossing detected: {current_quantity} -> {new_quantity}")
                 
-                # Split the trade for proper FIFO accounting
-                # First part closes the existing position (quantity to reach zero)
-                close_quantity = abs(current_quantity)
-                remaining_quantity = abs(new_quantity)
-                
-                # Create a closing trade for the current position
-                closing_trade = dict(trade)
-                closing_trade['quantity'] = close_quantity
-                current_position['executions'].append(closing_trade)
-                current_position['execution_count'] += 1
-                
-                # Close the current position (use entry_time from closing trade, not exit_time)
-                current_position['exit_time'] = trade['entry_time']
-                current_position['position_status'] = 'closed'
-                self._calculate_position_totals(current_position)
-                positions.append(current_position)
-                
-                logger.info(f"Position closed due to zero-crossing: {current_position['position_type']} {current_position['total_quantity']} contracts")
-                
-                # Start new position with remaining quantity
-                if remaining_quantity > 0:
-                    opening_trade = dict(trade)
-                    opening_trade['quantity'] = remaining_quantity
-                    
-                    current_position = {
-                        'instrument': instrument,
-                        'account': account,
-                        'position_type': 'Long' if new_quantity > 0 else 'Short',
-                        'entry_time': trade['entry_time'],
-                        'exit_time': None,
-                        'executions': [opening_trade],
-                        'total_quantity': remaining_quantity,
-                        'max_quantity': remaining_quantity,
-                        'position_status': 'open',
-                        'execution_count': 1
-                    }
-                    logger.info(f"New position started after zero-crossing: {current_position['position_type']} {remaining_quantity} contracts")
-                else:
-                    current_position = None
-            
-            # Add execution to current position if position exists
-            elif current_position is not None:
-                current_position['executions'].append(trade)
-                current_position['execution_count'] += 1
-                current_position['max_quantity'] = max(current_position['max_quantity'], abs(new_quantity))
-                
-                # Close position if we're back to 0
-                if new_quantity == 0:
-                    logger.info(f"Closing position: {current_quantity} -> 0")
-                    current_position['exit_time'] = trade['entry_time']
-                    current_position['position_status'] = 'closed'
-                    
-                    # Calculate position totals
-                    self._calculate_position_totals(current_position)
-                    
-                    # Save position and reset
-                    positions.append(current_position)
-                    logger.info(f"Position closed: {current_position['position_type']} {current_position['total_quantity']} contracts, P&L: ${current_position['total_dollars_pnl']:.2f}")
-                    current_position = None
-            
-            # Update current quantity
-            current_quantity = new_quantity
-        
-        # Handle any remaining open position
-        if current_position is not None:
-            logger.info(f"Open position remains: {current_position['position_type']} {abs(current_quantity)} contracts")
-            self._calculate_position_totals(current_position)
-            positions.append(current_position)
-        
-        logger.info(f"Created {len(positions)} positions from quantity tracking")
-        return positions
-    
-    def _are_completed_trades(self, trades: List[Dict]) -> bool:
-        """Detect if trades are completed round-trips vs live executions"""
-        if not trades:
-            return False
-        
-        # Check if most trades have both entry and exit prices with P&L
-        completed_count = 0
-        raw_execution_count = 0
-        
-        for trade in trades:
-            entry_price = trade.get('entry_price', 0)
-            exit_price = trade.get('exit_price', 0)
-            pnl = trade.get('dollars_gain_loss', 0)
-            
-            # Check if this looks like a raw execution (entry_price == exit_price and P&L == 0)
-            if (entry_price == exit_price and pnl == 0):
-                raw_execution_count += 1
-            # Consider completed if has exit price different from entry and non-zero P&L
-            elif (exit_price and exit_price != entry_price and pnl != 0):
-                completed_count += 1
-        
-        raw_execution_ratio = raw_execution_count / len(trades) if trades else 0
-        completion_ratio = completed_count / len(trades) if trades else 0
-        
-        logger.info(f"Trade detection: {completed_count}/{len(trades)} completed trades ({completion_ratio:.1%}), {raw_execution_count}/{len(trades)} raw executions ({raw_execution_ratio:.1%})")
-        
-        # If 80% or more are raw executions, treat as raw executions
-        if raw_execution_ratio >= 0.8:
-            logger.info("Detected raw executions - will build positions from execution flow")
-            return False
-        
-        # If 80% or more trades look completed, treat as completed trades
-        return completion_ratio >= 0.8
-    
-    def _build_positions_from_completed_trades(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Build positions from completed round-trip trades (each trade = one position)"""
-        logger.info(f"Building {len(trades)} individual positions from completed trades")
-        
-        positions = []
-        for i, trade in enumerate(trades):
             # Each completed trade becomes its own position
             position = {
                 'instrument': instrument,
                 'account': account,
                 'position_type': trade['side_of_market'],  # 'Long' or 'Short'
                 'entry_time': trade['entry_time'],
-                'exit_time': trade.get('exit_time') or trade['entry_time'],  # Use actual exit time if available
-                'executions': [trade],
+                'exit_time': trade.get('exit_time') or trade['entry_time'],  # Use actual exit time
+                'executions': [trade],  # Single trade = single execution in position
                 'total_quantity': trade['quantity'],
                 'max_quantity': trade['quantity'],
-                'position_status': 'closed',  # Completed trades are closed
+                'position_status': 'closed',  # Completed trades are always closed
                 'execution_count': 1
             }
             
-            # Calculate position totals (this will set prices and P&L)
-            self._calculate_position_totals(position)
+            # Calculate position totals (sets average prices and P&L from trade data)
+            self._calculate_position_totals_from_completed_trade(position)
             
             positions.append(position)
             
-            if (i + 1) % 20 == 0:  # Log progress every 20 positions
-                logger.info(f"Created {i + 1} positions from completed trades...")
+            if (i + 1) % 50 == 0:  # Log progress every 50 positions
+                logger.info(f"Converted {i + 1}/{len(trades)} completed trades to positions...")
         
-        logger.info(f"Successfully created {len(positions)} individual positions from completed trades")
+        if skipped_trades > 0:
+            logger.warning(f"Skipped {skipped_trades} invalid trades out of {len(trades)} total")
+            
+        logger.info(f"Successfully converted {len(positions)} completed trades to positions")
         return positions
     
+    def _validate_completed_trades(self, trades: List[Dict]):
+        """Validate that trades are properly formatted completed trades"""
+        if not trades:
+            return
+            
+        completed_count = 0
+        for trade in trades[:10]:  # Sample first 10 trades for validation
+            if (trade.get('exit_price') and 
+                trade.get('entry_price') and 
+                trade.get('exit_price') != trade.get('entry_price') and
+                trade.get('dollars_gain_loss') is not None):
+                completed_count += 1
+        
+        completion_ratio = completed_count / min(len(trades), 10)
+        
+        if completion_ratio < 0.8:
+            logger.warning(f"Only {completion_ratio:.1%} of sampled trades appear to be completed trades. Expected completed trade format with entry/exit prices and P&L.")
+        else:
+            logger.info(f"Validated {completion_ratio:.1%} of sampled trades are properly formatted completed trades")
     
-    def _calculate_position_totals(self, position: Dict):
-        """Calculate totals for a position from its executions using proper FIFO accounting"""
+    def _validate_trade_data(self, trade: Dict) -> bool:
+        """Validate individual trade has required fields"""
+        required_fields = ['instrument', 'side_of_market', 'quantity', 'entry_price', 'entry_time', 'dollars_gain_loss']
+        
+        for field in required_fields:
+            if field not in trade or trade[field] is None:
+                logger.error(f"Trade missing required field '{field}': {trade.get('entry_execution_id', 'Unknown ID')}")
+                return False
+        
+        # Validate data types and ranges
+        try:
+            quantity = int(trade['quantity'])
+            entry_price = float(trade['entry_price'])
+            
+            if quantity <= 0:
+                logger.error(f"Invalid quantity {quantity} for trade {trade.get('entry_execution_id', 'Unknown ID')}")
+                return False
+                
+            if entry_price <= 0:
+                logger.error(f"Invalid entry price {entry_price} for trade {trade.get('entry_execution_id', 'Unknown ID')}")
+                return False
+                
+        except (ValueError, TypeError) as e:
+            logger.error(f"Data type validation failed for trade {trade.get('entry_execution_id', 'Unknown ID')}: {e}")
+            return False
+        
+        return True
+    
+    # ARCHITECTURAL CHANGE COMPLETE: Position service now uses PURE COMPLETED TRADE MODEL
+    # - Each trade record (from ExecutionProcessing.py) = one complete position  
+    # - No complex quantity-based position building or routing logic needed
+    # - Consistent 1:1 mapping from completed trades to position records
+    
+    
+    def _calculate_position_totals_from_completed_trade(self, position: Dict):
+        """Calculate position totals from a completed trade record
+        
+        PURE COMPLETED TRADE MODEL: Trade already has calculated entry/exit prices and P&L.
+        Simply extract the values from the completed trade - no complex calculations needed.
+        """
         executions = position['executions']
         
         if not executions:
             return
         
-        # Check if this is a single completed trade (has both entry and exit prices)
-        if (len(executions) == 1 and 
-            executions[0].get('exit_price') and 
-            executions[0].get('entry_price') and
-            executions[0].get('exit_price') != executions[0].get('entry_price')):
-            
-            # Single completed trade - use the trade's prices directly
-            trade = executions[0]
-            position['average_entry_price'] = trade['entry_price']
-            position['average_exit_price'] = trade['exit_price']
-            
-            # Calculate points P&L using trade's prices
-            if position['position_type'] == 'Long':
-                position['total_points_pnl'] = trade['exit_price'] - trade['entry_price']
-            else:  # Short
-                position['total_points_pnl'] = trade['entry_price'] - trade['exit_price']
-                
-        else:
-            # Multiple executions - use original FIFO logic
-            # Separate entry and exit executions based on position flow
-            entry_executions = []
-            exit_executions = []
-            
-            for execution in executions:
-                if position['position_type'] == 'Long':
-                    if execution['side_of_market'] == 'Long':
-                        # Long execution adds to long position
-                        entry_executions.append(execution)
-                    else:
-                        # Short execution reduces long position
-                        exit_executions.append(execution)
-                else:  # Short position
-                    if execution['side_of_market'] == 'Short':
-                        # Short execution adds to short position 
-                        entry_executions.append(execution)
-                    else:
-                        # Long execution reduces short position
-                        exit_executions.append(execution)
-            
-            # Calculate average entry price from entry executions
-            if entry_executions:
-                total_entry_value = sum(ex['entry_price'] * ex['quantity'] for ex in entry_executions)
-                total_entry_quantity = sum(ex['quantity'] for ex in entry_executions)
-                position['average_entry_price'] = total_entry_value / total_entry_quantity if total_entry_quantity > 0 else 0
-            else:
-                position['average_entry_price'] = 0
-            
-            # Calculate average exit price from exit executions if position is closed
-            if position['position_status'] == 'closed' and exit_executions:
-                total_exit_value = sum(ex['exit_price'] * ex['quantity'] for ex in exit_executions)
-                total_exit_quantity = sum(ex['quantity'] for ex in exit_executions)
-                position['average_exit_price'] = total_exit_value / total_exit_quantity if total_exit_quantity > 0 else 0
-                
-                # Calculate position-level points P&L using average prices
-                if position['position_type'] == 'Long':
-                    position['total_points_pnl'] = position['average_exit_price'] - position['average_entry_price']
-                else:  # Short
-                    position['total_points_pnl'] = position['average_entry_price'] - position['average_exit_price']
-            else:
-                # Open position - no exit price or points P&L yet
-                position['average_exit_price'] = None
-                position['total_points_pnl'] = 0
+        # For completed trades, there's only one execution (the completed trade record)
+        trade = executions[0]
         
-        # Sum P&L and commission from all executions
-        position['total_dollars_pnl'] = sum(ex['dollars_gain_loss'] for ex in executions)
-        position['total_commission'] = sum(ex['commission'] for ex in executions)
-        position['execution_count'] = len(executions)
+        # Extract pre-calculated values from the completed trade
+        position['average_entry_price'] = trade['entry_price']
+        position['average_exit_price'] = trade.get('exit_price', trade['entry_price'])
+        position['total_points_pnl'] = trade.get('points_gain_loss', 0)
+        position['total_dollars_pnl'] = trade['dollars_gain_loss']
+        position['total_commission'] = trade['commission']
+        position['execution_count'] = 1
         
-        # Calculate risk/reward ratio for closed positions
-        if position['position_status'] == 'closed' and position['total_dollars_pnl'] != 0:
-            # Simple R:R based on total P&L
+        # Calculate risk/reward ratio for completed positions
+        if position['total_dollars_pnl'] != 0 and position['total_commission'] > 0:
             if position['total_dollars_pnl'] > 0:
-                position['risk_reward_ratio'] = abs(position['total_dollars_pnl']) / position['total_commission'] if position['total_commission'] > 0 else 0
+                # Winning trade: reward/risk ratio
+                position['risk_reward_ratio'] = abs(position['total_dollars_pnl']) / position['total_commission']
             else:
-                position['risk_reward_ratio'] = position['total_commission'] / abs(position['total_dollars_pnl']) if position['total_dollars_pnl'] != 0 else 0
+                # Losing trade: risk/reward ratio
+                position['risk_reward_ratio'] = position['total_commission'] / abs(position['total_dollars_pnl'])
+        else:
+            position['risk_reward_ratio'] = 0
     
     def _save_position(self, position: Dict) -> Optional[int]:
         """Save a position to the database and return the position ID"""

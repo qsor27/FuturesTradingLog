@@ -1,0 +1,36 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "3"
+  },
+  "live-restore": true,
+  "userland-proxy": false,
+  "no-new-privileges": true,
+  "icc": false,
+  "userns-remap": "default",
+  "default-ulimits": {
+    "nofile": {
+      "name": "nofile",
+      "hard": 64000,
+      "soft": 64000
+    }
+  },
+  "storage-driver": "overlay2",
+  "storage-opts": [
+    "overlay2.override_kernel_check=true"
+  ],
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "default-address-pools": [
+    {
+      "base": "172.30.0.0/16",
+      "size": 24
+    }
+  ],
+  "seccomp-profile": "/etc/docker/seccomp-profile.json",
+  "apparmor-profile": "docker-default",
+  "selinux-enabled": false,
+  "registry-mirrors": [],
+  "insecure-registries": [],
+  "disable-legacy-registry": true
+}

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Union, Tuple
 import os
 import logging
+import json
 
 # Get database logger
 db_logger = logging.getLogger('database')
@@ -14,7 +15,72 @@ class FuturesDB:
         self.db_path = db_path or config.db_path
         self.conn = None
         self.cursor = None
-
+    
+        def _execute_with_monitoring(self, query: str, params: tuple = None, operation: str = "query", table: str = "unknown"):
+            """Execute query with monitoring metrics collection"""
+            import time
+            
+            start_time = time.time()
+            
+            try:
+                if params:
+                    result = self.cursor.execute(query, params)
+                else:
+                    result = self.cursor.execute(query)
+                
+                duration = time.time() - start_time
+                
+                # Record metrics (import locally to avoid circular imports)
+                try:
+                    from app import record_database_query
+                    record_database_query(table, operation, duration)
+                except ImportError:
+                    # App module not available (e.g., during testing)
+                    pass
+                
+                return result
+                
+            except Exception as e:
+                duration = time.time() - start_time
+                # Still record the failed query for monitoring
+                try:
+                    from app import record_database_query
+                    record_database_query(table, f"{operation}_error", duration)
+                except ImportError:
+                    pass
+                raise e
+        
+        def _detect_table_from_query(self, query: str) -> str:
+            """Detect the primary table being queried for monitoring purposes"""
+            query_lower = query.lower().strip()
+            
+            if 'from trades' in query_lower or 'update trades' in query_lower or 'insert into trades' in query_lower:
+                return 'trades'
+            elif 'from ohlc_data' in query_lower or 'update ohlc_data' in query_lower or 'insert into ohlc_data' in query_lower:
+                return 'ohlc_data'
+            elif 'from positions' in query_lower or 'update positions' in query_lower or 'insert into positions' in query_lower:
+                return 'positions'
+            elif 'from chart_settings' in query_lower or 'update chart_settings' in query_lower:
+                return 'chart_settings'
+            else:
+                return 'unknown'
+        
+        def _detect_operation_from_query(self, query: str) -> str:
+            """Detect the operation type for monitoring purposes"""
+            query_lower = query.lower().strip()
+            
+            if query_lower.startswith('select'):
+                return 'select'
+            elif query_lower.startswith('insert'):
+                return 'insert'
+            elif query_lower.startswith('update'):
+                return 'update'
+            elif query_lower.startswith('delete'):
+                return 'delete'
+            elif query_lower.startswith('pragma'):
+                return 'pragma'
+            else:
+                return 'other'
     def __enter__(self):
         """Establish database connection when entering context"""
         try:
@@ -1169,7 +1235,7 @@ class FuturesDB:
             self.cursor.execute("""
                 SELECT * FROM trades 
                 WHERE link_group_id = ?
-                ORDER BY entry_time
+                ORDER BY id
             """, (group_id,))
             
             return [dict(row) for row in self.cursor.fetchall()]
@@ -1611,7 +1677,7 @@ class FuturesDB:
     def insert_ohlc_data(self, instrument: str, timeframe: str, timestamp: int, 
                         open_price: float, high_price: float, low_price: float, 
                         close_price: float, volume: int = None) -> bool:
-        """Insert OHLC candle data with duplicate prevention."""
+        """Insert OHLC candle data with duplicate prevention and monitoring."""
         try:
             # Validate required parameters
             if not instrument or not timeframe:
@@ -1626,22 +1692,33 @@ class FuturesDB:
                 if not isinstance(price, (int, float)):
                     return False
             
-            self.cursor.execute("""
+            # Use monitoring wrapper for database operation
+            self._execute_with_monitoring("""
                 INSERT OR IGNORE INTO ohlc_data 
                 (instrument, timeframe, timestamp, open_price, high_price, low_price, close_price, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (instrument, timeframe, timestamp, open_price, high_price, low_price, close_price, volume))
+            """, (instrument, timeframe, timestamp, open_price, high_price, low_price, close_price, volume),
+            operation="insert", table="ohlc_data")
             
             self.conn.commit()
+            
+            # Record business metric for OHLC data points
+            try:
+                from app import record_ohlc_data_points
+                record_ohlc_data_points(instrument, timeframe, 1)
+            except ImportError:
+                pass
+            
             return True
         except Exception as e:
             print(f"Error inserting OHLC data: {e}")
             self.conn.rollback()
             return False
 
+
     def get_ohlc_data(self, instrument: str, timeframe: str, start_timestamp: int = None, 
                      end_timestamp: int = None, limit: int = 1000) -> List[Dict]:
-        """Get OHLC data for charting with performance optimization."""
+        """Get OHLC data for charting with performance optimization and monitoring."""
         try:
             where_conditions = ["instrument = ?", "timeframe = ?"]
             params = [instrument, timeframe]
@@ -1668,12 +1745,23 @@ class FuturesDB:
                 query += " LIMIT ?"
                 params.append(limit)
             
-            self.cursor.execute(query, params)
+            # Use monitoring wrapper for database operation
+            self._execute_with_monitoring(query, params, operation="select", table="ohlc_data")
             
-            return [dict(row) for row in self.cursor.fetchall()]
+            result = [dict(row) for row in self.cursor.fetchall()]
+            
+            # Record business metric for chart requests
+            try:
+                from app import record_chart_request
+                record_chart_request(instrument, timeframe)
+            except ImportError:
+                pass
+            
+            return result
         except Exception as e:
             print(f"Error getting OHLC data: {e}")
             return []
+
 
     def find_ohlc_gaps(self, instrument: str, timeframe: str, start_timestamp: int, 
                       end_timestamp: int) -> List[Tuple[int, int]]:
@@ -1753,7 +1841,7 @@ class FuturesDB:
                 SELECT * FROM trades 
                 WHERE entry_execution_id LIKE ? OR 
                       (link_group_id IS NOT NULL AND link_group_id = ?)
-                ORDER BY entry_time, exit_time
+                ORDER BY id
             """, (f"{base_execution_id}%", trade.get('link_group_id')))
             
             related_trades = [dict(row) for row in self.cursor.fetchall()]
@@ -2109,3 +2197,348 @@ class FuturesDB:
             db_logger.error(f"Error updating chart settings: {e}")
             self.conn.rollback()
             return False
+    
+        # Backup and Recovery Methods
+        
+        def validate_database_integrity(self) -> bool:
+            """
+            Validate SQLite database integrity and WAL file status
+            Returns True if database passes all integrity checks
+            """
+            try:
+                # Check SQLite integrity
+                self.cursor.execute("PRAGMA integrity_check")
+                integrity_result = self.cursor.fetchone()
+                
+                if integrity_result[0].lower() != 'ok':
+                    db_logger.error(f"Database integrity check failed: {integrity_result[0]}")
+                    return False
+                
+                # Check if WAL file exists and run checkpoint if needed
+                wal_file = f"{self.db_path}-wal"
+                if os.path.exists(wal_file):
+                    db_logger.info("WAL file detected, running checkpoint")
+                    self.cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    checkpoint_result = self.cursor.fetchone()
+                    db_logger.info(f"WAL checkpoint result: {checkpoint_result}")
+                
+                return True
+                
+            except sqlite3.Error as e:
+                db_logger.error(f"Database integrity validation failed: {e}")
+                return False
+    
+        def get_database_info(self) -> Dict[str, Any]:
+            """
+            Get comprehensive database information for backup management
+            Returns database statistics and metadata
+            """
+            try:
+                info = {
+                    'file_path': str(self.db_path),
+                    'file_size_bytes': 0,
+                    'file_size_human': '0 B',
+                    'wal_file_exists': False,
+                    'wal_file_size': 0,
+                    'last_modified': None,
+                    'tables': {},
+                    'total_records': 0,
+                    'vacuum_stats': {},
+                    'integrity_status': 'unknown'
+                }
+                
+                # File information
+                if os.path.exists(self.db_path):
+                    stat_info = os.stat(self.db_path)
+                    info['file_size_bytes'] = stat_info.st_size
+                    info['file_size_human'] = self._format_bytes(stat_info.st_size)
+                    info['last_modified'] = datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+                    
+                    # Check WAL file
+                    wal_file = f"{self.db_path}-wal"
+                    if os.path.exists(wal_file):
+                        wal_stat = os.stat(wal_file)
+                        info['wal_file_exists'] = True
+                        info['wal_file_size'] = wal_stat.st_size
+                
+                # Database schema and record counts
+                self.cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name
+                """)
+                
+                tables = self.cursor.fetchall()
+                total_records = 0
+                
+                for table_row in tables:
+                    table_name = table_row[0]
+                    
+                    # Get record count
+                    self.cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    count = self.cursor.fetchone()[0]
+                    total_records += count
+                    
+                    # Get table info
+                    self.cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = self.cursor.fetchall()
+                    
+                    info['tables'][table_name] = {
+                        'record_count': count,
+                        'column_count': len(columns),
+                        'columns': [col[1] for col in columns]  # Column names
+                    }
+                
+                info['total_records'] = total_records
+                
+                # Database vacuum statistics
+                self.cursor.execute("PRAGMA page_count")
+                page_count = self.cursor.fetchone()[0]
+                
+                self.cursor.execute("PRAGMA page_size")
+                page_size = self.cursor.fetchone()[0]
+                
+                self.cursor.execute("PRAGMA freelist_count")
+                freelist_count = self.cursor.fetchone()[0]
+                
+                info['vacuum_stats'] = {
+                    'page_count': page_count,
+                    'page_size': page_size,
+                    'freelist_count': freelist_count,
+                    'estimated_size': page_count * page_size,
+                    'wasted_space': freelist_count * page_size
+                }
+                
+                # Integrity check
+                info['integrity_status'] = 'valid' if self.validate_database_integrity() else 'corrupted'
+                
+                return info
+                
+            except Exception as e:
+                db_logger.error(f"Failed to get database info: {e}")
+                return {'error': str(e)}
+    
+        def create_backup_metadata(self, backup_type: str = 'manual') -> Dict[str, Any]:
+            """
+            Create backup metadata for tracking and validation
+            Returns metadata dictionary with database statistics
+            """
+            db_info = self.get_database_info()
+            
+            metadata = {
+                'backup_type': backup_type,
+                'timestamp': datetime.now().isoformat(),
+                'created_by': 'FuturesDB.create_backup_metadata',
+                'database_info': db_info,
+                'schema_version': self._get_schema_version(),
+                'backup_validation': {
+                    'integrity_check': db_info.get('integrity_status', 'unknown'),
+                    'record_counts': {
+                        table: info['record_count'] 
+                        for table, info in db_info.get('tables', {}).items()
+                    },
+                    'total_size_bytes': db_info.get('file_size_bytes', 0)
+                }
+            }
+            
+            return metadata
+    
+        def validate_backup_compatibility(self, backup_metadata: Dict[str, Any]) -> bool:
+            """
+            Validate if a backup is compatible with current database schema
+            Returns True if backup can be safely restored
+            """
+            try:
+                current_schema = self._get_schema_version()
+                backup_schema = backup_metadata.get('schema_version', 'unknown')
+                
+                if backup_schema == 'unknown':
+                    db_logger.warning("Backup schema version unknown, cannot validate compatibility")
+                    return False
+                
+                if current_schema != backup_schema:
+                    db_logger.warning(f"Schema version mismatch: current={current_schema}, backup={backup_schema}")
+                    # In the future, add migration logic here
+                    return False
+                
+                # Validate expected tables exist
+                current_info = self.get_database_info()
+                current_tables = set(current_info.get('tables', {}).keys())
+                backup_tables = set(backup_metadata.get('database_info', {}).get('tables', {}).keys())
+                
+                missing_tables = backup_tables - current_tables
+                if missing_tables:
+                    db_logger.warning(f"Backup contains tables not in current schema: {missing_tables}")
+                    return False
+                
+                return True
+                
+            except Exception as e:
+                db_logger.error(f"Backup compatibility validation failed: {e}")
+                return False
+    
+        def get_backup_recovery_points(self) -> List[Dict[str, Any]]:
+            """
+            Get available recovery points from various backup sources
+            Returns list of available backup points with metadata
+            """
+            from pathlib import Path
+            
+            recovery_points = []
+            
+            # Check for local backup files
+            backup_dirs = [
+                Path(self.db_path).parent.parent / 'backups' / 'manual',
+                Path(self.db_path).parent.parent / 'backups' / 'automated',
+                Path(self.db_path).parent.parent / 'backups' / 'safety',
+                Path(self.db_path).parent.parent / 'backups' / 'local'
+            ]
+            
+            for backup_dir in backup_dirs:
+                if backup_dir.exists():
+                    backup_type = backup_dir.name
+                    
+                    # Look for compressed database files
+                    for backup_file in backup_dir.glob("*.db.gz"):
+                        stat_info = backup_file.stat()
+                        
+                        recovery_points.append({
+                            'type': backup_type,
+                            'source': 'file',
+                            'path': str(backup_file),
+                            'filename': backup_file.name,
+                            'size_bytes': stat_info.st_size,
+                            'size_human': self._format_bytes(stat_info.st_size),
+                            'created_at': datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                            'age_hours': (datetime.now() - datetime.fromtimestamp(stat_info.st_mtime)).total_seconds() / 3600
+                        })
+                    
+                    # Look for manifest files to get additional metadata
+                    for manifest_file in backup_dir.glob("manifest_*.json"):
+                        try:
+                            with open(manifest_file, 'r') as f:
+                                manifest_data = json.loads(f.read())
+                                
+                            # Find corresponding recovery point and add manifest data
+                            timestamp = manifest_data.get('timestamp', '')
+                            for rp in recovery_points:
+                                if rp['type'] == backup_type and timestamp in rp['filename']:
+                                    rp['manifest'] = manifest_data
+                                    break
+                                    
+                        except Exception as e:
+                            db_logger.warning(f"Failed to read manifest {manifest_file}: {e}")
+            
+            # Sort by creation time (newest first)
+            recovery_points.sort(key=lambda x: x['created_at'], reverse=True)
+            
+            return recovery_points
+    
+        def estimate_backup_size(self) -> Dict[str, Any]:
+            """
+            Estimate backup size and compression ratios
+            Returns size estimates for backup planning
+            """
+            try:
+                db_info = self.get_database_info()
+                
+                # Base database size
+                raw_size = db_info.get('file_size_bytes', 0)
+                
+                # Estimate compression ratio based on data type
+                # SQLite databases typically compress 30-70% depending on content
+                estimated_compression_ratio = 0.6  # Conservative estimate
+                
+                # WAL file size if exists
+                wal_size = db_info.get('wal_file_size', 0)
+                
+                estimates = {
+                    'raw_database_size': raw_size,
+                    'raw_database_human': self._format_bytes(raw_size),
+                    'wal_file_size': wal_size,
+                    'wal_file_human': self._format_bytes(wal_size),
+                    'total_raw_size': raw_size + wal_size,
+                    'total_raw_human': self._format_bytes(raw_size + wal_size),
+                    'estimated_compressed_size': int((raw_size + wal_size) * estimated_compression_ratio),
+                    'estimated_compressed_human': self._format_bytes(int((raw_size + wal_size) * estimated_compression_ratio)),
+                    'compression_ratio': estimated_compression_ratio,
+                    'backup_recommendations': self._get_backup_recommendations(raw_size + wal_size)
+                }
+                
+                return estimates
+                
+            except Exception as e:
+                db_logger.error(f"Failed to estimate backup size: {e}")
+                return {'error': str(e)}
+    
+        def _get_schema_version(self) -> str:
+            """Get current database schema version for compatibility checking"""
+            try:
+                # Check if we have a schema version table
+                self.cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='schema_version'
+                """)
+                
+                if self.cursor.fetchone():
+                    self.cursor.execute("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1")
+                    result = self.cursor.fetchone()
+                    return result[0] if result else 'unknown'
+                else:
+                    # Infer version from table structure
+                    self.cursor.execute("""
+                        SELECT name FROM sqlite_master 
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                        ORDER BY name
+                    """)
+                    tables = [row[0] for row in self.cursor.fetchall()]
+                    
+                    # Create a hash of table names as a simple schema version
+                    import hashlib
+                    schema_hash = hashlib.md5(','.join(sorted(tables)).encode()).hexdigest()[:8]
+                    return f"inferred_{schema_hash}"
+                    
+            except Exception as e:
+                db_logger.error(f"Failed to get schema version: {e}")
+                return 'unknown'
+    
+        def _format_bytes(self, bytes_size: int) -> str:
+            """Format bytes into human readable string"""
+            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                if bytes_size < 1024.0:
+                    return f"{bytes_size:.1f} {unit}"
+                bytes_size /= 1024.0
+            return f"{bytes_size:.1f} PB"
+    
+        def _get_backup_recommendations(self, total_size: int) -> List[str]:
+            """Get backup recommendations based on database size and usage"""
+            recommendations = []
+            
+            if total_size > 100 * 1024 * 1024:  # > 100MB
+                recommendations.append("Consider using incremental backups for large database")
+                recommendations.append("Enable S3 backup for off-site storage")
+            
+            if total_size > 1024 * 1024 * 1024:  # > 1GB
+                recommendations.append("Database is large - backup may take significant time")
+                recommendations.append("Consider running backups during low-usage periods")
+            
+            # Check WAL file size
+            wal_file = f"{self.db_path}-wal"
+            if os.path.exists(wal_file):
+                wal_size = os.path.getsize(wal_file)
+                if wal_size > 50 * 1024 * 1024:  # > 50MB
+                    recommendations.append("Large WAL file detected - consider running PRAGMA wal_checkpoint")
+            
+            # Check free space
+            try:
+                import shutil
+                free_space = shutil.disk_usage(os.path.dirname(self.db_path)).free
+                if total_size > free_space * 0.5:  # Backup would use > 50% of free space
+                    recommendations.append("Low disk space - monitor backup storage usage")
+            except:
+                pass
+            
+            if not recommendations:
+                recommendations.append("Database size is optimal for regular backups")
+            
+            return recommendations
