@@ -36,7 +36,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/${{ github.repository }}
+        images: ghcr.io/qsor27/futurestradinglog
         tags: |
           type=ref,event=branch
           type=sha,prefix={{branch}}-
@@ -128,9 +128,9 @@ jobs:
     - name: Validate Docker image
       run: |
         echo "🐳 Validating Docker image..."
-        # Pull the just-built image
-        docker pull ghcr.io/${{ github.repository }}:latest
+        # Pull the just-built image (using lowercase repository name)
+        docker pull ghcr.io/qsor27/futurestradinglog:latest
         
         # Quick container test (without full startup)
-        docker run --rm ghcr.io/${{ github.repository }}:latest python -c "import app; print('✅ Container Python environment OK')"
+        docker run --rm ghcr.io/qsor27/futurestradinglog:latest python -c "import app; print('✅ Container Python environment OK')"
         echo "✅ Docker image validation passed"
