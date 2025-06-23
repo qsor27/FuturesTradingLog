@@ -1,6 +1,5 @@
 #!/bin/bash
 set -euo pipefail
-#!/bin/bash
 
 # Enhanced Health Check Script for Futures Trading Application
 # Monitors system health, database connectivity, and trading-specific metrics
