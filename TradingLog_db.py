@@ -16,71 +16,71 @@ class FuturesDB:
         self.conn = None
         self.cursor = None
     
-        def _execute_with_monitoring(self, query: str, params: tuple = None, operation: str = "query", table: str = "unknown"):
-            """Execute query with monitoring metrics collection"""
-            import time
+    def _execute_with_monitoring(self, query: str, params: tuple = None, operation: str = "query", table: str = "unknown"):
+        """Execute query with monitoring metrics collection"""
+        import time
+        
+        start_time = time.time()
+        
+        try:
+            if params:
+                result = self.cursor.execute(query, params)
+            else:
+                result = self.cursor.execute(query)
             
-            start_time = time.time()
+            duration = time.time() - start_time
             
+            # Record metrics (import locally to avoid circular imports)
             try:
-                if params:
-                    result = self.cursor.execute(query, params)
-                else:
-                    result = self.cursor.execute(query)
-                
-                duration = time.time() - start_time
-                
-                # Record metrics (import locally to avoid circular imports)
-                try:
-                    from app import record_database_query
-                    record_database_query(table, operation, duration)
-                except ImportError:
-                    # App module not available (e.g., during testing)
-                    pass
-                
-                return result
-                
-            except Exception as e:
-                duration = time.time() - start_time
-                # Still record the failed query for monitoring
-                try:
-                    from app import record_database_query
-                    record_database_query(table, f"{operation}_error", duration)
-                except ImportError:
-                    pass
-                raise e
-        
-        def _detect_table_from_query(self, query: str) -> str:
-            """Detect the primary table being queried for monitoring purposes"""
-            query_lower = query.lower().strip()
+                from app import record_database_query
+                record_database_query(table, operation, duration)
+            except ImportError:
+                # App module not available (e.g., during testing)
+                pass
             
-            if 'from trades' in query_lower or 'update trades' in query_lower or 'insert into trades' in query_lower:
-                return 'trades'
-            elif 'from ohlc_data' in query_lower or 'update ohlc_data' in query_lower or 'insert into ohlc_data' in query_lower:
-                return 'ohlc_data'
-            elif 'from positions' in query_lower or 'update positions' in query_lower or 'insert into positions' in query_lower:
-                return 'positions'
-            elif 'from chart_settings' in query_lower or 'update chart_settings' in query_lower:
-                return 'chart_settings'
-            else:
-                return 'unknown'
-        
-        def _detect_operation_from_query(self, query: str) -> str:
-            """Detect the operation type for monitoring purposes"""
-            query_lower = query.lower().strip()
+            return result
             
-            if query_lower.startswith('select'):
-                return 'select'
-            elif query_lower.startswith('insert'):
-                return 'insert'
-            elif query_lower.startswith('update'):
-                return 'update'
-            elif query_lower.startswith('delete'):
-                return 'delete'
-            elif query_lower.startswith('pragma'):
-                return 'pragma'
-            else:
-                return 'other'
+        except Exception as e:
+            duration = time.time() - start_time
+            # Still record the failed query for monitoring
+            try:
+                from app import record_database_query
+                record_database_query(table, f"{operation}_error", duration)
+            except ImportError:
+                pass
+            raise e
+    
+    def _detect_table_from_query(self, query: str) -> str:
+        """Detect the primary table being queried for monitoring purposes"""
+        query_lower = query.lower().strip()
+        
+        if 'from trades' in query_lower or 'update trades' in query_lower or 'insert into trades' in query_lower:
+            return 'trades'
+        elif 'from ohlc_data' in query_lower or 'update ohlc_data' in query_lower or 'insert into ohlc_data' in query_lower:
+            return 'ohlc_data'
+        elif 'from positions' in query_lower or 'update positions' in query_lower or 'insert into positions' in query_lower:
+            return 'positions'
+        elif 'from chart_settings' in query_lower or 'update chart_settings' in query_lower:
+            return 'chart_settings'
+        else:
+            return 'unknown'
+    
+    def _detect_operation_from_query(self, query: str) -> str:
+        """Detect the operation type for monitoring purposes"""
+        query_lower = query.lower().strip()
+        
+        if query_lower.startswith('select'):
+            return 'select'
+        elif query_lower.startswith('insert'):
+            return 'insert'
+        elif query_lower.startswith('update'):
+            return 'update'
+        elif query_lower.startswith('delete'):
+            return 'delete'
+        elif query_lower.startswith('pragma'):
+            return 'pragma'
+        else:
+            return 'other'
     def __enter__(self):
         """Establish database connection when entering context"""
         try:
