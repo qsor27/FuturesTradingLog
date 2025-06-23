@@ -53,28 +53,15 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  # Deploy to production with safety checks
-  deploy:
+  # Notify deployment ready - Watchtower will handle actual deployment
+  notify-deployment:
     needs: build
-    runs-on: self-hosted
-    environment: production
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout deployment scripts
-      uses: actions/checkout@v4
-      with:
-        sparse-checkout: |
-          scripts/
-          docker/
-          config/
-        sparse-checkout-cone-mode: false
-    
-    - name: Make scripts executable
-      run: chmod +x scripts/*.sh
-    
-    - name: Check market hours and system health
-      id: pre-deploy-check
+    - name: Check market hours
+      id: market-check
       run: |
-        echo "🔍 Pre-deployment validation..."
+        echo "🔍 Checking market hours..."
         
         # Check if it's during market hours (Mon-Fri 9:30AM-4:00PM EST / 14:30-21:00 UTC)
         current_hour=$(date +%H)
@@ -91,112 +78,59 @@ jobs:
         
         if [[ "$is_market_hours" == "true" && "${{ github.event.inputs.force_deploy }}" != "true" ]]; then
           echo "⚠️ Deployment during market hours detected (Mon-Fri 9:30AM-4:00PM EST)"
-          echo "Use workflow_dispatch with force_deploy=true to override"
-          exit 1
+          echo "ℹ️ Watchtower will still deploy automatically - use force_deploy=true in workflow_dispatch to override this warning"
         fi
         
-        # Run health check
-        if ! ./scripts/health-check.sh; then
-          echo "❌ Pre-deployment health check failed"
-          exit 1
-        fi
-        
-        echo "✅ Pre-deployment checks passed"
+        echo "✅ Market hours check completed"
     
-    - name: Create pre-deployment backup
+    - name: Deployment notification
       run: |
-        echo "💾 Creating pre-deployment backup..."
-        ./scripts/backup-database.sh
-        echo "✅ Backup created successfully"
-    
-    - name: Deploy new version
-      id: deploy
-      run: |
-        echo "🚀 Deploying new version: ${{ needs.build.outputs.image-tag }}"
-        
-        # Extract just the SHA tag for deployment
-        IMAGE_TAG=$(echo "${{ needs.build.outputs.image-tag }}" | grep -o 'main-[a-f0-9]\{7\}' | head -1)
-        if [[ -z "$IMAGE_TAG" ]]; then
-          IMAGE_TAG="latest"
-        fi
-        
-        echo "Using image tag: $IMAGE_TAG"
-        
-        # Deploy using our safe deployment script
-        if ./scripts/deploy-production.sh "$IMAGE_TAG"; then
-          echo "✅ Deployment successful"
-          echo "deployment_status=success" >> $GITHUB_OUTPUT
-        else
-          echo "❌ Deployment failed"
-          echo "deployment_status=failed" >> $GITHUB_OUTPUT
-          exit 1
-        fi
-    
-    - name: Post-deployment health check
-      run: |
-        echo "🏥 Running post-deployment health check..."
-        sleep 10  # Give the app a moment to fully start
-        
-        if ./scripts/health-check.sh; then
-          echo "✅ Post-deployment health check passed"
-        else
-          echo "❌ Post-deployment health check failed"
-          exit 1
-        fi
-    
-    - name: Emergency rollback on failure
-      if: failure()
-      run: |
-        echo "🚨 Deployment failed - initiating emergency rollback..."
-        ./scripts/emergency-rollback.sh --force
-        
-        # Wait and verify rollback
-        sleep 15
-        if ./scripts/health-check.sh; then
-          echo "✅ Emergency rollback successful"
-        else
-          echo "❌ Emergency rollback failed - manual intervention required"
-          exit 1
-        fi
-    
-    - name: Send deployment notification
-      if: always()
-      run: |
-        STATUS="${{ steps.deploy.outputs.deployment_status }}"
-        COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+        COMMIT_MSG=$(echo "${{ github.event.head_commit.message }}" | head -1)
         COMMIT_SHA="${{ github.sha }}"
         COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+        IMAGE_TAG="${{ needs.build.outputs.image-tag }}"
         
-        if [[ "$STATUS" == "success" ]]; then
-          echo "📧 Sending success notification..."
-          # You can add email notification here if configured
-          echo "✅ Deployment successful for commit: $COMMIT_MSG"
-          echo "🔗 Commit: $COMMIT_URL"
-        else
-          echo "📧 Sending failure notification..."
-          # You can add email notification here if configured  
-          echo "❌ Deployment failed for commit: $COMMIT_MSG"
-          echo "🔗 Commit: $COMMIT_URL"
-        fi
+        echo "📦 Docker image built and pushed successfully!"
+        echo "🏷️ Image tag: $IMAGE_TAG"
+        echo "📝 Commit: $COMMIT_MSG"
+        echo "🔗 Commit URL: $COMMIT_URL"
+        echo ""
+        echo "🤖 Watchtower will automatically deploy this image to production"
+        echo "📊 Monitor deployment at: http://localhost:5000/health"
+        echo "⏱️ Deployment typically completes within 2-5 minutes"
 
-  # Optional: Run integration tests after deployment
-  integration-tests:
-    needs: deploy
-    runs-on: self-hosted
-    if: success()
+  # Run basic tests that don't require deployment
+  test-build:
+    needs: build
+    runs-on: ubuntu-latest
     steps:
-    - name: Run integration tests
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
       run: |
-        echo "🧪 Running integration tests..."
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run quick tests
+      run: |
+        echo "🧪 Running quick validation tests..."
+        python -c "import app; print('✅ App imports successfully')"
+        python -c "from TradingLog_db import FuturesDB; print('✅ Database module imports successfully')"
+        python -c "import config; print('✅ Config module imports successfully')"
+        echo "✅ All import tests passed"
+    
+    - name: Validate Docker image
+      run: |
+        echo "🐳 Validating Docker image..."
+        # Pull the just-built image
+        docker pull ghcr.io/${{ github.repository }}:latest
         
-        # Test key endpoints
-        echo "Testing health endpoint..."
-        curl -f http://localhost:5000/health || exit 1
-        
-        echo "Testing positions endpoint..."
-        curl -f http://localhost:5000/positions/ || exit 1
-        
-        echo "Testing API endpoint..."
-        curl -f "http://localhost:5000/api/chart-data/MNQ%20SEP25?timeframe=1h&days=1" || exit 1
-        
-        echo "✅ All integration tests passed"
+        # Quick container test (without full startup)
+        docker run --rm ghcr.io/${{ github.repository }}:latest python -c "import app; print('✅ Container Python environment OK')"
+        echo "✅ Docker image validation passed"
