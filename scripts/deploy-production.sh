@@ -6,7 +6,7 @@ set -euo pipefail
 
 VERSION=${1:-latest}
 APP_NAME="futurestradinglog"
-BACKUP_DIR="/opt/backups"
+BACKUP_DIR="$HOME/backups"
 HEALTH_ENDPOINT="http://localhost:5000/health"
 MAX_HEALTH_RETRIES=30
 HEALTH_RETRY_DELAY=5

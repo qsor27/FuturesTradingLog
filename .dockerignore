@@ -60,4 +60,5 @@ htmlcov/
 # Local data
 *.csv
 charts/
-logs/
+logs/vdev/
+gap_fill_env/

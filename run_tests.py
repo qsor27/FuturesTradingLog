@@ -49,8 +49,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Base pytest command
-    pytest_cmd = "pytest"
+    # Base pytest command - use python -m pytest for better compatibility
+    pytest_cmd = "python -m pytest"
     
     if args.verbose:
         pytest_cmd += " -v"
