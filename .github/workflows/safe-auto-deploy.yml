@@ -1,0 +1,202 @@
+name: Safe Auto Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even during market hours'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  # Build and push Docker image
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Deploy to production with safety checks
+  deploy:
+    needs: build
+    runs-on: self-hosted
+    environment: production
+    steps:
+    - name: Checkout deployment scripts
+      uses: actions/checkout@v4
+      with:
+        sparse-checkout: |
+          scripts/
+          docker/
+          config/
+        sparse-checkout-cone-mode: false
+    
+    - name: Make scripts executable
+      run: chmod +x scripts/*.sh
+    
+    - name: Check market hours and system health
+      id: pre-deploy-check
+      run: |
+        echo "🔍 Pre-deployment validation..."
+        
+        # Check if it's during market hours (Mon-Fri 9:30AM-4:00PM EST / 14:30-21:00 UTC)
+        current_hour=$(date +%H)
+        current_day=$(date +%u)  # 1=Monday, 7=Sunday
+        is_market_hours=false
+        
+        if [[ $current_day -ge 1 && $current_day -le 5 ]]; then
+          if [[ $current_hour -ge 14 && $current_hour -le 21 ]]; then
+            is_market_hours=true
+          fi
+        fi
+        
+        echo "is_market_hours=$is_market_hours" >> $GITHUB_OUTPUT
+        
+        if [[ "$is_market_hours" == "true" && "${{ github.event.inputs.force_deploy }}" != "true" ]]; then
+          echo "⚠️ Deployment during market hours detected (Mon-Fri 9:30AM-4:00PM EST)"
+          echo "Use workflow_dispatch with force_deploy=true to override"
+          exit 1
+        fi
+        
+        # Run health check
+        if ! ./scripts/health-check.sh; then
+          echo "❌ Pre-deployment health check failed"
+          exit 1
+        fi
+        
+        echo "✅ Pre-deployment checks passed"
+    
+    - name: Create pre-deployment backup
+      run: |
+        echo "💾 Creating pre-deployment backup..."
+        ./scripts/backup-database.sh
+        echo "✅ Backup created successfully"
+    
+    - name: Deploy new version
+      id: deploy
+      run: |
+        echo "🚀 Deploying new version: ${{ needs.build.outputs.image-tag }}"
+        
+        # Extract just the SHA tag for deployment
+        IMAGE_TAG=$(echo "${{ needs.build.outputs.image-tag }}" | grep -o 'main-[a-f0-9]\{7\}' | head -1)
+        if [[ -z "$IMAGE_TAG" ]]; then
+          IMAGE_TAG="latest"
+        fi
+        
+        echo "Using image tag: $IMAGE_TAG"
+        
+        # Deploy using our safe deployment script
+        if ./scripts/deploy-production.sh "$IMAGE_TAG"; then
+          echo "✅ Deployment successful"
+          echo "deployment_status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Deployment failed"
+          echo "deployment_status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+    
+    - name: Post-deployment health check
+      run: |
+        echo "🏥 Running post-deployment health check..."
+        sleep 10  # Give the app a moment to fully start
+        
+        if ./scripts/health-check.sh; then
+          echo "✅ Post-deployment health check passed"
+        else
+          echo "❌ Post-deployment health check failed"
+          exit 1
+        fi
+    
+    - name: Emergency rollback on failure
+      if: failure()
+      run: |
+        echo "🚨 Deployment failed - initiating emergency rollback..."
+        ./scripts/emergency-rollback.sh --force
+        
+        # Wait and verify rollback
+        sleep 15
+        if ./scripts/health-check.sh; then
+          echo "✅ Emergency rollback successful"
+        else
+          echo "❌ Emergency rollback failed - manual intervention required"
+          exit 1
+        fi
+    
+    - name: Send deployment notification
+      if: always()
+      run: |
+        STATUS="${{ steps.deploy.outputs.deployment_status }}"
+        COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+        COMMIT_SHA="${{ github.sha }}"
+        COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+        
+        if [[ "$STATUS" == "success" ]]; then
+          echo "📧 Sending success notification..."
+          # You can add email notification here if configured
+          echo "✅ Deployment successful for commit: $COMMIT_MSG"
+          echo "🔗 Commit: $COMMIT_URL"
+        else
+          echo "📧 Sending failure notification..."
+          # You can add email notification here if configured  
+          echo "❌ Deployment failed for commit: $COMMIT_MSG"
+          echo "🔗 Commit: $COMMIT_URL"
+        fi
+
+  # Optional: Run integration tests after deployment
+  integration-tests:
+    needs: deploy
+    runs-on: self-hosted
+    if: success()
+    steps:
+    - name: Run integration tests
+      run: |
+        echo "🧪 Running integration tests..."
+        
+        # Test key endpoints
+        echo "Testing health endpoint..."
+        curl -f http://localhost:5000/health || exit 1
+        
+        echo "Testing positions endpoint..."
+        curl -f http://localhost:5000/positions/ || exit 1
+        
+        echo "Testing API endpoint..."
+        curl -f "http://localhost:5000/api/chart-data/MNQ%20SEP25?timeframe=1h&days=1" || exit 1
+        
+        echo "✅ All integration tests passed"
