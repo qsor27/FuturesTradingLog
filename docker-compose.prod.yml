@@ -1,23 +1,32 @@
+version: '3.8'
+
 services:
-  web:
-    # Use the pre-built image from GitHub Container Registry
+  # Main Application Container
+  app:
     image: ghcr.io/qsor27/futurestradinglog:latest
     container_name: futurestradinglog
     ports:
-      - "${HOST_IP:-0.0.0.0}:${EXTERNAL_PORT:-5000}:5000"
+      - "5000:5000"
     volumes:
-      - type: bind
-        source: ${DATA_DIR:-./data}
-        target: /app/data
+      # Mount data directory for persistence
+      - ./data:/app/data
+      # Optional: Mount logs for easier access
+      - ./data/logs:/app/data/logs
     environment:
-      - FLASK_ENV=${FLASK_ENV:-production}
-      - FLASK_DEBUG=${FLASK_DEBUG:-0}
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
       - DATA_DIR=/app/data
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-key}
+      # Generate a secure secret key for production
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-please-change-this-secret-key}
+      # Redis configuration (if using Redis)
       - REDIS_URL=${REDIS_URL:-redis://localhost:6379/0}
       - CACHE_ENABLED=${CACHE_ENABLED:-true}
+      - CACHE_TTL_DAYS=${CACHE_TTL_DAYS:-14}
+      # Auto-import settings
+      - AUTO_IMPORT_ENABLED=${AUTO_IMPORT_ENABLED:-true}
+      - AUTO_IMPORT_INTERVAL=${AUTO_IMPORT_INTERVAL:-300}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
@@ -29,13 +38,13 @@ services:
       driver: "json-file"
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
     labels:
       # Watchtower labels for automatic updates
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.monitor-only=false"
 
-  # Watchtower service for automatic container updates
+  # Watchtower for Automatic Container Updates
   watchtower:
     image: containrrr/watchtower:latest
     container_name: watchtower
@@ -43,23 +52,27 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/localtime:/etc/localtime:ro
     environment:
-      # Check for updates every 5 minutes
+      # Check for updates every 5 minutes (300 seconds)
       - WATCHTOWER_POLL_INTERVAL=300
       # Only monitor containers with the enable label
       - WATCHTOWER_LABEL_ENABLE=true
-      # Clean up old images after updating
+      # Clean up old images after updating to save disk space
       - WATCHTOWER_CLEANUP=true
       # Include stopped containers in updates
       - WATCHTOWER_INCLUDE_STOPPED=true
       # Restart containers if they stop unexpectedly
       - WATCHTOWER_REVIVE_STOPPED=true
-      # Log level for debugging
+      # Set to true for debugging if needed
       - WATCHTOWER_DEBUG=false
-      # Notifications (set to your preferences)
+      # Notification level
       - WATCHTOWER_NOTIFICATIONS_LEVEL=info
-      # Rolling restart (update one container at a time)
+      # Rolling restart (safer for production)
       - WATCHTOWER_ROLLING_RESTART=true
+      # Watchtower will check GitHub Container Registry for updates
+      - WATCHTOWER_NO_STARTUP_MESSAGE=false
     restart: unless-stopped
+    depends_on:
+      - app
     logging:
       driver: "json-file"
       options:
