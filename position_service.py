@@ -203,23 +203,26 @@ class PositionService:
         logger.info(f"Starting quantity flow analysis for {len(executions)} executions")
         
         for i, execution in enumerate(executions):
-            # Determine signed quantity change for this execution
-            action = execution.get('side_of_market', '').strip()
+            # Get raw execution data from NinjaTrader import
             quantity = abs(int(execution.get('quantity', 0)))
             
-            # Convert to signed quantity based on action
+            # Determine the quantity change effect based on the stored side_of_market
+            # The side_of_market field represents the direction of the quantity change
+            action = execution.get('side_of_market', '').strip()
+            
+            # Convert to signed quantity change effect
             if action == 'Long':
-                signed_qty = quantity  # Long = positive
+                signed_qty_change = quantity  # Adding long contracts (+)
             elif action == 'Short': 
-                signed_qty = -quantity  # Short = negative
+                signed_qty_change = -quantity  # Adding short contracts (-)
             else:
                 logger.warning(f"Unknown side_of_market '{action}' for execution {execution.get('entry_execution_id', 'Unknown')}")
                 continue
             
             previous_quantity = running_quantity
-            running_quantity += signed_qty
+            running_quantity += signed_qty_change
             
-            logger.info(f"Execution {i+1}: {action} {quantity} | Running: {previous_quantity} → {running_quantity}")
+            logger.info(f"Execution {i+1}: {action} {quantity} contracts | Running: {previous_quantity} → {running_quantity}")
             
             # Position lifecycle logic
             if previous_quantity == 0 and running_quantity != 0:
@@ -253,36 +256,18 @@ class PositionService:
                 current_position = None
                 
             elif current_position and running_quantity != 0:
-                # Adding to existing position (non-zero → non-zero, same direction)
-                if (running_quantity > 0) == (current_position['position_type'] == 'Long'):
-                    # Same direction - add to position
-                    current_position['executions'].append(execution)
-                    current_position['total_quantity'] = abs(running_quantity)
-                    current_position['max_quantity'] = max(current_position['max_quantity'], abs(running_quantity))
-                    current_position['execution_count'] = len(current_position['executions'])
+                # Modifying existing position (non-zero → non-zero)
+                # Since positions never change sides without going to 0, this is always adding to current position
+                current_position['executions'].append(execution)
+                current_position['total_quantity'] = abs(running_quantity)
+                current_position['max_quantity'] = max(current_position['max_quantity'], abs(running_quantity))
+                current_position['execution_count'] = len(current_position['executions'])
+                
+                # Log whether this was adding to or reducing the position
+                if abs(running_quantity) > abs(previous_quantity):
                     logger.info(f"  → Added to {current_position['position_type']} position, new quantity: {abs(running_quantity)}")
                 else:
-                    # Direction change - close current position and start new one
-                    current_position['executions'].append(execution)
-                    current_position['exit_time'] = execution.get('entry_time')
-                    current_position['position_status'] = 'closed'
-                    self._calculate_position_totals_from_executions(current_position)
-                    positions.append(current_position)
-                    logger.info(f"  → Closed position due to direction change")
-                    
-                    # Start new position in opposite direction
-                    current_position = {
-                        'instrument': instrument,
-                        'account': account,
-                        'position_type': 'Long' if running_quantity > 0 else 'Short',
-                        'entry_time': execution.get('entry_time'),
-                        'executions': [execution],
-                        'total_quantity': abs(running_quantity),
-                        'max_quantity': abs(running_quantity),
-                        'position_status': 'open',
-                        'execution_count': 1
-                    }
-                    logger.info(f"  → Started new {current_position['position_type']} position")
+                    logger.info(f"  → Reduced {current_position['position_type']} position, new quantity: {abs(running_quantity)}")
         
         # Handle any remaining open position
         if current_position:
@@ -310,17 +295,21 @@ class PositionService:
             return
         
         # Separate entry and exit executions based on position direction
+        # For a Long position: Long side_of_market = entries, Short side_of_market = exits
+        # For a Short position: Short side_of_market = entries, Long side_of_market = exits
         entries = []
         exits = []
         
         for execution in executions:
             side = execution.get('side_of_market', '').strip()
             if position['position_type'] == 'Long':
+                # Long position: Long actions add to position, Short actions reduce position
                 if side == 'Long':
                     entries.append(execution)
                 elif side == 'Short':
                     exits.append(execution)
             else:  # Short position
+                # Short position: Short actions add to position, Long actions reduce position
                 if side == 'Short':
                     entries.append(execution)
                 elif side == 'Long':
