@@ -2,6 +2,51 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚨 **CRITICAL: POSITION BUILDING LOGIC IS THE CORE OF THIS APPLICATION**
+
+**The execution-to-position aggregation algorithm is the MOST IMPORTANT component of this entire trading log system. Without proper position building, the application is completely useless.**
+
+### **CORE POSITION BUILDING ALGORITHM - NEVER MODIFY WITHOUT EXTREME CARE**
+
+The position building logic in `position_service.py` transforms individual NinjaTrader executions into meaningful position records using **Quantity Flow Analysis**:
+
+#### **Fundamental Rules:**
+1. **Position Lifecycle**: ALWAYS follows the pattern `0 → +/- → 0`
+2. **No Direction Changes**: Positions NEVER change from Long to Short (or vice versa) without first reaching quantity 0
+3. **Quantity Flow Tracking**: Running position quantity tracks cumulative effect of all executions
+4. **FIFO Aggregation**: Multiple executions are aggregated into single position records with proper P&L calculation
+
+#### **Algorithm Steps:**
+1. **Initialize**: `running_quantity = 0`, `current_position = None`
+2. **For each execution**: Calculate `signed_qty_change` based on `side_of_market`
+   - `Long` actions: `+quantity` (adding long contracts)
+   - `Short` actions: `-quantity` (adding short contracts)
+3. **Update**: `running_quantity += signed_qty_change`
+4. **Position Lifecycle Logic**:
+   - **START**: `0 → non-zero` - Create new position (Long if positive, Short if negative)
+   - **MODIFY**: `non-zero → non-zero` - Add execution to current position, update quantities
+   - **CLOSE**: `non-zero → 0` - Complete position, calculate final P&L, save to database
+
+#### **Critical Data Flow:**
+```
+NinjaTrader CSV → Raw Executions → Position Building → Aggregated Positions → Trading Log
+     ↓                ↓                    ↓                    ↓               ↓
+Individual        Database           Quantity Flow        Position         User Interface
+Executions        Records            Analysis             Records          Dashboard
+```
+
+#### **P&L Calculation Logic:**
+- **Long Position**: Long executions = entries, Short executions = exits
+- **Short Position**: Short executions = entries, Long executions = exits  
+- **Weighted Averages**: Entry/exit prices calculated using quantity-weighted averages
+- **FIFO Method**: First-in, first-out methodology for accurate P&L computation
+
+#### **⚠️ WARNING: MODIFICATION RISKS**
+- Changing position building logic affects ALL historical data interpretation
+- Improper modifications can result in incorrect P&L calculations
+- Position quantities must aggregate correctly or the entire log becomes meaningless
+- Always test with position rebuild (`/positions/rebuild`) after any changes
+
 ## Project Overview
 
 This is a Flask-based web application for futures traders to track, analyze, and manage their trading performance. It processes Ninja Trader execution reports, provides comprehensive trade analytics, and offers a web interface for trade management with linking capabilities.
@@ -704,6 +749,39 @@ All tests validate against our performance targets:
 - **Performance Optimization**: Test suite executes in <2 minutes with proper isolation
 - **Cross-Platform Compatibility**: Docker and CI/CD working across all environments
 - **Robust Error Handling**: 404, timeout, and edge case scenarios properly tested
+
+## 🔥 **CRITICAL SYSTEM ARCHITECTURE: POSITION BUILDING**
+
+### **The Heart of the Trading Log: Execution-to-Position Aggregation**
+
+**THIS IS THE MOST CRITICAL COMPONENT OF THE ENTIRE APPLICATION.** All other features depend on correct position building.
+
+#### **Position Service (`position_service.py`) - CORE ALGORITHM**
+The position building logic is the foundation that transforms raw NinjaTrader executions into meaningful trading positions:
+
+1. **Data Input**: Raw execution records from NinjaTrader CSV imports
+2. **Quantity Flow Analysis**: Tracks cumulative position quantity through all executions  
+3. **Position Lifecycle Management**: Creates, modifies, and closes positions based on `0 → +/- → 0` flow
+4. **FIFO Aggregation**: Combines multiple executions into single position records with accurate P&L
+5. **Database Storage**: Saves aggregated positions to `positions` table for dashboard display
+
+#### **Critical Dependencies:**
+- **CSV Import Logic** (`TradingLog_db.py`): Must correctly classify executions as Long/Short actions
+- **Position Rebuild** (`/positions/rebuild`): Rebuilds all positions from raw execution data
+- **Position Dashboard** (`/positions/`): Displays aggregated position records to users
+- **Debug Interface** (`/positions/debug`): Troubleshooting tools for position building validation
+
+#### **Validation Requirements:**
+- **Position quantities** must reflect actual trading activity (not individual execution sizes)
+- **Execution counts** per position should be > 1.0 when multiple executions are aggregated
+- **P&L calculations** must use proper FIFO methodology with weighted average pricing
+- **Position lifecycle** must strictly follow `0 → +/- → 0` pattern with no invalid direction changes
+
+#### **⚠️ FAILURE MODES TO AVOID:**
+- **1:1 Execution Mapping**: Each execution becoming its own position (destroys aggregation)
+- **Invalid Direction Changes**: Positions changing Long↔Short without going through zero
+- **Incorrect P&L**: Using wrong entry/exit classification or price calculations
+- **Missing Aggregation**: Showing 44 individual executions instead of 8-12 aggregated positions
 
 ## Important Implementation Notes
 - Database uses context managers for connection handling
