@@ -103,9 +103,10 @@ class PositionService:
             self.cursor.execute("DELETE FROM positions")
             self.cursor.execute("DELETE FROM position_executions")
             
-            # Get all trades ordered by account, instrument, and execution ID (chronological without time dependency)
+            # Get all non-deleted trades ordered by account, instrument, and execution ID (chronological without time dependency)
             self.cursor.execute("""
                 SELECT * FROM trades 
+                WHERE deleted = 0 OR deleted IS NULL
                 ORDER BY account, instrument, id
             """)
             
@@ -700,8 +701,7 @@ class PositionService:
             
             deleted_positions = self.cursor.rowcount
             
-            # Optionally delete the associated trades if they're no longer linked to any positions
-            # This is a design choice - you might want to keep the raw trades for audit purposes
+            # Soft delete the associated trades (mark as deleted instead of removing)
             if trade_ids:
                 trade_placeholders = ','.join(['?'] * len(trade_ids))
                 
@@ -713,17 +713,17 @@ class PositionService:
                 
                 still_linked_trades = [row[0] for row in self.cursor.fetchall()]
                 
-                # Delete trades that are no longer linked to any positions
+                # Soft delete trades that are no longer linked to any positions
                 orphaned_trades = [tid for tid in trade_ids if tid not in still_linked_trades]
                 
                 if orphaned_trades:
                     orphaned_placeholders = ','.join(['?'] * len(orphaned_trades))
                     self.cursor.execute(f"""
-                        DELETE FROM trades 
+                        UPDATE trades SET deleted = 1
                         WHERE id IN ({orphaned_placeholders})
                     """, orphaned_trades)
                     
-                    logger.info(f"Deleted {len(orphaned_trades)} orphaned trades along with positions")
+                    logger.info(f"Soft deleted {len(orphaned_trades)} orphaned trades along with positions")
             
             self.conn.commit()
             logger.info(f"Successfully deleted {deleted_positions} positions and their executions")

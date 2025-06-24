@@ -144,9 +144,20 @@ class FuturesDB:
                 reviewed BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 link_group_id INTEGER,
-                entry_execution_id TEXT
+                entry_execution_id TEXT,
+                deleted BOOLEAN DEFAULT 0
             )
         """)
+        
+        # Add deleted column to existing tables (migration)
+        try:
+            self.cursor.execute("ALTER TABLE trades ADD COLUMN deleted BOOLEAN DEFAULT 0")
+            print("Added 'deleted' column to trades table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                print("'deleted' column already exists in trades table")
+            else:
+                print(f"Warning: Could not add 'deleted' column: {e}")
         
         # Create critical indexes for performance
         indexes = [
@@ -1573,16 +1584,37 @@ class FuturesDB:
                     account = str(execution['Account']).strip()
                     commission = float(str(execution['Commission']).replace('$', ''))
                     
-                    # Check for duplicate execution ID
+                    # Check for existing execution ID (including soft-deleted)
                     self.cursor.execute("""
-                        SELECT COUNT(*) FROM trades
+                        SELECT id, deleted FROM trades
                         WHERE entry_execution_id = ? AND account = ?
+                        LIMIT 1
                     """, (exec_id, account))
                     
-                    if self.cursor.fetchone()[0] > 0:
-                        executions_skipped += 1
-                        print(f"Skipping duplicate execution: {exec_id}")
-                        continue
+                    existing_record = self.cursor.fetchone()
+                    if existing_record:
+                        trade_id, is_deleted = existing_record
+                        if is_deleted:
+                            # Re-activate soft-deleted trade by updating it
+                            print(f"Re-activating previously deleted execution: {exec_id}")
+                            self.cursor.execute("""
+                                UPDATE trades SET 
+                                    deleted = 0,
+                                    side_of_market = ?,
+                                    entry_price = ?,
+                                    exit_price = ?,
+                                    entry_time = ?,
+                                    exit_time = ?,
+                                    commission = ?
+                                WHERE id = ?
+                            """, (side_of_market, price, price, timestamp, timestamp, commission, trade_id))
+                            executions_added += 1
+                            continue
+                        else:
+                            # Active duplicate - skip
+                            executions_skipped += 1
+                            print(f"Skipping active duplicate execution: {exec_id}")
+                            continue
                     
                     # Determine side of market based on Action field only
                     # The E/X field from NinjaScript is unreliable (all marked as "Entry")
