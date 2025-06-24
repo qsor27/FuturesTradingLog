@@ -1505,16 +1505,53 @@ class FuturesDB:
             return False
     
     def import_raw_executions(self, csv_path: str) -> bool:
-        """Import raw NinjaTrader executions directly as individual execution records"""
+        """Import raw NinjaTrader executions directly as individual execution records
+        Supports both basic (15 fields) and enhanced (23 fields) CSV formats from NinjaScript indicator
+        """
         try:
             print(f"\nImporting raw executions from {csv_path}...")
             
-            # Read CSV file using pandas
-            df = pd.read_csv(csv_path)
+            # Read CSV file using pandas with robust error handling
+            try:
+                df = pd.read_csv(csv_path, 
+                               encoding='utf-8-sig',  # Handle BOM characters
+                               on_bad_lines='skip',    # Skip malformed lines
+                               skipinitialspace=True)  # Handle extra spaces
+            except Exception as e:
+                try:
+                    # Fallback: use Python engine for more robust parsing
+                    df = pd.read_csv(csv_path,
+                                   encoding='utf-8-sig', 
+                                   engine='python',
+                                   on_bad_lines='skip')
+                except Exception as e2:
+                    print(f"Error reading CSV file: {e2}")
+                    return False
+            
             print(f"Read {len(df)} raw executions from CSV")
             
             # Clean up column names and data
             df.columns = df.columns.str.strip()  # Remove whitespace from column names
+            
+            # Remove empty columns (caused by trailing commas)
+            df = df.dropna(axis=1, how='all')
+            
+            # Detect CSV format based on column count
+            num_cols = len(df.columns)
+            print(f"Detected CSV format: {num_cols} columns")
+            
+            # Validate we have the minimum required columns for basic format
+            required_basic_cols = ['Instrument', 'Action', 'Quantity', 'Price', 'Time', 'ID', 'E/X', 'Position', 'Order ID', 'Name', 'Commission', 'Rate', 'Account', 'Connection']
+            
+            # Check if we have all required basic columns
+            missing_cols = [col for col in required_basic_cols if col not in df.columns]
+            if missing_cols:
+                print(f"Error: Missing required columns: {missing_cols}")
+                return False
+            
+            print(f"CSV format validated - basic columns present")
+            if num_cols > 15:
+                print(f"Enhanced format detected with {num_cols - 14} additional fields")
             
             # Convert timestamps
             df['Time'] = pd.to_datetime(df['Time'])

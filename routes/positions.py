@@ -392,8 +392,24 @@ def reimport_csv():
         # Import raw executions directly without pre-processing into completed trades
         import pandas as pd
         
-        # Read the raw CSV
-        df = pd.read_csv(csv_path)
+        # Read the raw CSV with robust parsing for malformed files
+        try:
+            df = pd.read_csv(csv_path, 
+                           encoding='utf-8-sig',  # Handle BOM characters  
+                           on_bad_lines='skip',   # Skip malformed lines
+                           skipinitialspace=True) # Handle extra spaces
+        except Exception as e:
+            try:
+                # Fallback: use Python engine for more robust parsing
+                df = pd.read_csv(csv_path,
+                               encoding='utf-8-sig', 
+                               engine='python',
+                               on_bad_lines='skip')
+            except Exception as e2:
+                return jsonify({
+                    'success': False,
+                    'message': f'Unable to parse CSV: {str(e2)}'
+                }), 400
         print(f"Read {len(df)} raw executions from {filename}")
         
         # Import raw executions directly to database
