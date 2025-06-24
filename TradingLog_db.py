@@ -1584,12 +1584,16 @@ class FuturesDB:
                         print(f"Skipping duplicate execution: {exec_id}")
                         continue
                     
-                    # Determine side of market based on E/X and Action
-                    if entry_exit == 'Entry':
-                        side_of_market = 'Long' if action == 'Buy' else 'Short'
-                    else:  # Exit
-                        # For exits, the side is opposite of the action
-                        side_of_market = 'Short' if action == 'Buy' else 'Long'
+                    # Determine side of market based on Action field only
+                    # The E/X field from NinjaScript is unreliable (all marked as "Entry")
+                    # Use Action to determine the direction of the quantity change
+                    if action in ['Buy', 'BuyToCover']:
+                        side_of_market = 'Long'  # Positive quantity change
+                    elif action in ['Sell', 'SellShort']:
+                        side_of_market = 'Short'  # Negative quantity change
+                    else:
+                        # Fallback for unknown action types
+                        side_of_market = 'Long' if 'Buy' in action else 'Short'
                     
                     # Insert as individual execution (not completed trade)
                     self.cursor.execute("""
