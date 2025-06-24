@@ -162,27 +162,219 @@ class PositionService:
             return {'positions_created': 0, 'trades_processed': 0}
     
     def _build_positions_from_execution_flow(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Build position objects from completed trade data
+        """Build position objects from raw execution data using quantity flow analysis
         
-        PURE COMPLETED TRADE MODEL: Each trade record is a complete position.
-        Each trade already has entry/exit prices and calculated P&L from ExecutionProcessing.py
+        RAW EXECUTION MODEL: Aggregate individual executions into complete positions.
+        Track quantity flow from 0 → +/- → 0 to determine position lifecycle.
         """
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
-        logger.info(f"Processing {len(trades)} completed trades using PURE COMPLETED TRADE MODEL")
+        logger.info(f"Processing {len(trades)} raw executions using QUANTITY FLOW MODEL")
         
-        # Sort trades by database ID only (chronological order based on insertion, not timestamps)
-        trades_sorted = sorted(trades, key=lambda t: t.get('id', 0))
+        # Sort executions by entry time for chronological processing
+        trades_sorted = sorted(trades, key=lambda t: t.get('entry_time', ''))
         
-        # Log all completed trades for debugging
+        # Log all raw executions for debugging
         for i, trade in enumerate(trades_sorted):
-            logger.info(f"Completed Trade {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} -> ${trade.get('exit_price', 'N/A')} | P&L: ${trade['dollars_gain_loss']} | ID: {trade.get('entry_execution_id', 'N/A')}")
+            entry_exit = "Entry" if trade.get('entry_price') == trade.get('exit_price') else "Exit"
+            logger.info(f"Raw Execution {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} | Time: {trade.get('entry_time')} | ID: {trade.get('entry_execution_id', 'N/A')}")
         
-        # Convert each completed trade into a position record
-        positions = self._convert_completed_trades_to_positions(trades_sorted, account, instrument)
+        # Build positions from execution flow using quantity tracking
+        positions = self._aggregate_executions_into_positions(trades_sorted, account, instrument)
         
         logger.info(f"=== POSITION BUILDING COMPLETE ===")
-        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} completed trades")
+        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} raw executions")
         return positions
+    
+    def _aggregate_executions_into_positions(self, executions: List[Dict], account: str, instrument: str) -> List[Dict]:
+        """Aggregate raw executions into complete positions using quantity flow tracking
+        
+        Algorithm: Track running position quantity (0 → +/- → 0)
+        - Position starts when quantity goes from 0 to non-zero
+        - Position continues while quantity remains non-zero (same direction)
+        - Position ends when quantity returns to 0
+        """
+        if not executions:
+            return []
+        
+        positions = []
+        current_position = None
+        running_quantity = 0
+        
+        logger.info(f"Starting quantity flow analysis for {len(executions)} executions")
+        
+        for i, execution in enumerate(executions):
+            # Determine signed quantity change for this execution
+            action = execution.get('side_of_market', '').strip()
+            quantity = abs(int(execution.get('quantity', 0)))
+            
+            # Convert to signed quantity based on action
+            if action == 'Long':
+                signed_qty = quantity  # Long = positive
+            elif action == 'Short': 
+                signed_qty = -quantity  # Short = negative
+            else:
+                logger.warning(f"Unknown side_of_market '{action}' for execution {execution.get('entry_execution_id', 'Unknown')}")
+                continue
+            
+            previous_quantity = running_quantity
+            running_quantity += signed_qty
+            
+            logger.info(f"Execution {i+1}: {action} {quantity} | Running: {previous_quantity} → {running_quantity}")
+            
+            # Position lifecycle logic
+            if previous_quantity == 0 and running_quantity != 0:
+                # Starting new position (0 → non-zero)
+                current_position = {
+                    'instrument': instrument,
+                    'account': account,
+                    'position_type': 'Long' if running_quantity > 0 else 'Short',
+                    'entry_time': execution.get('entry_time'),
+                    'executions': [execution],
+                    'total_quantity': abs(running_quantity),
+                    'max_quantity': abs(running_quantity),
+                    'position_status': 'open',
+                    'execution_count': 1
+                }
+                logger.info(f"  → Started new {current_position['position_type']} position")
+                
+            elif current_position and running_quantity == 0:
+                # Closing position (non-zero → 0)
+                current_position['executions'].append(execution)
+                current_position['exit_time'] = execution.get('entry_time')  # Use execution time as exit
+                current_position['position_status'] = 'closed'
+                current_position['execution_count'] = len(current_position['executions'])
+                
+                # Calculate position totals
+                self._calculate_position_totals_from_executions(current_position)
+                
+                positions.append(current_position)
+                logger.info(f"  → Closed position with {current_position['execution_count']} executions, Total P&L: ${current_position.get('total_dollars_pnl', 0)}")
+                
+                current_position = None
+                
+            elif current_position and running_quantity != 0:
+                # Adding to existing position (non-zero → non-zero, same direction)
+                if (running_quantity > 0) == (current_position['position_type'] == 'Long'):
+                    # Same direction - add to position
+                    current_position['executions'].append(execution)
+                    current_position['total_quantity'] = abs(running_quantity)
+                    current_position['max_quantity'] = max(current_position['max_quantity'], abs(running_quantity))
+                    current_position['execution_count'] = len(current_position['executions'])
+                    logger.info(f"  → Added to {current_position['position_type']} position, new quantity: {abs(running_quantity)}")
+                else:
+                    # Direction change - close current position and start new one
+                    current_position['executions'].append(execution)
+                    current_position['exit_time'] = execution.get('entry_time')
+                    current_position['position_status'] = 'closed'
+                    self._calculate_position_totals_from_executions(current_position)
+                    positions.append(current_position)
+                    logger.info(f"  → Closed position due to direction change")
+                    
+                    # Start new position in opposite direction
+                    current_position = {
+                        'instrument': instrument,
+                        'account': account,
+                        'position_type': 'Long' if running_quantity > 0 else 'Short',
+                        'entry_time': execution.get('entry_time'),
+                        'executions': [execution],
+                        'total_quantity': abs(running_quantity),
+                        'max_quantity': abs(running_quantity),
+                        'position_status': 'open',
+                        'execution_count': 1
+                    }
+                    logger.info(f"  → Started new {current_position['position_type']} position")
+        
+        # Handle any remaining open position
+        if current_position:
+            current_position['position_status'] = 'open'
+            self._calculate_position_totals_from_executions(current_position)
+            positions.append(current_position)
+            logger.info(f"  → Saved open position with {current_position['execution_count']} executions")
+        
+        logger.info(f"Quantity flow analysis complete: {len(positions)} positions created")
+        return positions
+    
+    def _calculate_position_totals_from_executions(self, position: Dict):
+        """Calculate position totals from aggregated executions using FIFO methodology"""
+        executions = position['executions']
+        
+        if not executions:
+            position.update({
+                'average_entry_price': 0,
+                'average_exit_price': 0,
+                'total_points_pnl': 0,
+                'total_dollars_pnl': 0,
+                'total_commission': 0,
+                'risk_reward_ratio': 0
+            })
+            return
+        
+        # Separate entry and exit executions based on position direction
+        entries = []
+        exits = []
+        
+        for execution in executions:
+            side = execution.get('side_of_market', '').strip()
+            if position['position_type'] == 'Long':
+                if side == 'Long':
+                    entries.append(execution)
+                elif side == 'Short':
+                    exits.append(execution)
+            else:  # Short position
+                if side == 'Short':
+                    entries.append(execution)
+                elif side == 'Long':
+                    exits.append(execution)
+        
+        # Calculate averages and totals
+        total_entry_quantity = sum(int(e.get('quantity', 0)) for e in entries)
+        total_exit_quantity = sum(int(e.get('quantity', 0)) for e in exits)
+        
+        # Weighted average entry price
+        if entries and total_entry_quantity > 0:
+            weighted_entry = sum(float(e.get('entry_price', 0)) * int(e.get('quantity', 0)) for e in entries)
+            position['average_entry_price'] = weighted_entry / total_entry_quantity
+        else:
+            position['average_entry_price'] = 0
+        
+        # Weighted average exit price
+        if exits and total_exit_quantity > 0:
+            weighted_exit = sum(float(e.get('entry_price', 0)) * int(e.get('quantity', 0)) for e in exits)
+            position['average_exit_price'] = weighted_exit / total_exit_quantity
+        else:
+            position['average_exit_price'] = position['average_entry_price']
+        
+        # Calculate P&L for closed positions
+        if position['position_status'] == 'closed' and total_entry_quantity > 0 and total_exit_quantity > 0:
+            # Use minimum quantity for P&L calculation (handles partial exits)
+            pnl_quantity = min(total_entry_quantity, total_exit_quantity)
+            
+            if position['position_type'] == 'Long':
+                points_pnl = position['average_exit_price'] - position['average_entry_price']
+            else:  # Short
+                points_pnl = position['average_entry_price'] - position['average_exit_price']
+            
+            position['total_points_pnl'] = points_pnl
+            
+            # Calculate dollar P&L (need instrument multiplier - assume $20 for MNQ)
+            # TODO: Get actual multiplier from config
+            multiplier = 20  # MNQ standard multiplier
+            position['total_dollars_pnl'] = points_pnl * multiplier * pnl_quantity
+        else:
+            position['total_points_pnl'] = 0
+            position['total_dollars_pnl'] = 0
+        
+        # Total commission
+        position['total_commission'] = sum(float(e.get('commission', 0)) for e in executions)
+        
+        # Risk/reward ratio
+        if position['total_dollars_pnl'] != 0 and position['total_commission'] > 0:
+            if position['total_dollars_pnl'] > 0:
+                position['risk_reward_ratio'] = abs(position['total_dollars_pnl']) / position['total_commission']
+            else:
+                position['risk_reward_ratio'] = position['total_commission'] / abs(position['total_dollars_pnl'])
+        else:
+            position['risk_reward_ratio'] = 0
     
     def _convert_completed_trades_to_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
         """Convert completed trades into position records (1:1 mapping)
