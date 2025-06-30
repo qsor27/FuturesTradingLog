@@ -244,11 +244,10 @@ class PositionService:
             elif current_position and running_quantity == 0:
                 # Closing position (non-zero → 0)
                 current_position['executions'].append(execution)
-                current_position['exit_time'] = execution.get('entry_time')  # Use execution time as exit
                 current_position['position_status'] = 'closed'
                 current_position['execution_count'] = len(current_position['executions'])
                 
-                # Calculate position totals
+                # Calculate position totals (this will set correct entry/exit times)
                 self._calculate_position_totals_from_executions(current_position)
                 
                 positions.append(current_position)
@@ -294,6 +293,16 @@ class PositionService:
                 'risk_reward_ratio': 0
             })
             return
+        
+        # Set actual entry and exit times from first and last executions
+        if executions:
+            # Sort executions by entry_time to get chronological order
+            sorted_executions = sorted(executions, key=lambda x: x.get('entry_time', ''))
+            position['entry_time'] = sorted_executions[0].get('entry_time')
+            
+            # For closed positions, set exit time to the last execution
+            if position['position_status'] == 'closed':
+                position['exit_time'] = sorted_executions[-1].get('entry_time')
         
         # Separate entry and exit executions based on position direction
         # For a Long position: Long side_of_market = entries, Short side_of_market = exits
