@@ -62,6 +62,10 @@ class FuturesDB:
             return 'positions'
         elif 'from chart_settings' in query_lower or 'update chart_settings' in query_lower:
             return 'chart_settings'
+        elif 'from user_profiles' in query_lower or 'update user_profiles' in query_lower or 'insert into user_profiles' in query_lower:
+            return 'user_profiles'
+        elif 'from profile_history' in query_lower or 'update profile_history' in query_lower or 'insert into profile_history' in query_lower:
+            return 'profile_history'
         else:
             return 'unknown'
     
@@ -245,6 +249,75 @@ class FuturesDB:
                 VALUES (1, '1h', '1week', 1)
             """)
             print("Initialized default chart settings")
+        
+        # Create user_profiles table for Setting Profiles/Templates feature
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1,
+                profile_name TEXT NOT NULL,
+                description TEXT,
+                settings_snapshot TEXT NOT NULL,
+                is_default BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                
+                UNIQUE(user_id, profile_name)
+            )
+        """)
+        
+        # Create indexes for user_profiles table
+        profile_indexes = [
+            ("idx_user_profiles_user_id", 
+             "CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id)"),
+            ("idx_user_profiles_user_id_profile_name", 
+             "CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id_profile_name ON user_profiles(user_id, profile_name)"),
+            ("idx_user_profiles_is_default", 
+             "CREATE INDEX IF NOT EXISTS idx_user_profiles_is_default ON user_profiles(user_id, is_default)"),
+            ("idx_user_profiles_created_at", 
+             "CREATE INDEX IF NOT EXISTS idx_user_profiles_created_at ON user_profiles(created_at)")
+        ]
+        
+        for index_name, create_sql in profile_indexes:
+            try:
+                self.cursor.execute(create_sql)
+                print(f"Created/verified user profile index: {index_name}")
+            except Exception as e:
+                print(f"Warning: Could not create user profile index {index_name}: {e}")
+        
+        # Add version column to user_profiles table (migration for version history)
+        try:
+            self.cursor.execute("ALTER TABLE user_profiles ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+            print("Added 'version' column to user_profiles table")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e).lower():
+                print("'version' column already exists in user_profiles table")
+            else:
+                print(f"Warning: Could not add 'version' column: {e}")
+        
+        # Create profile_history table for Settings Version History feature
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS profile_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_profile_id INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                settings_snapshot TEXT NOT NULL,
+                change_reason TEXT,
+                archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                
+                FOREIGN KEY (user_profile_id) REFERENCES user_profiles (id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Create index for profile_history table
+        try:
+            self.cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_profile_history_profile_id_version_desc
+                ON profile_history (user_profile_id, version DESC)
+            """)
+            print("Created/verified profile history index: idx_profile_history_profile_id_version_desc")
+        except Exception as e:
+            print(f"Warning: Could not create profile history index: {e}")
         
         # Run ANALYZE to update query planner statistics
         self.cursor.execute("ANALYZE")
@@ -1788,9 +1861,89 @@ class FuturesDB:
             self.conn.rollback()
             return False
 
+    def insert_ohlc_batch(self, records: list) -> bool:
+        """
+        Bulk inserts OHLC data records. Uses INSERT OR IGNORE to prevent duplicates,
+        making the operation safe to re-run.
+        """
+        if not records:
+            return True
+            
+        try:
+            # Validate record structure
+            for record in records:
+                required_fields = ['timestamp', 'instrument', 'timeframe', 'open', 'high', 'low', 'close']
+                if not all(field in record for field in required_fields):
+                    raise ValueError(f"Record missing required fields: {required_fields}")
+            
+            # Prepare bulk insert query with conflict handling
+            query = """
+            INSERT OR IGNORE INTO ohlc_data 
+            (timestamp, instrument, timeframe, open_price, high_price, low_price, close_price, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            
+            # Convert records to tuples for executemany
+            data_tuples = []
+            for record in records:
+                data_tuples.append((
+                    record['timestamp'],
+                    record['instrument'],
+                    record['timeframe'],
+                    record['open'],
+                    record['high'],
+                    record['low'],
+                    record['close'],
+                    record.get('volume', 0)  # Default to 0 if volume not provided
+                ))
+            
+            # Execute bulk insert
+            self.cursor.executemany(query, data_tuples)
+            self.conn.commit()
+            
+            # Record metrics for monitoring
+            try:
+                from app import record_ohlc_data_points
+                for record in records:
+                    record_ohlc_data_points(record['instrument'], record['timeframe'], 1)
+            except ImportError:
+                pass
+            
+            self.logger.info(f"Bulk inserted {len(records)} OHLC records")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error during bulk OHLC insert: {e}")
+            self.conn.rollback()
+            return False
+
+
+    def _get_intelligent_limit(self, timeframe: str, duration_days: int = None) -> Optional[int]:
+        """Calculate intelligent query limits based on timeframe and duration"""
+        # Resolution-aware limits to prevent memory issues while allowing large ranges
+        timeframe_limits = {
+            '1m': 2000,    # ~1.4 days of 1-minute data
+            '3m': 4000,    # ~8.3 days of 3-minute data
+            '5m': 6000,    # ~20.8 days of 5-minute data
+            '15m': 8000,   # ~83 days of 15-minute data
+            '1h': 10000,   # ~417 days of hourly data
+            '4h': 12000,   # ~5.5 years of 4-hour data
+            '1d': 15000    # ~41 years of daily data
+        }
+        
+        base_limit = timeframe_limits.get(timeframe, 1000)
+        
+        # For very large ranges with low-res timeframes, allow more data
+        if duration_days and duration_days > 90:  # > 3 months
+            if timeframe in ['1d', '4h']:
+                return None  # No limit for daily/4h data on large ranges
+            elif timeframe == '1h':
+                return base_limit * 2  # Double limit for hourly
+        
+        return base_limit
 
     def get_ohlc_data(self, instrument: str, timeframe: str, start_timestamp: int = None, 
-                     end_timestamp: int = None, limit: int = 1000) -> List[Dict]:
+                     end_timestamp: int = None, limit: int = None) -> List[Dict]:
         """Get OHLC data for charting with performance optimization and monitoring."""
         try:
             where_conditions = ["instrument = ?", "timeframe = ?"]
@@ -1813,6 +1966,13 @@ class FuturesDB:
                 WHERE {where_clause}
                 ORDER BY timestamp ASC
             """
+            
+            # Use intelligent limit if not explicitly provided
+            if limit is None:
+                duration_days = None
+                if start_timestamp and end_timestamp:
+                    duration_days = (end_timestamp - start_timestamp) / (24 * 3600)
+                limit = self._get_intelligent_limit(timeframe, duration_days)
             
             if limit is not None:
                 query += " LIMIT ?"
@@ -2271,7 +2431,467 @@ class FuturesDB:
             self.conn.rollback()
             return False
     
-        # Backup and Recovery Methods
+    # User Profile Methods for Setting Profiles/Templates feature
+    
+    def get_user_profiles(self, user_id: int = 1) -> List[Dict[str, Any]]:
+        """Get all user profiles for a specific user"""
+        try:
+            self.cursor.execute("""
+                SELECT id, user_id, profile_name, description, settings_snapshot, 
+                       is_default, created_at, updated_at, version
+                FROM user_profiles
+                WHERE user_id = ?
+                ORDER BY is_default DESC, profile_name ASC
+            """, (user_id,))
+            
+            profiles = []
+            for row in self.cursor.fetchall():
+                profiles.append({
+                    'id': row[0],
+                    'user_id': row[1],
+                    'profile_name': row[2],
+                    'description': row[3],
+                    'settings_snapshot': json.loads(row[4]) if row[4] else {},
+                    'is_default': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'version': row[8] if row[8] is not None else 1
+                })
+            
+            return profiles
+            
+        except Exception as e:
+            db_logger.error(f"Error getting user profiles: {e}")
+            return []
+    
+    def get_user_profile(self, profile_id: int) -> Optional[Dict[str, Any]]:
+        """Get a specific user profile by ID"""
+        try:
+            self.cursor.execute("""
+                SELECT id, user_id, profile_name, description, settings_snapshot, 
+                       is_default, created_at, updated_at, version
+                FROM user_profiles
+                WHERE id = ?
+            """, (profile_id,))
+            
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'user_id': row[1],
+                    'profile_name': row[2],
+                    'description': row[3],
+                    'settings_snapshot': json.loads(row[4]) if row[4] else {},
+                    'is_default': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'version': row[8] if row[8] is not None else 1
+                }
+            return None
+            
+        except Exception as e:
+            db_logger.error(f"Error getting user profile: {e}")
+            return None
+    
+    def get_user_profile_by_name(self, profile_name: str, user_id: int = 1) -> Optional[Dict[str, Any]]:
+        """Get a specific user profile by name"""
+        try:
+            self.cursor.execute("""
+                SELECT id, user_id, profile_name, description, settings_snapshot, 
+                       is_default, created_at, updated_at, version
+                FROM user_profiles
+                WHERE user_id = ? AND profile_name = ?
+            """, (user_id, profile_name))
+            
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'user_id': row[1],
+                    'profile_name': row[2],
+                    'description': row[3],
+                    'settings_snapshot': json.loads(row[4]) if row[4] else {},
+                    'is_default': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'version': row[8] if row[8] is not None else 1
+                }
+            return None
+            
+        except Exception as e:
+            db_logger.error(f"Error getting user profile by name: {e}")
+            return None
+    
+    def create_user_profile(self, profile_name: str, settings_snapshot: Dict[str, Any], 
+                           description: str = None, is_default: bool = False, 
+                           user_id: int = 1) -> Optional[int]:
+        """Create a new user profile"""
+        try:
+            # If this is being set as default, unset any existing default
+            if is_default:
+                self.cursor.execute("""
+                    UPDATE user_profiles 
+                    SET is_default = 0 
+                    WHERE user_id = ? AND is_default = 1
+                """, (user_id,))
+            
+            # Insert new profile
+            self.cursor.execute("""
+                INSERT INTO user_profiles (user_id, profile_name, description, settings_snapshot, is_default)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, profile_name, description, json.dumps(settings_snapshot), is_default))
+            
+            profile_id = self.cursor.lastrowid
+            self.conn.commit()
+            
+            db_logger.info(f"Created user profile: {profile_name} (ID: {profile_id})")
+            return profile_id
+            
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                db_logger.error(f"Profile name '{profile_name}' already exists for user {user_id}")
+                return None
+            else:
+                db_logger.error(f"Error creating user profile: {e}")
+                self.conn.rollback()
+                return None
+        except Exception as e:
+            db_logger.error(f"Error creating user profile: {e}")
+            self.conn.rollback()
+            return None
+    
+    def update_user_profile(self, profile_id: int, profile_name: str = None, 
+                           settings_snapshot: Dict[str, Any] = None, 
+                           description: str = None, is_default: bool = None,
+                           version: int = None) -> bool:
+        """Update an existing user profile"""
+        try:
+            # Build update query dynamically
+            updates = []
+            params = []
+            
+            if profile_name is not None:
+                updates.append("profile_name = ?")
+                params.append(profile_name)
+            
+            if settings_snapshot is not None:
+                updates.append("settings_snapshot = ?")
+                params.append(json.dumps(settings_snapshot))
+            
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            
+            if version is not None:
+                updates.append("version = ?")
+                params.append(version)
+            
+            if is_default is not None:
+                updates.append("is_default = ?")
+                params.append(is_default)
+                
+                # If setting as default, unset any existing default for this user
+                if is_default:
+                    self.cursor.execute("""
+                        SELECT user_id FROM user_profiles WHERE id = ?
+                    """, (profile_id,))
+                    user_row = self.cursor.fetchone()
+                    if user_row:
+                        user_id = user_row[0]
+                        self.cursor.execute("""
+                            UPDATE user_profiles 
+                            SET is_default = 0 
+                            WHERE user_id = ? AND is_default = 1 AND id != ?
+                        """, (user_id, profile_id))
+            
+            if not updates:
+                return True
+            
+            # Always update the updated_at timestamp
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            
+            query = f"UPDATE user_profiles SET {', '.join(updates)} WHERE id = ?"
+            params.append(profile_id)
+            
+            self.cursor.execute(query, params)
+            self.conn.commit()
+            
+            db_logger.info(f"Updated user profile ID: {profile_id}")
+            return True
+            
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                db_logger.error(f"Profile name '{profile_name}' already exists for this user")
+                return False
+            else:
+                db_logger.error(f"Error updating user profile: {e}")
+                self.conn.rollback()
+                return False
+        except Exception as e:
+            db_logger.error(f"Error updating user profile: {e}")
+            self.conn.rollback()
+            return False
+    
+    def delete_user_profile(self, profile_id: int) -> bool:
+        """Delete a user profile"""
+        try:
+            self.cursor.execute("""
+                DELETE FROM user_profiles WHERE id = ?
+            """, (profile_id,))
+            
+            if self.cursor.rowcount > 0:
+                self.conn.commit()
+                db_logger.info(f"Deleted user profile ID: {profile_id}")
+                return True
+            else:
+                db_logger.warning(f"No user profile found with ID: {profile_id}")
+                return False
+                
+        except Exception as e:
+            db_logger.error(f"Error deleting user profile: {e}")
+            self.conn.rollback()
+            return False
+    
+    def get_default_user_profile(self, user_id: int = 1) -> Optional[Dict[str, Any]]:
+        """Get the default user profile for a user"""
+        try:
+            self.cursor.execute("""
+                SELECT id, user_id, profile_name, description, settings_snapshot, 
+                       is_default, created_at, updated_at, version
+                FROM user_profiles
+                WHERE user_id = ? AND is_default = 1
+            """, (user_id,))
+            
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'user_id': row[1],
+                    'profile_name': row[2],
+                    'description': row[3],
+                    'settings_snapshot': json.loads(row[4]) if row[4] else {},
+                    'is_default': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7],
+                    'version': row[8] if row[8] is not None else 1
+                }
+            return None
+            
+        except Exception as e:
+            db_logger.error(f"Error getting default user profile: {e}")
+            return None
+    
+    # Profile History Management Methods
+    
+    def create_profile_version(self, profile_id: int, version: int, settings_snapshot: str, 
+                              change_reason: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Create a new historical version record in the profile_history table.
+        This is typically called right before updating the main user_profiles record.
+        """
+        try:
+            table = self._detect_table_from_query("INSERT INTO profile_history")
+            operation = "insert"
+            
+            result = self._execute_with_monitoring("""
+                INSERT INTO profile_history (user_profile_id, version, settings_snapshot, change_reason)
+                VALUES (?, ?, ?, ?)
+            """, (profile_id, version, settings_snapshot, change_reason), operation, table)
+            
+            history_id = self.cursor.lastrowid
+            self.conn.commit()
+            
+            # Return the created record
+            return self.get_specific_version(history_id)
+            
+        except Exception as e:
+            db_logger.error(f"Error creating profile version: {e}")
+            self.conn.rollback()
+            return None
+    
+    def get_profile_history(self, profile_id: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """
+        Retrieve the version history for a specific user profile, sorted from newest to oldest.
+        """
+        try:
+            table = self._detect_table_from_query("SELECT FROM profile_history")
+            operation = "select"
+            
+            self._execute_with_monitoring("""
+                SELECT id, user_profile_id, version, settings_snapshot, change_reason, archived_at
+                FROM profile_history
+                WHERE user_profile_id = ?
+                ORDER BY version DESC
+                LIMIT ? OFFSET ?
+            """, (profile_id, limit, offset), operation, table)
+            
+            rows = self.cursor.fetchall()
+            history_list = []
+            
+            for row in rows:
+                history_list.append({
+                    'id': row[0],
+                    'user_profile_id': row[1],
+                    'version': row[2],
+                    'settings_snapshot': json.loads(row[3]) if row[3] else {},
+                    'change_reason': row[4],
+                    'archived_at': row[5]
+                })
+            
+            return history_list
+            
+        except Exception as e:
+            db_logger.error(f"Error getting profile history: {e}")
+            return []
+    
+    def get_specific_version(self, history_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a single, specific historical version by its unique ID.
+        Used when a user wants to revert to a specific version.
+        """
+        try:
+            table = self._detect_table_from_query("SELECT FROM profile_history")
+            operation = "select"
+            
+            self._execute_with_monitoring("""
+                SELECT id, user_profile_id, version, settings_snapshot, change_reason, archived_at
+                FROM profile_history
+                WHERE id = ?
+            """, (history_id,), operation, table)
+            
+            row = self.cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'user_profile_id': row[1],
+                    'version': row[2],
+                    'settings_snapshot': json.loads(row[3]) if row[3] else {},
+                    'change_reason': row[4],
+                    'archived_at': row[5]
+                }
+            return None
+            
+        except Exception as e:
+            db_logger.error(f"Error getting specific version: {e}")
+            return None
+    
+    def delete_old_versions(self, profile_id: int, keep_latest: int = 20) -> int:
+        """
+        Clean up old history for a profile, keeping a specified number of the most recent versions.
+        """
+        try:
+            table = self._detect_table_from_query("DELETE FROM profile_history")
+            operation = "delete"
+            
+            # Get the IDs of versions to keep
+            self._execute_with_monitoring("""
+                SELECT id FROM profile_history
+                WHERE user_profile_id = ?
+                ORDER BY version DESC
+                LIMIT ?
+            """, (profile_id, keep_latest), "select", table)
+            
+            keep_ids = [row[0] for row in self.cursor.fetchall()]
+            
+            if not keep_ids:
+                return 0
+            
+            # Delete old versions
+            placeholders = ','.join(['?'] * len(keep_ids))
+            params = [profile_id] + keep_ids
+            
+            self._execute_with_monitoring(f"""
+                DELETE FROM profile_history
+                WHERE user_profile_id = ? AND id NOT IN ({placeholders})
+            """, tuple(params), operation, table)
+            
+            deleted_count = self.cursor.rowcount
+            self.conn.commit()
+            
+            return deleted_count
+            
+        except Exception as e:
+            db_logger.error(f"Error deleting old versions: {e}")
+            self.conn.rollback()
+            return 0
+    
+    def archive_current_version(self, profile_id: int, change_reason: str = None) -> bool:
+        """
+        Archive the current version of a profile before making changes.
+        This method automatically retrieves the current profile and creates a history record.
+        """
+        try:
+            # Get the current profile
+            current_profile = self.get_user_profile(profile_id)
+            if not current_profile:
+                db_logger.error(f"Profile {profile_id} not found for archiving")
+                return False
+            
+            # Get the current version or default to 1
+            current_version = current_profile.get('version', 1)
+            
+            # Create the history record
+            history_record = self.create_profile_version(
+                profile_id=profile_id,
+                version=current_version,
+                settings_snapshot=json.dumps(current_profile['settings_snapshot']),
+                change_reason=change_reason
+            )
+            
+            return history_record is not None
+            
+        except Exception as e:
+            db_logger.error(f"Error archiving current version: {e}")
+            return False
+    
+    def revert_to_version(self, profile_id: int, history_id: int, change_reason: str = None) -> bool:
+        """
+        Revert a profile to a specific historical version.
+        This creates a new history record and updates the current profile.
+        """
+        try:
+            # Get the historical version
+            historical_version = self.get_specific_version(history_id)
+            if not historical_version:
+                db_logger.error(f"Historical version {history_id} not found")
+                return False
+            
+            # Verify the history belongs to the correct profile
+            if historical_version['user_profile_id'] != profile_id:
+                db_logger.error(f"Historical version {history_id} does not belong to profile {profile_id}")
+                return False
+            
+            # Archive the current version before reverting
+            revert_reason = f"Revert to version {historical_version['version']}"
+            if change_reason:
+                revert_reason += f" - {change_reason}"
+            
+            if not self.archive_current_version(profile_id, revert_reason):
+                db_logger.error("Failed to archive current version before revert")
+                return False
+            
+            # Get current profile to increment version
+            current_profile = self.get_user_profile(profile_id)
+            if not current_profile:
+                return False
+            
+            new_version = current_profile.get('version', 1) + 1
+            
+            # Update the profile with historical settings
+            success = self.update_user_profile(
+                profile_id=profile_id,
+                settings_snapshot=historical_version['settings_snapshot'],
+                version=new_version
+            )
+            
+            return success
+            
+        except Exception as e:
+            db_logger.error(f"Error reverting to version: {e}")
+            self.conn.rollback()
+            return False
+    
+    # Backup and Recovery Methods
         
         def validate_database_integrity(self) -> bool:
             """
