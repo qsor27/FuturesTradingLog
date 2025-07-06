@@ -67,6 +67,10 @@
         }
         .type-long { background-color: #1a4a1a; color: #80ff80; }
         .type-short { background-color: #4a1a1a; color: #ff8080; }
+        
+        /* Buy/Sell side colors */
+        .side-buy { color: #4ade80; font-weight: bold; }
+        .side-sell { color: #f87171; font-weight: bold; }
         .executions-section {
             background: #2a2a2a;
             padding: 30px;
@@ -327,10 +331,22 @@
                     {% for execution in position.executions %}
                     <tr>
                         <td>{{ execution.execution_order }}</td>
-                        <td>{{ execution.entry_time }}</td>
-                        <td>{{ execution.exit_time if execution.exit_time else '-' }}</td>
                         <td>
-                            <span class="position-type type-{{ execution.side_of_market.lower() }}">
+                            {% if execution.entry_time and not execution.exit_time %}
+                                {{ execution.entry_time }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if execution.exit_time %}
+                                {{ execution.exit_time }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="side-{{ execution.side_of_market.lower() }}">
                                 {{ execution.side_of_market }}
                             </span>
                         </td>

@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from TradingLog_db import FuturesDB
-from position_service import PositionService
+from enhanced_position_service import EnhancedPositionService as PositionService
 import os
 import time
 import shutil

@@ -132,9 +132,75 @@ class ChartSettingsAPI {
     }
 
     /**
+     * Get optimal resolution for data range (matches backend logic)
+     */
+    getOptimalResolution(durationDays, requestedTimeframe = null) {
+        // For very large ranges, force lower resolution regardless of requested timeframe
+        if (durationDays > 90) {  // > 3 months
+            return '1d';  // Daily candles
+        } else if (durationDays > 30) {  // > 1 month  
+            return '4h';  // 4-hour candles
+        } else if (durationDays > 7) {   // > 1 week
+            return '1h';  // Hourly candles
+        } else if (durationDays > 1) {   // > 1 day
+            return '15m'; // 15-minute candles
+        } else {
+            return requestedTimeframe || '1m';  // Use requested or 1-minute for small ranges
+        }
+    }
+
+    /**
+     * Check if resolution adaptation would occur for given combination
+     */
+    willAdaptResolution(timeframe, dataRange) {
+        const rangeDays = this.convertDataRangeToDays(dataRange);
+        const optimalResolution = this.getOptimalResolution(rangeDays, timeframe);
+        return optimalResolution !== timeframe;
+    }
+
+    /**
      * Validate timeframe and data range combination for performance
+     * Now supports 6-month ranges with automatic resolution adaptation
      */
     isValidCombination(timeframe, dataRange) {
+        const rangeDays = this.convertDataRangeToDays(dataRange);
+        
+        // With resolution adaptation, all combinations are valid
+        // The system will automatically choose appropriate resolution
+        return true;
+    }
+
+    /**
+     * Get performance info for timeframe/range combination
+     */
+    getPerformanceInfo(timeframe, dataRange) {
+        const rangeDays = this.convertDataRangeToDays(dataRange);
+        const optimalResolution = this.getOptimalResolution(rangeDays, timeframe);
+        const willAdapt = this.willAdaptResolution(timeframe, dataRange);
+        
+        const timeframeMinutes = {
+            '1m': 1, '3m': 3, '5m': 5, '15m': 15, 
+            '1h': 60, '4h': 240, '1d': 1440
+        };
+        
+        const rangeMinutes = rangeDays * 24 * 60 * 0.96; // Account for market hours
+        const estimatedCandles = Math.floor(rangeMinutes / (timeframeMinutes[optimalResolution] || 60));
+        
+        return {
+            rangeDays,
+            requestedTimeframe: timeframe,
+            optimalResolution,
+            willAdapt,
+            estimatedCandles,
+            performanceLevel: estimatedCandles > 50000 ? 'warning' : 
+                             estimatedCandles > 20000 ? 'moderate' : 'good'
+        };
+    }
+
+    /**
+     * Legacy method - kept for backward compatibility
+     */
+    isValidCombinationLegacy(timeframe, dataRange) {
         const MAX_CANDLES = 100000; // Performance threshold
         
         const timeframeMinutes = {

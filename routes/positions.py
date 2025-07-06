@@ -3,12 +3,16 @@ Position Routes - Handle position-based views and operations
 """
 
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
-from position_service import PositionService
+from enhanced_position_service import EnhancedPositionService as PositionService
 from TradingLog_db import FuturesDB
+from position_overlap_integration import rebuild_positions_with_overlap_prevention
+from position_overlap_prevention import PositionOverlapPrevention
+from position_overlap_analysis import PositionOverlapAnalyzer
 import logging
 import os
 import glob
 import json
+from datetime import datetime
 
 positions_bp = Blueprint('positions', __name__)
 logger = logging.getLogger('positions')
@@ -155,6 +159,36 @@ def rebuild_positions():
         
     except Exception as e:
         logger.error(f"Error rebuilding positions: {e}")
+        return jsonify({
+            'success': False,
+            'message': f"Error rebuilding positions: {str(e)}"
+        }), 500
+
+
+@positions_bp.route('/rebuild-enhanced', methods=['POST'])
+def rebuild_positions_enhanced():
+    """Rebuild all positions with comprehensive validation and overlap prevention"""
+    try:
+        result = rebuild_positions_with_overlap_prevention()
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'message': f"Successfully rebuilt {result['positions_created']} positions from {result['groups_processed']} instrument groups",
+                'positions_created': result['positions_created'],
+                'groups_processed': result['groups_processed'],
+                'warnings': result.get('warnings', []),
+                'validation_enabled': True
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f"Rebuild failed: {result.get('error', 'Unknown error')}",
+                'errors': result.get('errors', [])
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error rebuilding positions with enhanced validation: {e}")
         return jsonify({
             'success': False,
             'message': f"Error rebuilding positions: {str(e)}"
@@ -439,5 +473,172 @@ def reimport_csv():
         return jsonify({
             'success': False,
             'message': f'Error re-importing CSV: {str(e)}'
+        }), 500
+
+
+# Position Validation API Endpoints
+
+@positions_bp.route('/api/validation/prevention-report')
+def get_prevention_report():
+    """Generate comprehensive position overlap prevention report"""
+    try:
+        account = request.args.get('account')
+        instrument = request.args.get('instrument')
+        
+        with PositionOverlapPrevention() as validator:
+            report = validator.generate_prevention_report(account=account, instrument=instrument)
+            
+        return jsonify({
+            'success': True,
+            'report': report,
+            'report_type': 'prevention_report',
+            'filters': {
+                'account': account,
+                'instrument': instrument
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating prevention report: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/validation/overlap-analysis')
+def get_overlap_analysis():
+    """Generate comprehensive overlap analysis report"""
+    try:
+        with PositionOverlapAnalyzer() as analyzer:
+            report = analyzer.generate_overlap_report()
+            
+        return jsonify({
+            'success': True,
+            'report': report,
+            'report_type': 'overlap_analysis'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating overlap analysis: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/validation/current-positions')
+def get_current_positions_validation():
+    """Validate current positions and return structured data"""
+    try:
+        with PositionOverlapAnalyzer() as analyzer:
+            analysis = analyzer.analyze_current_positions()
+            
+        return jsonify({
+            'success': True,
+            'analysis': analysis,
+            'validation_type': 'current_positions'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error validating current positions: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/validation/boundary-validation')
+def get_boundary_validation():
+    """Validate position boundaries and return structured data"""
+    try:
+        with PositionOverlapAnalyzer() as analyzer:
+            validation = analyzer.validate_position_boundaries()
+            
+        return jsonify({
+            'success': True,
+            'validation': validation,
+            'validation_type': 'boundary_validation'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error validating position boundaries: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/validation/summary')
+def get_validation_summary():
+    """Get comprehensive validation summary combining multiple checks"""
+    try:
+        account = request.args.get('account')
+        instrument = request.args.get('instrument')
+        
+        with PositionOverlapAnalyzer() as analyzer:
+            current_analysis = analyzer.analyze_current_positions()
+            boundary_validation = analyzer.validate_position_boundaries()
+            
+        with PositionOverlapPrevention() as validator:
+            # Get basic validation data for summary
+            pass
+            
+        summary = {
+            'total_positions': current_analysis.get('total_positions', 0),
+            'groups_analyzed': current_analysis.get('groups_analyzed', 0),
+            'overlaps_found': current_analysis.get('overlaps_found', 0),
+            'boundary_violations': boundary_validation.get('boundary_violations', 0),
+            'has_issues': current_analysis.get('overlaps_found', 0) > 0 or boundary_validation.get('boundary_violations', 0) > 0,
+            'validation_timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'details': {
+                'current_positions': current_analysis,
+                'boundary_validation': boundary_validation
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating validation summary: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/validation/health')
+def get_validation_health():
+    """Quick health check for validation system"""
+    try:
+        health_status = {
+            'validation_system': 'available',
+            'overlap_prevention': 'active',
+            'enhanced_position_service': 'active',
+            'endpoints': [
+                '/api/validation/prevention-report',
+                '/api/validation/overlap-analysis',
+                '/api/validation/current-positions',
+                '/api/validation/boundary-validation',
+                '/api/validation/summary',
+                '/api/validation/health'
+            ]
+        }
+        
+        return jsonify({
+            'success': True,
+            'status': 'healthy',
+            'health': health_status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error checking validation health: {e}")
+        return jsonify({
+            'success': False,
+            'status': 'unhealthy',
+            'error': str(e)
         }), 500
 

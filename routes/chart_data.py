@@ -7,9 +7,46 @@ from datetime import datetime, timedelta
 import logging
 from data_service import ohlc_service
 from TradingLog_db import FuturesDB
+from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER
+from utils.instrument_utils import get_root_symbol
+from services.ohlc_service import OHLCOnDemandService
 
 chart_data_bp = Blueprint('chart_data', __name__)
 logger = logging.getLogger(__name__)
+
+
+def get_optimal_resolution(duration_days: int, requested_timeframe: str = None) -> str:
+    """
+    Determine optimal resolution based on data range to maintain performance.
+    Prevents memory issues with large datasets while preserving detail for small ranges.
+    """
+    # For very large ranges, force lower resolution regardless of requested timeframe
+    if duration_days > 90:  # > 3 months
+        return '1d'  # Daily candles
+    elif duration_days > 30:  # > 1 month  
+        return '4h'  # 4-hour candles
+    elif duration_days > 7:   # > 1 week
+        return '1h'  # Hourly candles
+    elif duration_days > 1:   # > 1 day
+        return '15m' # 15-minute candles
+    else:
+        return requested_timeframe or '1m'  # Use requested or 1-minute for small ranges
+
+
+def estimate_candle_count(duration_days: int, timeframe: str) -> int:
+    """Estimate number of candles for performance validation"""
+    timeframe_minutes = {
+        '1m': 1, '3m': 3, '5m': 5, '15m': 15,
+        '1h': 60, '4h': 240, '1d': 1440
+    }
+    
+    total_minutes = duration_days * 24 * 60
+    candle_minutes = timeframe_minutes.get(timeframe, 1)
+    
+    # Account for market hours (roughly 23/24 hours for futures)
+    market_factor = 0.96  # ~23 hours of 24
+    
+    return int(total_minutes * market_factor / candle_minutes)
 
 @chart_data_bp.route('/api/chart-data/<instrument>')
 def get_chart_data(instrument):
@@ -43,7 +80,8 @@ def get_chart_data(instrument):
             'data': chart_data,
             'instrument': instrument,
             'timeframe': timeframe,
-            'count': len(chart_data)
+            'count': len(chart_data),
+            'has_data': len(chart_data) > 0
         })
         
     except Exception as e:
@@ -52,6 +90,77 @@ def get_chart_data(instrument):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@chart_data_bp.route('/api/chart-data-adaptive/<instrument>')
+def get_adaptive_chart_data(instrument):
+    """Enhanced API endpoint with automatic resolution adaptation for 6-month support"""
+    try:
+        # Get parameters
+        timeframe = request.args.get('timeframe', '1h')
+        days = int(request.args.get('days', 1))
+        force_resolution = request.args.get('resolution', None)  # Override auto-resolution
+        
+        logger.info(f"Adaptive chart data request: {instrument}, {timeframe}, {days} days")
+        
+        # Determine optimal resolution for performance
+        if force_resolution:
+            optimal_timeframe = force_resolution
+            logger.info(f"Using forced resolution: {optimal_timeframe}")
+        else:
+            optimal_timeframe = get_optimal_resolution(days, timeframe)
+            if optimal_timeframe != timeframe:
+                logger.info(f"Resolution adapted: {timeframe} → {optimal_timeframe} for {days} days")
+        
+        # Estimate performance impact
+        estimated_candles = estimate_candle_count(days, optimal_timeframe)
+        logger.info(f"Estimated candles: {estimated_candles:,}")
+        
+        # Performance warning for large datasets
+        if estimated_candles > 50000:
+            logger.warning(f"Large dataset requested: {estimated_candles:,} candles")
+        
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get chart data with automatic gap filling
+        data = ohlc_service.get_chart_data(instrument, optimal_timeframe, start_date, end_date)
+        
+        # Format for TradingView Lightweight Charts
+        chart_data = []
+        for record in data:
+            chart_data.append({
+                'time': record['timestamp'],
+                'open': record['open_price'],
+                'high': record['high_price'], 
+                'low': record['low_price'],
+                'close': record['close_price'],
+                'volume': record['volume'] or 0
+            })
+        
+        response_data = {
+            'success': True,
+            'data': chart_data,
+            'instrument': instrument,
+            'requested_timeframe': timeframe,
+            'actual_timeframe': optimal_timeframe,
+            'resolution_adapted': optimal_timeframe != timeframe,
+            'days': days,
+            'count': len(chart_data),
+            'estimated_candles': estimated_candles,
+            'performance_warning': estimated_candles > 50000
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting adaptive chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 
 @chart_data_bp.route('/api/trade-markers/<int:trade_id>')
 def get_trade_markers(trade_id):
@@ -318,35 +427,78 @@ def get_available_instruments():
 
 @chart_data_bp.route('/api/available-timeframes/<instrument>')
 def get_available_timeframes(instrument):
-    """Get available timeframes for an instrument with data counts"""
+    """
+    Get available timeframes for an instrument. If no data exists,
+    it triggers a fetch and then returns the available timeframes.
+    """
     try:
-        timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
-        available = {}
+        root_symbol = get_root_symbol(instrument)
+        logger.info(f"Getting available timeframes for {instrument} (root: {root_symbol})")
         
         with FuturesDB() as db:
-            for tf in timeframes:
-                count = db.get_ohlc_count(instrument, tf)
+            # 1. Check if any data exists for the root symbol
+            fetch_attempted = False
+            fetch_error = None
+            
+            if db.get_ohlc_count(root_symbol) == 0:
+                logger.info(f"No OHLC data found for {root_symbol}. Triggering on-demand fetch.")
+                fetch_attempted = True
+                try:
+                    # 2. If not, fetch and store it
+                    ohlc_service = OHLCOnDemandService(db)
+                    ohlc_service.fetch_and_store_ohlc(instrument)
+                    
+                    # Verify data was actually fetched
+                    if db.get_ohlc_count(root_symbol) == 0:
+                        fetch_error = "Data fetch completed but no records were stored"
+                        logger.warning(f"On-demand fetch for {instrument} completed but no data was stored")
+                    else:
+                        logger.info(f"On-demand fetch for {instrument} succeeded, {db.get_ohlc_count(root_symbol)} records stored")
+                        
+                except Exception as e:
+                    fetch_error = str(e)
+                    logger.error(f"On-demand fetch failed for {instrument}: {e}")
+
+            # 3. Now, query for the available timeframes with the (potentially) new data
+            available_timeframes = []
+            for timeframe in SUPPORTED_TIMEFRAMES:
+                count = db.get_ohlc_count(root_symbol, timeframe)
                 if count > 0:
-                    available[tf] = count
+                    available_timeframes.append({'timeframe': timeframe, 'count': count})
         
-        # Find best fallback timeframe (prefer 1h, then 1d, then others)
-        fallback_order = ['1h', '1d', '4h', '15m', '5m', '1m']
+        # Determine best timeframe from the populated list
         best_timeframe = None
-        for tf in fallback_order:
-            if tf in available:
-                best_timeframe = tf
-                break
+        if available_timeframes:
+            for pref in TIMEFRAME_PREFERENCE_ORDER:
+                if any(tf['timeframe'] == pref for tf in available_timeframes):
+                    best_timeframe = pref
+                    break
         
-        return jsonify({
-            'success': True,
+        # Convert to old format for backward compatibility
+        available = {}
+        for tf in available_timeframes:
+            available[tf['timeframe']] = tf['count']
+        
+        # Determine overall success state
+        has_data = len(available) > 0
+        success = has_data or not fetch_attempted  # Success if we have data OR if we didn't need to fetch
+        
+        result = {
+            'success': success,
             'instrument': instrument,
             'available_timeframes': available,
             'best_timeframe': best_timeframe,
-            'total_timeframes': len(available)
-        })
+            'total_timeframes': len(available),
+            'fetch_attempted': fetch_attempted,
+            'fetch_error': fetch_error,
+            'has_data': has_data
+        }
+        
+        logger.info(f"Final available timeframes for {root_symbol}: {list(available.keys())}")
+        return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Error getting available timeframes for {instrument}: {e}")
+        logger.error(f"Critical error in get_available_timeframes for {instrument}: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

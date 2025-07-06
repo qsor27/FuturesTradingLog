@@ -149,6 +149,76 @@
             min-width: 100px;
         }
         
+        /* Validation status styling */
+        .validation-healthy {
+            color: #4ade80 !important;
+        }
+        
+        .validation-warning {
+            color: #fbbf24 !important;
+        }
+        
+        .validation-error {
+            color: #f87171 !important;
+        }
+        
+        .validation-loading {
+            color: #9ca3af !important;
+        }
+        
+        #validation-status-card {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        
+        #validation-status-card:hover {
+            background-color: #3a3a3a;
+        }
+        
+        .validation-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+        }
+        
+        .validation-modal-content {
+            background-color: #2a2a2a;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #555;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #e5e5e5;
+        }
+        
+        .validation-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        
+        .validation-close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .validation-close:hover {
+            color: #fff;
+        }
+        
         .compact-filters .filter-group label {
             font-size: 11px;
             margin-bottom: 3px;
@@ -255,6 +325,42 @@
             border-radius: 8px;
             border: 1px solid #404040;
         }
+        
+        /* Validation notification styling */
+        .validation-notification {
+            background-color: #2a1a1a;
+            border-left: 4px solid #f87171;
+            padding: 12px 16px;
+            margin: 15px 0;
+            border-radius: 0 6px 6px 0;
+            display: none;
+            animation: slideDown 0.3s ease-out;
+        }
+        
+        .validation-notification.show {
+            display: block;
+        }
+        
+        .validation-notification.warning {
+            background-color: #2a2a1a;
+            border-left-color: #fbbf24;
+        }
+        
+        .validation-notification.success {
+            background-color: #1a2a1a;
+            border-left-color: #4ade80;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
     </style>
 </head>
 <body>
@@ -265,6 +371,17 @@
             <a href="{{ url_for('main.index') }}" class="btn">View Trades</a>
             <a href="{{ url_for('statistics.statistics') }}" class="btn stats-btn">Statistics</a>
             <a href="{{ url_for('settings.settings') }}" class="btn settings-btn">Settings</a>
+        </div>
+    </div>
+
+    <!-- Validation Notifications -->
+    <div id="validation-notification" class="validation-notification">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <strong id="notification-title">Validation Alert</strong>
+                <div id="notification-message" style="margin-top: 4px; font-size: 14px;"></div>
+            </div>
+            <button onclick="hideValidationNotification()" style="background: none; border: none; color: #999; font-size: 18px; cursor: pointer;">&times;</button>
         </div>
     </div>
 
@@ -297,6 +414,13 @@
         <div class="stat-card">
             <div class="stat-value">{{ "%.1f"|format(stats.avg_executions_per_position or 0) }}</div>
             <div class="stat-label">Avg Executions/Position</div>
+        </div>
+        <div class="stat-card" id="validation-status-card">
+            <div class="stat-value" id="validation-status-value">
+                <i class="fas fa-spinner fa-spin"></i>
+            </div>
+            <div class="stat-label">Position Validation</div>
+            <div class="stat-details" id="validation-details" style="font-size: 11px; margin-top: 5px; color: #999;"></div>
         </div>
     </div>
 
@@ -696,6 +820,265 @@
                 deleteBtn.textContent = 'Delete Selected Positions';
             });
         }
+        
+        // Validation Status Management
+        class ValidationStatusManager {
+            constructor() {
+                this.statusCard = document.getElementById('validation-status-card');
+                this.statusValue = document.getElementById('validation-status-value');
+                this.statusDetails = document.getElementById('validation-details');
+                this.modal = null;
+                this.init();
+            }
+            
+            init() {
+                this.createModal();
+                this.loadValidationStatus();
+                this.statusCard.addEventListener('click', () => this.showValidationDetails());
+                
+                // Refresh validation status every 60 seconds
+                setInterval(() => this.loadValidationStatus(), 60000);
+            }
+            
+            createModal() {
+                this.modal = document.createElement('div');
+                this.modal.className = 'validation-modal';
+                this.modal.innerHTML = `
+                    <div class="validation-modal-content">
+                        <div class="validation-modal-header">
+                            <h2>Position Validation Details</h2>
+                            <span class="validation-close">&times;</span>
+                        </div>
+                        <div id="validation-modal-body">
+                            <div style="text-align: center; color: #999;">
+                                <i class="fas fa-spinner fa-spin"></i> Loading validation details...
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(this.modal);
+                
+                // Close modal handlers
+                this.modal.querySelector('.validation-close').addEventListener('click', () => this.hideModal());
+                this.modal.addEventListener('click', (e) => {
+                    if (e.target === this.modal) this.hideModal();
+                });
+            }
+            
+            async loadValidationStatus() {
+                try {
+                    const response = await fetch('/api/validation/summary');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.updateStatusDisplay(data.summary);
+                    } else {
+                        this.showError('Failed to load validation status');
+                    }
+                } catch (error) {
+                    this.showError('Connection error');
+                    console.error('Validation status error:', error);
+                }
+            }
+            
+            updateStatusDisplay(summary) {
+                const hasIssues = summary.has_issues;
+                const overlaps = summary.overlaps_found || 0;
+                const violations = summary.boundary_violations || 0;
+                
+                // Check if status changed from previous check
+                const previousStatus = this.lastStatus;
+                this.lastStatus = { hasIssues, overlaps, violations };
+                
+                // Update status icon and color
+                if (!hasIssues) {
+                    this.statusValue.innerHTML = '<i class="fas fa-check-circle"></i>';
+                    this.statusValue.className = 'stat-value validation-healthy';
+                    this.statusDetails.textContent = 'All positions valid';
+                    
+                    // Show success notification if issues were resolved
+                    if (previousStatus && previousStatus.hasIssues && !hasIssues) {
+                        this.showNotification('Issues Resolved', 'All position validation issues have been resolved.', 'success');
+                    }
+                } else if (overlaps > 0 || violations > 0) {
+                    this.statusValue.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                    this.statusValue.className = 'stat-value validation-error';
+                    this.statusDetails.textContent = `${overlaps + violations} issues found`;
+                    
+                    // Show error notification if new issues detected
+                    if (!previousStatus || (!previousStatus.hasIssues && hasIssues)) {
+                        this.showNotification('Validation Issues Detected', 
+                            `Found ${overlaps} overlaps and ${violations} boundary violations. Click the validation card for details.`, 'error');
+                    }
+                } else {
+                    this.statusValue.innerHTML = '<i class="fas fa-info-circle"></i>';
+                    this.statusValue.className = 'stat-value validation-warning';
+                    this.statusDetails.textContent = 'Minor warnings';
+                }
+                
+                // Update tooltip
+                this.statusCard.title = `Click for details - Last checked: ${new Date().toLocaleTimeString()}`;
+            }
+            
+            showNotification(title, message, type = 'error') {
+                const notification = document.getElementById('validation-notification');
+                const titleEl = document.getElementById('notification-title');
+                const messageEl = document.getElementById('notification-message');
+                
+                titleEl.textContent = title;
+                messageEl.textContent = message;
+                
+                // Reset classes
+                notification.className = 'validation-notification';
+                
+                // Add appropriate class
+                if (type === 'warning') {
+                    notification.classList.add('warning');
+                } else if (type === 'success') {
+                    notification.classList.add('success');
+                }
+                
+                // Show notification
+                notification.classList.add('show');
+                
+                // Auto-hide after 10 seconds
+                setTimeout(() => {
+                    if (notification.classList.contains('show')) {
+                        notification.classList.remove('show');
+                    }
+                }, 10000);
+            }
+            
+            showError(message) {
+                this.statusValue.innerHTML = '<i class="fas fa-times-circle"></i>';
+                this.statusValue.className = 'stat-value validation-error';
+                this.statusDetails.textContent = message;
+            }
+            
+            async showValidationDetails() {
+                this.modal.style.display = 'block';
+                const modalBody = document.getElementById('validation-modal-body');
+                
+                // Show loading
+                modalBody.innerHTML = `
+                    <div style="text-align: center; color: #999; padding: 20px;">
+                        <i class="fas fa-spinner fa-spin"></i> Loading detailed validation report...
+                    </div>
+                `;
+                
+                try {
+                    // Load detailed validation data
+                    const [summaryRes, analysisRes] = await Promise.all([
+                        fetch('/api/validation/summary'),
+                        fetch('/api/validation/current-positions')
+                    ]);
+                    
+                    const summaryData = await summaryRes.json();
+                    const analysisData = await analysisRes.json();
+                    
+                    if (summaryData.success && analysisData.success) {
+                        this.renderValidationDetails(summaryData, analysisData);
+                    } else {
+                        modalBody.innerHTML = '<div style="color: #f87171;">Error loading validation details</div>';
+                    }
+                } catch (error) {
+                    modalBody.innerHTML = '<div style="color: #f87171;">Connection error loading details</div>';
+                    console.error('Validation details error:', error);
+                }
+            }
+            
+            renderValidationDetails(summaryData, analysisData) {
+                const summary = summaryData.summary;
+                const analysis = analysisData.analysis;
+                const modalBody = document.getElementById('validation-modal-body');
+                
+                const statusIcon = summary.has_issues ? 
+                    '<i class="fas fa-exclamation-triangle" style="color: #f87171;"></i>' :
+                    '<i class="fas fa-check-circle" style="color: #4ade80;"></i>';
+                
+                modalBody.innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <h3>${statusIcon} Validation Summary</h3>
+                        <div style="background: #1f1f1f; padding: 15px; border-radius: 6px; margin: 10px 0;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                                <div>
+                                    <div style="color: #999; font-size: 12px;">Total Positions</div>
+                                    <div style="font-size: 18px; font-weight: bold;">${summary.total_positions || 0}</div>
+                                </div>
+                                <div>
+                                    <div style="color: #999; font-size: 12px;">Groups Analyzed</div>
+                                    <div style="font-size: 18px; font-weight: bold;">${summary.groups_analyzed || 0}</div>
+                                </div>
+                                <div>
+                                    <div style="color: #999; font-size: 12px;">Overlaps Found</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: ${summary.overlaps_found > 0 ? '#f87171' : '#4ade80'};">${summary.overlaps_found || 0}</div>
+                                </div>
+                                <div>
+                                    <div style="color: #999; font-size: 12px;">Boundary Violations</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: ${summary.boundary_violations > 0 ? '#f87171' : '#4ade80'};">${summary.boundary_violations || 0}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${summary.has_issues ? `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: #f87171;">Issues Detected</h4>
+                            <div style="background: #2a1a1a; border-left: 4px solid #f87171; padding: 15px; border-radius: 0 6px 6px 0;">
+                                Position overlaps or boundary violations detected. Consider running position rebuild with validation to address these issues.
+                            </div>
+                        </div>
+                    ` : `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="color: #4ade80;">All Clear</h4>
+                            <div style="background: #1a2a1a; border-left: 4px solid #4ade80; padding: 15px; border-radius: 0 6px 6px 0;">
+                                No position overlaps or boundary violations detected. Your position data is healthy.
+                            </div>
+                        </div>
+                    `}
+                    
+                    <div style="margin-top: 20px; text-align: center;">
+                        <button onclick="validationManager.triggerRebuild()" class="btn" style="margin-right: 10px;">
+                            <i class="fas fa-sync"></i> Rebuild with Validation
+                        </button>
+                        <button onclick="validationManager.refreshValidation()" class="btn">
+                            <i class="fas fa-refresh"></i> Refresh Status
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 15px; text-align: center; color: #999; font-size: 12px;">
+                        Last checked: ${new Date(summary.validation_timestamp).toLocaleString()}
+                    </div>
+                `;
+            }
+            
+            hideModal() {
+                this.modal.style.display = 'none';
+            }
+            
+            async triggerRebuild() {
+                if (confirm('Rebuild all positions with validation? This may take a few moments.')) {
+                    this.hideModal();
+                    rebuildPositions(); // Use existing rebuild function
+                }
+            }
+            
+            async refreshValidation() {
+                this.hideModal();
+                this.loadValidationStatus();
+            }
+        }
+        
+        // Global function to hide validation notifications
+        function hideValidationNotification() {
+            const notification = document.getElementById('validation-notification');
+            notification.classList.remove('show');
+        }
+        
+        // Initialize validation status manager when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            window.validationManager = new ValidationStatusManager();
+        });
     </script>
 </body>
 </html>

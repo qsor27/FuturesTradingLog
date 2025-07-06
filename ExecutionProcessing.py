@@ -4,8 +4,65 @@ import os
 from datetime import datetime
 import glob
 import shutil
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+import logging
 
 from config import config
+
+# Import secure processor if available
+try:
+    from secure_execution_processing import SecureExecutionProcessor
+    SECURE_PROCESSING_AVAILABLE = True
+except ImportError:
+    SECURE_PROCESSING_AVAILABLE = False
+    logging.warning("Secure processing not available - using legacy mode")
+
+# Import cache manager for invalidation
+try:
+    from cache_manager import get_cache_manager
+    CACHE_INVALIDATION_AVAILABLE = True
+except ImportError:
+    CACHE_INVALIDATION_AVAILABLE = False
+    logging.warning("Cache invalidation not available")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Security limits
+MAX_FILE_SIZE_MB = 10
+MAX_ROWS = 100000
+
+def validate_file_security(file_path: str) -> Tuple[bool, str]:
+    """
+    Basic security validation for CSV files.
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        file_path_obj = Path(file_path)
+        
+        # Check file exists
+        if not file_path_obj.exists():
+            return False, f"File not found: {file_path}"
+        
+        # Check file size
+        file_size = file_path_obj.stat().st_size
+        max_size_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+        if file_size > max_size_bytes:
+            return False, f"File too large: {file_size / (1024*1024):.1f}MB > {MAX_FILE_SIZE_MB}MB limit"
+        
+        # Check file extension
+        if file_path_obj.suffix.lower() != '.csv':
+            return False, f"Invalid file type: {file_path_obj.suffix}. Only CSV files allowed."
+        
+        return True, "File validation passed"
+        
+    except Exception as e:
+        return False, f"File validation error: {str(e)}"
+
 
 def create_archive_folder():
     """Create Archive folder if it doesn't exist"""
@@ -13,20 +70,69 @@ def create_archive_folder():
     if not archive_path.exists():
         archive_path.mkdir(parents=True)
 
+
+def invalidate_cache_after_import(processed_trades: List[Dict]) -> None:
+    """
+    Invalidate cache after processing trades to ensure data consistency.
+    """
+    if not CACHE_INVALIDATION_AVAILABLE or not processed_trades:
+        return
+    
+    try:
+        # Extract unique instruments and accounts from processed trades
+        instruments = set()
+        accounts = set()
+        
+        for trade in processed_trades:
+            if 'Instrument' in trade:
+                instruments.add(trade['Instrument'])
+            if 'Account' in trade:
+                accounts.add(trade['Account'])
+        
+        instruments = list(instruments)
+        accounts = list(accounts)
+        
+        if instruments or accounts:
+            cache_manager = get_cache_manager()
+            result = cache_manager.on_trade_import(instruments, accounts)
+            
+            logger.info(f"Cache invalidation completed for {len(instruments)} instruments, {len(accounts)} accounts")
+            logger.debug(f"Cache invalidation details: {result}")
+    
+    except Exception as e:
+        logger.error(f"Cache invalidation failed: {e}")
+        # Don't raise - cache invalidation failure shouldn't stop trade processing
+
 def process_trades(df, multipliers):
     """Process trades from a NinjaTrader DataFrame using proper account-based position tracking"""
+    # Validate DataFrame size
+    if len(df) > MAX_ROWS:
+        raise ValueError(f"DataFrame too large: {len(df)} rows > {MAX_ROWS} limit")
+    
     # Create an explicit copy of the DataFrame
     ninja_trades_df = df.copy()
     
-    # Convert Commission to float, removing '$' if present
-    ninja_trades_df.loc[:, 'Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
+    # Validate required columns
+    required_columns = ['ID', 'Account', 'Instrument', 'Time', 'Action', 'E/X', 'Quantity', 'Price', 'Commission']
+    missing_columns = [col for col in required_columns if col not in ninja_trades_df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+    
+    # Convert Commission to float with error handling
+    try:
+        ninja_trades_df.loc[:, 'Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
+    except Exception as e:
+        raise ValueError(f"Failed to parse Commission column: {str(e)}")
 
     # Remove duplicates based on ID while keeping the first occurrence
     ninja_trades_df = ninja_trades_df.drop_duplicates(subset=['ID'])
 
-    # Sort by Time to ensure proper order
-    ninja_trades_df.loc[:, 'Time'] = pd.to_datetime(ninja_trades_df['Time'])
-    ninja_trades_df = ninja_trades_df.sort_values(['Account', 'Time'])
+    # Sort by Time to ensure proper order with error handling
+    try:
+        ninja_trades_df.loc[:, 'Time'] = pd.to_datetime(ninja_trades_df['Time'])
+        ninja_trades_df = ninja_trades_df.sort_values(['Account', 'Time'])
+    except Exception as e:
+        raise ValueError(f"Failed to parse Time column: {str(e)}")
 
     # Initialize list to store processed trades
     processed_trades = []
@@ -40,12 +146,16 @@ def process_trades(df, multipliers):
         open_positions = []  # List of open entry executions
         
         for _, execution in account_df.iterrows():
-            qty = int(execution['Quantity'])
-            price = float(execution['Price'])
-            time = execution['Time']
-            exec_id = execution['ID']
-            commission = float(execution['Commission'])
-            instrument = execution['Instrument']
+            try:
+                qty = int(execution['Quantity'])
+                price = float(execution['Price'])
+                time = execution['Time']
+                exec_id = execution['ID']
+                commission = float(execution['Commission'])
+                instrument = execution['Instrument']
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping invalid execution row {execution['ID']}: {str(e)}")
+                continue
             
             print(f"  Processing {execution['E/X']}: {execution['Action']} {qty} at {price} (ID: {exec_id})")
             
@@ -57,7 +167,7 @@ def process_trades(df, multipliers):
                     'time': time,
                     'id': exec_id,
                     'commission': commission,
-                    'side': 'Long' if execution['Action'] == 'Buy' else 'Short'
+                    'side': execution['Action']  # Preserve Buy/Sell terminology
                 })
                 print(f"    Added to open positions: {qty} contracts at {price}")
                 
@@ -76,10 +186,11 @@ def process_trades(df, multipliers):
                     close_qty = min(remaining_to_close, open_pos['quantity'])
                     
                     # Calculate P&L for this portion
-                    if open_pos['side'] == 'Long':
-                        points_pl = price - open_pos['price']  # Long: exit - entry
-                    else:
-                        points_pl = open_pos['price'] - price  # Short: entry - exit
+                    # Calculate P&L for this portion based on actual market actions
+                    if open_pos['side'] == 'Buy':
+                        points_pl = price - open_pos['price']  # Long position: exit - entry
+                    else:  # open_pos['side'] == 'Sell'
+                        points_pl = open_pos['price'] - price  # Short position: entry - exit
                     
                     # Get multiplier for this instrument
                     multiplier = float(multipliers.get(instrument, 1))
@@ -168,14 +279,24 @@ def main():
     # Process each NinjaTrader file
     for ninja_file in ninja_files:
         print(f"Processing {ninja_file}...")
-        
-        # Read the trades CSV
         full_path = os.path.join(str(config.data_dir), ninja_file)
-        df = pd.read_csv(full_path)
         
-        # Process the trades
-        processed_trades = process_trades(df, multipliers)
-        all_processed_trades.extend(processed_trades)
+        # Validate file security
+        is_valid, error_msg = validate_file_security(full_path)
+        if not is_valid:
+            logger.error(f"Security validation failed for {ninja_file}: {error_msg}")
+            continue
+        
+        try:
+            # Read the trades CSV
+            df = pd.read_csv(full_path)
+            
+            # Process the trades
+            processed_trades = process_trades(df, multipliers)
+            all_processed_trades.extend(processed_trades)
+        except Exception as e:
+            logger.error(f"Failed to process {ninja_file}: {str(e)}")
+            continue
         
         # Move processed file to Archive folder
         archive_path = config.data_dir / 'archive' / os.path.basename(ninja_file)
@@ -184,6 +305,9 @@ def main():
 
     # Convert processed trades to DataFrame
     new_trades_df = pd.DataFrame(all_processed_trades)
+    
+    # Invalidate cache after processing trades
+    invalidate_cache_after_import(all_processed_trades)
 
     trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
 

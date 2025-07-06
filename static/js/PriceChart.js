@@ -232,9 +232,9 @@ class PriceChart {
             this.showLoading(true);
             console.log(`🔍 Loading chart data for ${this.options.instrument}, timeframe: ${this.options.timeframe}, days: ${this.options.days}`);
             
-            // First try the requested timeframe
-            let url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
-            console.log(`📡 Fetching from: ${url}`);
+            // Use adaptive endpoint for automatic resolution optimization
+            let url = `/api/chart-data-adaptive/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
+            console.log(`📡 Fetching from adaptive endpoint: ${url}`);
             
             let response = await fetch(url);
             console.log(`📊 Response status: ${response.status} ${response.statusText}`);
@@ -244,13 +244,23 @@ class PriceChart {
             }
             
             let data = await response.json();
-            console.log(`📈 API Response:`, {
+            console.log(`📈 Adaptive API Response:`, {
                 success: data.success,
                 count: data.count,
                 hasData: !!(data.data && data.data.length > 0),
                 instrument: data.instrument,
-                timeframe: data.timeframe
+                requestedTimeframe: data.requested_timeframe,
+                actualTimeframe: data.actual_timeframe,
+                resolutionAdapted: data.resolution_adapted,
+                estimatedCandles: data.estimated_candles,
+                performanceWarning: data.performance_warning
             });
+            
+            // Show resolution adaptation info to user
+            if (data.resolution_adapted) {
+                console.log(`🔄 Resolution adapted: ${data.requested_timeframe} → ${data.actual_timeframe} for ${data.days} days (${data.estimated_candles:,} candles)`);
+                this.showResolutionAdaptationNotice(data.requested_timeframe, data.actual_timeframe, data.days);
+            }
             
             if (!data.success) {
                 const errorMsg = data.error || 'Failed to fetch chart data';
@@ -268,7 +278,7 @@ class PriceChart {
                         const timeframesData = await timeframesResponse.json();
                         console.log(`🔍 Available timeframes:`, timeframesData);
                         
-                        if (timeframesData.success && timeframesData.best_timeframe) {
+                        if (timeframesData.has_data && timeframesData.best_timeframe) {
                             console.log(`🔄 Switching from ${this.options.timeframe} to ${timeframesData.best_timeframe}`);
                             
                             // Update options and retry
@@ -285,6 +295,12 @@ class PriceChart {
                                 // Update UI to show we switched timeframes
                                 this.updateTimeframeSelect(this.options.timeframe);
                             }
+                        } else if (timeframesData.fetch_attempted && timeframesData.fetch_error) {
+                            console.error(`❌ Data fetch failed for ${this.options.instrument}: ${timeframesData.fetch_error}`);
+                            this.showError(`Unable to load market data for ${this.options.instrument}. ${timeframesData.fetch_error}`);
+                            return;
+                        } else if (!timeframesData.has_data) {
+                            console.warn(`⚠️ No data available for ${this.options.instrument} in any timeframe`);
                         }
                     }
                 } catch (fallbackError) {
@@ -578,19 +594,22 @@ class PriceChart {
         Object.assign(this.ohlcDisplayEl.style, {
             position: 'absolute',
             zIndex: '100',
-            backgroundColor: '#2b2b2b',
+            backgroundColor: 'rgba(43, 43, 43, 0.95)', // Semi-transparent
             color: '#e5e5e5',
             fontFamily: 'monospace',
-            fontSize: '13px',
-            padding: '8px 12px',
-            borderRadius: '4px',
+            fontSize: '12px',
+            padding: '12px 16px',
+            borderRadius: '6px',
             pointerEvents: 'none', // Prevents blocking chart interaction
             whiteSpace: 'nowrap',
-            boxShadow: '0 2px 5px rgba(0, 0, 0, 0.5)',
-            border: '1px solid #444',
-            top: '10px',
-            right: '10px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.6)',
+            border: '1px solid #555',
+            backdropFilter: 'blur(4px)', // Modern blur effect
+            top: '15px',
+            right: '15px',
             display: 'none', // Hidden by default
+            minWidth: '160px',
+            transition: 'opacity 0.2s ease-in-out'
         });
         
         this.container.appendChild(this.ohlcDisplayEl);
@@ -636,7 +655,17 @@ class PriceChart {
                         high: dataPoint.high,
                         low: dataPoint.low,
                         close: dataPoint.close,
+                        volume: dataPoint.volume || 0
                     };
+                    
+                    // Add volume data if volume series is available
+                    if (this.volumeSeries && param.seriesData.has(this.volumeSeries)) {
+                        const volumePoint = param.seriesData.get(this.volumeSeries);
+                        if (volumePoint && volumePoint.value) {
+                            ohlc.volume = volumePoint.value;
+                        }
+                    }
+                    
                     this.updateOhlcDisplay(ohlc);
                 } else {
                     // No candle data at this exact time (e.g., gap)
@@ -658,6 +687,16 @@ class PriceChart {
         const formattedH = ohlc.high.toFixed(2);
         const formattedL = ohlc.low.toFixed(2);
         const formattedC = ohlc.close.toFixed(2);
+        
+        // Calculate price change and percentage
+        const priceChange = ohlc.close - ohlc.open;
+        const priceChangePercent = ((priceChange / ohlc.open) * 100).toFixed(2);
+        const isPositive = priceChange >= 0;
+        const changeColor = isPositive ? '#4caf50' : '#f44336';
+        const changeSymbol = isPositive ? '+' : '';
+        
+        // Format volume with thousands separators
+        const formattedVolume = ohlc.volume ? ohlc.volume.toLocaleString() : 'N/A';
         
         // Format timestamp based on timeframe
         let formattedTime = '';
@@ -694,18 +733,40 @@ class PriceChart {
         }
 
         this.ohlcDisplayEl.innerHTML = `
-            <div style="margin-bottom: 4px; font-weight: bold; color: #ffd700;">${formattedTime}</div>
-            <span style="margin-right: 10px;">O: ${formattedO}</span>
-            <span style="margin-right: 10px;">H: ${formattedH}</span>
-            <span style="margin-right: 10px;">L: ${formattedL}</span>
-            <span>C: ${formattedC}</span>
+            <div style="margin-bottom: 6px; font-weight: bold; color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 4px;">
+                ${formattedTime}
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="margin-right: 12px; color: #b0b0b0;">O:</span><span style="color: #e5e5e5;">${formattedO}</span>
+                <span style="margin-left: 12px; margin-right: 12px; color: #b0b0b0;">H:</span><span style="color: #4caf50;">${formattedH}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="margin-right: 12px; color: #b0b0b0;">L:</span><span style="color: #f44336;">${formattedL}</span>
+                <span style="margin-left: 12px; margin-right: 12px; color: #b0b0b0;">C:</span><span style="color: #e5e5e5;">${formattedC}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="margin-right: 12px; color: #b0b0b0;">Vol:</span><span style="color: #9c27b0;">${formattedVolume}</span>
+            </div>
+            <div style="padding-top: 4px; border-top: 1px solid #444;">
+                <span style="color: ${changeColor}; font-weight: bold;">
+                    ${changeSymbol}${priceChange.toFixed(2)} (${changeSymbol}${priceChangePercent}%)
+                </span>
+            </div>
         `;
+        // Show with smooth animation
         this.ohlcDisplayEl.style.display = 'block';
+        this.ohlcDisplayEl.style.opacity = '1';
     }
     
     hideOhlcDisplay() {
         if (this.ohlcDisplayEl) {
-            this.ohlcDisplayEl.style.display = 'none';
+            // Hide with smooth animation
+            this.ohlcDisplayEl.style.opacity = '0';
+            setTimeout(() => {
+                if (this.ohlcDisplayEl) {
+                    this.ohlcDisplayEl.style.display = 'none';
+                }
+            }, 200); // Match transition duration
         }
     }
 
@@ -714,6 +775,45 @@ class PriceChart {
         if (loadingEl) {
             loadingEl.style.display = show ? 'block' : 'none';
         }
+    }
+
+    showResolutionAdaptationNotice(requestedTimeframe, actualTimeframe, days) {
+        // Show a subtle notification that resolution was adapted for performance
+        const notice = document.createElement('div');
+        notice.className = 'resolution-adaptation-notice';
+        notice.innerHTML = `
+            <span class="notice-icon">🔄</span>
+            <span class="notice-text">
+                Resolution adapted to ${actualTimeframe} for ${days}-day range (was ${requestedTimeframe})
+            </span>
+            <button class="notice-close" onclick="this.parentElement.remove()">×</button>
+        `;
+        notice.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 123, 255, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            max-width: 300px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        `;
+        
+        this.container.style.position = 'relative';
+        this.container.appendChild(notice);
+        
+        // Auto-hide after 8 seconds
+        setTimeout(() => {
+            if (notice.parentElement) {
+                notice.remove();
+            }
+        }, 8000);
     }
     
     showError(message) {

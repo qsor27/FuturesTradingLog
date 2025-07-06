@@ -193,17 +193,26 @@ class PositionService:
         - Position starts when quantity goes from 0 to non-zero
         - Position continues while quantity remains non-zero (same direction)
         - Position ends when quantity returns to 0
+        - NEW: Position reversal detection prevents overlaps
         """
         if not executions:
             return []
+        
+        # CRITICAL: Sort executions by timestamp to ensure correct order
+        try:
+            sorted_executions = sorted(executions, key=lambda ex: ex.get('entry_time', ''))
+            logger.info(f"Sorted {len(sorted_executions)} executions by entry_time for correct order")
+        except Exception as e:
+            logger.warning(f"Could not sort executions by entry_time: {e}. Using original order.")
+            sorted_executions = executions
         
         positions = []
         current_position = None
         running_quantity = 0
         
-        logger.info(f"Starting quantity flow analysis for {len(executions)} executions")
+        logger.info(f"Starting quantity flow analysis for {len(sorted_executions)} executions")
         
-        for i, execution in enumerate(executions):
+        for i, execution in enumerate(sorted_executions):
             # Get raw execution data from NinjaTrader import
             quantity = abs(int(execution.get('quantity', 0)))
             
@@ -211,11 +220,11 @@ class PositionService:
             # The side_of_market field represents the direction of the quantity change
             action = execution.get('side_of_market', '').strip()
             
-            # Convert to signed quantity change effect
-            if action == 'Long':
-                signed_qty_change = quantity  # Adding long contracts (+)
-            elif action == 'Short': 
-                signed_qty_change = -quantity  # Adding short contracts (-)
+            # Convert to signed quantity change effect based on market actions
+            if action == "Buy":
+                signed_qty_change = quantity  # Buying contracts (+)
+            elif action == "Sell": 
+                signed_qty_change = -quantity  # Selling contracts (-)
             else:
                 logger.warning(f"Unknown side_of_market '{action}' for execution {execution.get('entry_execution_id', 'Unknown')}")
                 continue
@@ -241,11 +250,43 @@ class PositionService:
                 }
                 logger.info(f"  → Started new {current_position['position_type']} position")
                 
+            elif current_position and previous_quantity * running_quantity < 0:
+                # Position Reversal detected (e.g., from +10 to -5) - OVERLAP PREVENTION
+                # The sign of the quantity has flipped, indicating a position reversal
+                logger.info(f"  → REVERSAL DETECTED: Closing previous {current_position['position_type']} position")
+                
+                # Step 1: Close the old position using the reversing trade as final execution
+                current_position['executions'].append(execution)
+                current_position['position_status'] = 'closed'
+                current_position['execution_count'] = len(current_position['executions'])
+                self._determine_position_type_from_executions(current_position)
+                self._calculate_position_totals_from_executions(current_position)
+                positions.append(current_position)
+                logger.info(f"  → Closed reversed position with {current_position['execution_count']} executions")
+                
+                # Step 2: Open new position in opposite direction using same execution
+                new_position_type = 'Long' if running_quantity > 0 else 'Short'
+                logger.info(f"  → Starting new {new_position_type} position from reversal")
+                current_position = {
+                    'instrument': instrument,
+                    'account': account,
+                    'position_type': new_position_type,
+                    'entry_time': execution.get('entry_time'),
+                    'executions': [execution],  # This execution is the entry for the new position
+                    'total_quantity': abs(running_quantity),
+                    'max_quantity': abs(running_quantity),
+                    'position_status': 'open',
+                    'execution_count': 1
+                }
+                
             elif current_position and running_quantity == 0:
                 # Closing position (non-zero → 0)
                 current_position['executions'].append(execution)
                 current_position['position_status'] = 'closed'
                 current_position['execution_count'] = len(current_position['executions'])
+                # Determine correct position type based on entry/exit pattern
+                self._determine_position_type_from_executions(current_position)
+
                 
                 # Calculate position totals (this will set correct entry/exit times)
                 self._calculate_position_totals_from_executions(current_position)
@@ -278,6 +319,44 @@ class PositionService:
         
         logger.info(f"Quantity flow analysis complete: {len(positions)} positions created")
         return positions
+    def _determine_position_type_from_executions(self, position: Dict):
+        """Determine position type based on entry/exit pattern
+        
+        Long Position: Entry = Buy (Long), Exit = Sell (Short)
+        Short Position: Entry = Sell (Short), Exit = Buy (Long)
+        """
+        executions = position["executions"]
+        if not executions:
+            return
+        
+        # Analyze the flow to determine entries vs exits
+        # The opening action determines the position type
+        opening_action = executions[0].get("side_of_market", "").strip()
+        
+        # Count Buy vs Sell actions
+        buy_actions = sum(1 for ex in executions if ex.get("side_of_market", "").strip() == "Buy")
+        sell_actions = sum(1 for ex in executions if ex.get("side_of_market", "").strip() == "Sell")
+        
+        # Determine position type based on which action type is the minority (entries)
+        # For a complete round-trip position:
+        # - Long position: Few Long actions (entries), many Short actions (exits)
+        # - Short position: Few Short actions (entries), many Long actions (exits)
+        
+        if opening_action == "Buy":
+            # Opened with Buy action -> Long position
+            position["position_type"] = "Long"
+        elif opening_action == "Sell":
+            # Opened with Sell action -> Short position  
+            position["position_type"] = "Short"
+        else:
+            # Fallback to original logic if unclear
+            buy_actions = sum(1 for ex in executions if ex.get("side_of_market", "").strip() == "Buy")
+            sell_actions = sum(1 for ex in executions if ex.get("side_of_market", "").strip() == "Sell")
+            position["position_type"] = "Long" if buy_actions >= sell_actions else "Short"
+        
+        logger.info(f"  → Determined position type: {position["position_type"]} (opened with {opening_action})")
+
+
     
     def _calculate_position_totals_from_executions(self, position: Dict):
         """Calculate position totals from aggregated executions using FIFO methodology"""
@@ -305,24 +384,24 @@ class PositionService:
                 position['exit_time'] = sorted_executions[-1].get('entry_time')
         
         # Separate entry and exit executions based on position direction
-        # For a Long position: Long side_of_market = entries, Short side_of_market = exits
-        # For a Short position: Short side_of_market = entries, Long side_of_market = exits
+        # For a Long position: Buy actions = entries, Sell actions = exits
+        # For a Short position: Sell actions = entries, Buy actions = exits
         entries = []
         exits = []
         
         for execution in executions:
             side = execution.get('side_of_market', '').strip()
             if position['position_type'] == 'Long':
-                # Long position: Long actions add to position, Short actions reduce position
-                if side == 'Long':
+                # Long position: Buy actions are entries, Sell actions are exits
+                if side == 'Buy':
                     entries.append(execution)
-                elif side == 'Short':
+                elif side == 'Sell':
                     exits.append(execution)
             else:  # Short position
-                # Short position: Short actions add to position, Long actions reduce position
-                if side == 'Short':
+                # Short position: Sell actions are entries, Buy actions are exits
+                if side == 'Sell':
                     entries.append(execution)
-                elif side == 'Long':
+                elif side == 'Buy':
                     exits.append(execution)
         
         # Calculate averages and totals

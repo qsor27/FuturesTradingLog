@@ -182,7 +182,7 @@ class FileWatcher:
     def _rebuild_positions(self, db) -> Dict[str, int]:
         """Rebuild positions using the position service"""
         try:
-            from position_service import PositionService
+            from enhanced_position_service import EnhancedPositionService as PositionService
             
             # Use position service to rebuild positions
             with PositionService() as position_service:

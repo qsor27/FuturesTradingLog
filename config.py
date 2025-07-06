@@ -90,5 +90,20 @@ class Config:
         """Return cache TTL in days (default: 14 days)"""
         return int(os.getenv('CACHE_TTL_DAYS', 14))
 
+# Timeframe configuration constants
+SUPPORTED_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
+TIMEFRAME_PREFERENCE_ORDER = ['1h', '1d', '15m', '5m', '4h', '1m', '3m']
+
+# yfinance timeframe mapping
+YFINANCE_TIMEFRAME_MAP = {
+    '1m': '1m',
+    '3m': '3m', 
+    '5m': '5m',
+    '15m': '15m',
+    '1h': '1h',
+    '4h': '4h',
+    '1d': '1d'
+}
+
 # Create global config instance
 config = Config()

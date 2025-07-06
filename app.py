@@ -18,6 +18,9 @@ from routes.reports import reports_bp
 from routes.execution_analysis import execution_analysis_bp
 from routes.positions import positions_bp
 from routes.data_monitoring import data_monitoring_bp
+from routes.profiles import profiles_bp
+from routes.tasks import bp as tasks_bp
+from routes.cache_management import cache_bp
 from TradingLog_db import FuturesDB
 from background_services import start_background_services, stop_background_services, get_services_status
 from automated_data_sync import start_automated_data_sync, stop_automated_data_sync, get_data_sync_status, force_data_sync
@@ -152,6 +155,9 @@ app.register_blueprint(reports_bp)  # Reports routes
 app.register_blueprint(execution_analysis_bp)  # Execution analysis routes
 app.register_blueprint(positions_bp, url_prefix='/positions')  # Positions routes
 app.register_blueprint(data_monitoring_bp)  # Data monitoring routes
+app.register_blueprint(profiles_bp)  # Profile management routes
+app.register_blueprint(tasks_bp)  # Task management routes
+app.register_blueprint(cache_bp)  # Cache management routes
 
 # Template filters for symbol handling
 @app.template_filter('base_symbol')
