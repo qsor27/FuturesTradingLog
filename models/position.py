@@ -119,7 +119,7 @@ class Position(BaseModel):
             raise ValueError('Account cannot be empty')
         return v.strip()
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_position_logic(cls, values):
         """Cross-field validation for position logic"""
         status = values.get('status')
