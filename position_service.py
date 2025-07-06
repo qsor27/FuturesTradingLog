@@ -354,7 +354,7 @@ class PositionService:
             sell_actions = sum(1 for ex in executions if ex.get("side_of_market", "").strip() == "Sell")
             position["position_type"] = "Long" if buy_actions >= sell_actions else "Short"
         
-        logger.info(f"  → Determined position type: {position["position_type"]} (opened with {opening_action})")
+        logger.info(f"  → Determined position type: {position['position_type']} (opened with {opening_action})")
 
 
     
