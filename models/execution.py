@@ -101,7 +101,7 @@ class Execution(BaseModel):
             raise ValueError('Account cannot be empty')
         return v.strip()
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_execution_logic(cls, values):
         """Cross-field validation for execution logic"""
         action = values.get('action')
