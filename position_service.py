@@ -415,29 +415,22 @@ class PositionService:
         else:
             position['average_entry_price'] = 0
         
-        # Weighted average exit price
+        # Weighted average exit price - CRITICAL FIX: use exit_price not entry_price
         if exits and total_exit_quantity > 0:
-            weighted_exit = sum(float(e.get('entry_price', 0)) * int(e.get('quantity', 0)) for e in exits)
+            weighted_exit = sum(float(e.get('exit_price', e.get('entry_price', 0))) * int(e.get('quantity', 0)) for e in exits)
             position['average_exit_price'] = weighted_exit / total_exit_quantity
         else:
             position['average_exit_price'] = position['average_entry_price']
         
-        # Calculate P&L for closed positions
+        # Calculate P&L for closed positions using FIFO methodology
         if position['position_status'] == 'closed' and total_entry_quantity > 0 and total_exit_quantity > 0:
-            # Use minimum quantity for P&L calculation (handles partial exits)
-            pnl_quantity = min(total_entry_quantity, total_exit_quantity)
+            # FIFO P&L calculation: match entries with exits in chronological order
+            position_pnl = self._calculate_fifo_pnl(entries, exits, position['position_type'])
+            position['total_points_pnl'] = position_pnl['points_pnl']
             
-            if position['position_type'] == 'Long':
-                points_pnl = position['average_exit_price'] - position['average_entry_price']
-            else:  # Short
-                points_pnl = position['average_entry_price'] - position['average_exit_price']
-            
-            position['total_points_pnl'] = points_pnl
-            
-            # Calculate dollar P&L (need instrument multiplier - assume $20 for MNQ)
-            # TODO: Get actual multiplier from config
-            multiplier = 20  # MNQ standard multiplier
-            position['total_dollars_pnl'] = points_pnl * multiplier * pnl_quantity
+            # Calculate dollar P&L using actual instrument multiplier
+            multiplier = self._get_instrument_multiplier(position['instrument'])
+            position['total_dollars_pnl'] = position_pnl['points_pnl'] * multiplier
         else:
             position['total_points_pnl'] = 0
             position['total_dollars_pnl'] = 0
@@ -453,6 +446,70 @@ class PositionService:
                 position['risk_reward_ratio'] = position['total_commission'] / abs(position['total_dollars_pnl'])
         else:
             position['risk_reward_ratio'] = 0
+    
+    def _calculate_fifo_pnl(self, entries: List[Dict], exits: List[Dict], position_type: str) -> Dict:
+        """Calculate P&L using FIFO (First In, First Out) methodology
+        
+        Matches entries with exits in chronological order to calculate precise P&L.
+        This accounts for different entry/exit prices and quantities accurately.
+        """
+        if not entries or not exits:
+            return {'points_pnl': 0, 'matched_quantity': 0}
+        
+        # Sort by entry_time for chronological matching
+        sorted_entries = sorted(entries, key=lambda x: x.get('entry_time', ''))
+        sorted_exits = sorted(exits, key=lambda x: x.get('entry_time', ''))
+        
+        total_pnl = 0
+        matched_quantity = 0
+        
+        # FIFO matching algorithm
+        entry_idx = 0
+        exit_idx = 0
+        remaining_entry_qty = 0
+        remaining_exit_qty = 0
+        
+        while entry_idx < len(sorted_entries) and exit_idx < len(sorted_exits):
+            entry = sorted_entries[entry_idx]
+            exit = sorted_exits[exit_idx]
+            
+            # Get remaining quantities
+            if remaining_entry_qty == 0:
+                remaining_entry_qty = int(entry.get('quantity', 0))
+            if remaining_exit_qty == 0:
+                remaining_exit_qty = int(exit.get('quantity', 0))
+            
+            # Match the smaller quantity
+            match_qty = min(remaining_entry_qty, remaining_exit_qty)
+            
+            if match_qty > 0:
+                entry_price = float(entry.get('entry_price', 0))
+                exit_price = float(exit.get('exit_price', exit.get('entry_price', 0)))
+                
+                # Calculate P&L for this match based on position type
+                if position_type == 'Long':
+                    pnl_per_unit = exit_price - entry_price
+                else:  # Short
+                    pnl_per_unit = entry_price - exit_price
+                
+                match_pnl = pnl_per_unit * match_qty
+                total_pnl += match_pnl
+                matched_quantity += match_qty
+                
+                # Update remaining quantities
+                remaining_entry_qty -= match_qty
+                remaining_exit_qty -= match_qty
+                
+                # Move to next entry/exit if current one is fully matched
+                if remaining_entry_qty == 0:
+                    entry_idx += 1
+                if remaining_exit_qty == 0:
+                    exit_idx += 1
+        
+        return {
+            'points_pnl': total_pnl,
+            'matched_quantity': matched_quantity
+        }
     
     def _convert_completed_trades_to_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
         """Convert completed trades into position records (1:1 mapping)
@@ -560,11 +617,32 @@ class PositionService:
     # - Consistent 1:1 mapping from completed trades to position records
     
     
+    def _get_instrument_multiplier(self, instrument: str) -> float:
+        """Get instrument multiplier for P&L calculations"""
+        # Load from config or use default
+        try:
+            from config import config
+            import json
+            import os
+            
+            # First try the configured path
+            config_path = config.instrument_config
+            if not os.path.exists(config_path):
+                # Fallback to working directory
+                config_path = 'data/config/instrument_multipliers.json'
+            
+            with open(config_path, 'r') as f:
+                multipliers = json.load(f)
+            return float(multipliers.get(instrument, 1.0))
+        except Exception as e:
+            logger.warning(f"Could not load multiplier for {instrument}: {e}")
+            return 1.0
+    
     def _calculate_position_totals_from_completed_trade(self, position: Dict):
         """Calculate position totals from a completed trade record
         
         PURE COMPLETED TRADE MODEL: Trade already has calculated entry/exit prices and P&L.
-        Simply extract the values from the completed trade - no complex calculations needed.
+        Extract the values from the completed trade and apply proper multiplier for dollar P&L.
         """
         executions = position['executions']
         
@@ -578,9 +656,17 @@ class PositionService:
         position['average_entry_price'] = trade['entry_price']
         position['average_exit_price'] = trade.get('exit_price', trade['entry_price'])
         position['total_points_pnl'] = trade.get('points_gain_loss', 0)
-        position['total_dollars_pnl'] = trade['dollars_gain_loss']
         position['total_commission'] = trade['commission']
         position['execution_count'] = 1
+        
+        # CRITICAL FIX: Apply proper multiplier to calculate dollar P&L
+        # The pre-calculated dollars_gain_loss may not use the correct multiplier
+        points_pnl = position['total_points_pnl']
+        quantity = trade.get('quantity', 1)
+        multiplier = self._get_instrument_multiplier(position['instrument'])
+        
+        # Calculate dollar P&L using correct multiplier
+        position['total_dollars_pnl'] = points_pnl * multiplier * quantity
         
         # Calculate risk/reward ratio for completed positions
         if position['total_dollars_pnl'] != 0 and position['total_commission'] > 0:
