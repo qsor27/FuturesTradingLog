@@ -1,204 +1,131 @@
-# Documentation System Guide
+# Futures Trading Log
 
-This guide explains how the 3-tier documentation architecture powers the AI Development Framework and why it provides superior results compared to traditional documentation approaches.
+Flask-based futures trading analytics platform with position-based tracking, interactive TradingView charts, and high-performance database optimization.
 
-## Critical Foundation Files
+## Key Features
+- **Position-Based Architecture**: Quantity flow analysis (0 → +/- → 0 lifecycle)
+- **TradingView Charts**: Interactive candlestick charts with trade execution overlays
+- **High Performance**: 15-50ms chart loads for 10M+ records with aggressive indexing
+- **NinjaTrader Integration**: Automated CSV export and processing
+- **Redis Caching**: 14-day data retention for enhanced performance
+- **Docker Deployment**: Container-based production deployment
+- **🚀 Modular Architecture**: Clean domain-driven design with service layer separation (Phase 2 Complete)
 
-Two files form the cornerstone of the entire documentation system:
+## Quick Start (Docker - Recommended)
 
-1. **docs-overview.md** - The central routing guide that directs AI agents to appropriate documentation based on task complexity. This file maps your entire documentation structure and enables intelligent context loading.
+```bash
+# 1. Create data directory
+mkdir ~/TradingData
 
-2. **project-structure.md** - The comprehensive overview of your project's complete file structure and technology stack. This file is required reading for all AI agents and must be attached to Gemini consultations.
+# 2. Run container
+docker run -p 5000:5000 \
+  -v ~/TradingData:/app/data \
+  -e AUTO_IMPORT_ENABLED=true \
+  --name futures-trading-log \
+  ghcr.io/qsor27/futurestradinglog:main
 
-These foundation files ensure AI agents always have the essential context needed to understand your project and navigate to relevant documentation.
-
-## Why the 3-Tier System
-
-### Traditional Documentation Problems
-
-Standard documentation approaches create friction for AI-assisted development:
-
-- **Context Overload** - AI agents must process entire documentation sets for simple tasks
-- **Maintenance Burden** - Every code change cascades to multiple documentation locations
-- **Stale Content** - Documentation diverges from implementation reality
-- **No AI Optimization** - Human-readable formats lack structure for machine processing
-
-### The 3-Tier Solution
-
-The framework solves these problems through hierarchical organization:
-
-**Tier 1: Foundation (Rarely Changes)**
-- Project-wide standards, architecture decisions, technology stack
-- Auto-loads for every AI session
-- Provides consistent baseline without redundancy
-
-**Tier 2: Component (Occasionally Changes)**
-- Component boundaries, architectural patterns, integration points
-- Loads only when working within specific components
-- Isolates architectural decisions from implementation details
-
-**Tier 3: Feature (Frequently Changes)**
-- Implementation specifics, technical details, local patterns
-- Co-located with code for immediate updates
-- Minimizes documentation cascade when code changes
-
-## Benefits vs Traditional Systems
-
-### 1. Intelligent Context Loading
-
-**Traditional**: AI loads entire documentation corpus regardless of task
-**3-Tier**: Commands load only relevant tiers based on complexity
-
-Example:
-- Simple query → Tier 1 only (minimal tokens)
-- Component work → Tier 1 + relevant Tier 2
-- Deep implementation → All relevant tiers
-
-### 2. Maintenance Efficiency
-
-**Traditional**: Update multiple documents for each change
-**3-Tier**: Updates isolated to appropriate tier
-
-Example:
-- API endpoint change → Update only Tier 3 API documentation
-- New component → Add Tier 2 documentation, Tier 1 unchanged
-- Coding standard → Update only Tier 1, applies everywhere
-
-### 3. AI Performance Optimization
-
-**Traditional**: AI struggles to find relevant information
-**3-Tier**: Structured hierarchy guides AI to precise context
-
-The system provides:
-- Clear routing logic for agent navigation
-- Predictable documentation locations
-- Efficient token usage through targeted loading
-
-## Integration with Framework Components
-
-### Command Integration
-
-Commands leverage the 3-tier structure for intelligent operation:
-
-```
-Command Execution → Analyze Task Complexity → Load Appropriate Tiers
-                                            ↓
-                                   Simple: Tier 1 only
-                                   Component: Tiers 1-2
-                                   Complex: All relevant tiers
+# 3. Access application
+http://localhost:5000
 ```
 
-### MCP Server Integration
+## Development Setup
 
-External AI services receive proper context through the tier system:
+```bash
+# Clone and setup
+git clone https://github.com/qsor27/FuturesTradingLog.git
+cd FuturesTradingLog
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-- **Gemini Consultations** - Auto-attach `project-structure.md` (Tier 1)
-- **Context7 Lookups** - Happen within established project context
-- **Recommendations** - Align with documented architecture
+# Run application
+python app.py
 
-### Multi-Agent Routing
-
-The documentation structure determines agent behavior:
-
-- Number of agents spawned based on tiers involved
-- Each agent receives targeted documentation subset
-- Parallel analysis without context overlap
-
-## Key Files and Their Roles
-
-### Foundation Files (ai-context/)
-
-**docs-overview.md**
-- Template for implementing 3-tier documentation
-- Maps documentation structure for AI navigation
-- [View Template](ai-context/docs-overview.md)
-
-**project-structure.md**
-- Complete technology stack and file organization
-- Required reading for all AI agents
-- Auto-attaches to Gemini consultations
-- [View Template](ai-context/project-structure.md)
-
-**system-integration.md**
-- Cross-component communication patterns
-- Integration architectures for multi-agent analysis
-- [View Template](ai-context/system-integration.md)
-
-**deployment-infrastructure.md**
-- Infrastructure patterns and constraints
-- Deployment context for AI recommendations
-- [View Template](ai-context/deployment-infrastructure.md)
-
-**handoff.md**
-- Session continuity between AI interactions
-- Task state preservation
-- [View Template](ai-context/handoff.md)
-
-### Context Templates
-
-**CLAUDE.md** (Tier 1)
-- Master AI context with coding standards
-- Project-wide instructions and patterns
-- [View Template](CLAUDE.md)
-
-**claude-tier2-component.md**rh
-- Component-level architectural context
-- [View Template](claude-tier2-component.md)
-
-**claude-tier3-feature.md**
-- Feature-specific implementation details
-- [View Template](claude-tier3-feature.md)
-
-## Implementation Strategy
-
-### 1. Start with Templates
-
-Use provided templates as foundation:
-- Copy and customize for your project
-- Maintain consistent structure
-- Focus on AI-consumable formatting
-
-### 2. Follow Natural Boundaries
-
-Let your architecture guide tier placement:
-- Stable decisions → Tier 1
-- Component design → Tier 2
-- Implementation details → Tier 3
-
-### 3. Co-locate Documentation
-
-Place CLAUDE.md files with related code:
-```
-backend/
-├── CLAUDE.md          # Backend architecture (Tier 2)
-└── src/
-    └── api/
-        └── CLAUDE.md  # API implementation (Tier 3)
+# Run tests
+pytest tests/ -v
 ```
 
-### 4. Maintain Hierarchy
+## NinjaTrader Integration
 
-Ensure clear relationships:
-- Tier 3 references Tier 2 patterns
-- Tier 2 follows Tier 1 standards
-- No circular dependencies
+### Manual Process
+1. Export execution report from NinjaTrader as CSV
+2. Upload via web interface at http://localhost:5000
 
-### 5. Use Documentation Commands
+### Automated Process (Recommended)
+1. Install `ExecutionExporter.cs` NinjaScript indicator
+2. Configure export path to match Docker volume
+3. Automatic real-time import
 
-The framework provides commands to manage documentation:
-- **`/create-docs`** - Generate initial documentation structure for projects without existing docs
-- **`/update-docs`** - Regenerate and update documentation after code changes to keep everything current
+See `NINJASCRIPT_SETUP.md` for detailed setup instructions.
 
-## Measuring Success
+## Performance
+- **Chart Loading**: 15-45ms (100x faster than traditional implementations)
+- **Database Queries**: 8 aggressive indexes for millisecond performance
+- **Scalability**: Handles 10M+ records efficiently
+- **Cross-Platform**: Docker deployment on any OS
 
-The 3-tier system succeeds when:
+## Documentation
+- **`CLAUDE.md`**: Development guide and critical position building algorithm
+- **`docs/ai-context/project-structure.md`**: Complete project structure and architecture
+- **`NINJASCRIPT_SETUP.md`**: NinjaScript indicator setup
+- **`ENHANCED_POSITION_GUIDE.md`**: Position features and chart integration
 
-1. **AI agents find context quickly** - No searching through irrelevant documentation
-2. **Updates stay localized** - Changes don't cascade unnecessarily
-3. **Documentation stays current** - Co-location ensures updates happen
-4. **Commands work efficiently** - Appropriate context loads automatically
-5. **MCP servers provide relevant advice** - External AI understands your project
+## API Endpoints
+```bash
+# Chart data
+curl "http://localhost:5000/api/chart-data/MNQ?timeframe=1h&days=7"
 
----
+# Interactive charts
+http://localhost:5000/chart/MNQ
+http://localhost:5000/chart/ES
+```
 
-*Part of the Claude Code AI Development Framework - see [main documentation](../README.md) for complete system overview.*
+## Architecture
+
+### 🚀 Phase 2 Refactoring Complete
+The application has undergone significant architectural improvements with clean domain-driven design:
+
+#### **Domain Layer** (`domain/`)
+- **Models**: Pure business entities (Position, Trade, Execution, PnL)
+- **Services**: Core business logic (PositionBuilder, PnLCalculator, QuantityFlowAnalyzer)  
+- **Interfaces**: Service and repository contracts for dependency injection
+
+#### **Application Services** (`services/`)
+- **Position Engine**: Position building orchestration with domain services
+- **Trade Management**: Trade operations, filtering, and business logic
+- **Chart Data**: Chart data processing with performance optimization
+- **File Processing**: CSV processing, validation, and archiving
+
+#### **Technology Stack**
+- **Flask**: Web framework with blueprint-based routing
+- **SQLite**: Primary database with WAL mode and aggressive indexing
+- **Redis**: Optional caching layer for performance enhancement
+- **TradingView Lightweight Charts**: Professional chart visualization
+- **Docker**: Production container deployment
+
+**Next Phase**: Data Layer refactoring (Phase 3) - Repository pattern implementation
+
+## Testing
+```bash
+# Run full test suite (120+ tests)
+python run_tests.py
+
+# Performance validation
+python run_tests.py --performance
+```
+
+**⚠️ Critical Component**: The position building algorithm has been extracted to `domain/services/position_builder.py` with complete integrity preservation. This is the most important part of this application. Any modifications require extreme care and testing.
+
+## 📚 Documentation
+
+For comprehensive documentation, see **[docs/DOCUMENTATION_INDEX.md](docs/DOCUMENTATION_INDEX.md)**
+
+### Key Documents
+- **[docs/PHASE_2_COMPLETION_SUMMARY.md](docs/PHASE_2_COMPLETION_SUMMARY.md)** - ✅ Phase 2 refactoring completion summary
+- **[docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md)** - Complete architectural refactoring plan
+- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Detailed architecture analysis
+
+## License
+[Specify license]
+
+## Contact
+[Contact information]

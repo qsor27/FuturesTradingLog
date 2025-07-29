@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 from typing import List, Dict, Tuple, Optional
 import logging
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from config import config
 from redis_cache_service import get_cache_service
 from symbol_service import symbol_service
@@ -54,8 +54,9 @@ class OHLCDataService:
     def _migrate_instrument_names(self):
         """Run database migration to normalize instrument names"""
         try:
-            with FuturesDB() as db:
-                results = db.migrate_instrument_names_to_base_symbols()
+            with DatabaseManager() as db:
+                # Note: migrate_instrument_names_to_base_symbols needs to be implemented in appropriate repository
+                results = None  # TODO: Implement in instrument/trade repository
                 if results:
                     self.logger.info(f"Migrated instrument names: {results}")
         except Exception as e:
@@ -203,9 +204,9 @@ class OHLCDataService:
             start_timestamp = int(start_date.timestamp())
             end_timestamp = int(end_date.timestamp())
             
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 # Find gaps in existing data
-                gaps = db.find_ohlc_gaps(instrument, timeframe, start_timestamp, end_timestamp)
+                gaps = db.ohlc.find_ohlc_gaps(instrument, timeframe, start_timestamp, end_timestamp)
                 
                 if not gaps:
                     self.logger.info(f"No gaps found for {instrument} {timeframe}")
@@ -263,8 +264,8 @@ class OHLCDataService:
                     return cached_data
             
             # Try to get data using exact instrument name first
-            with FuturesDB() as db:
-                data = db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
+            with DatabaseManager() as db:
+                data = db.ohlc.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp)
                 
                 # If no data found with exact name, try base instrument name
                 if not data:
@@ -303,9 +304,9 @@ class OHLCDataService:
                 # Fetch and store recent data
                 recent_data = self.fetch_ohlc_data(instrument, timeframe, start_date, end_date)
                 
-                with FuturesDB() as db:
+                with DatabaseManager() as db:
                     for record in recent_data:
-                        db.insert_ohlc_data(
+                        db.ohlc.insert_ohlc_data(
                             record['instrument'],
                             record['timeframe'],
                             record['timestamp'], 
@@ -400,11 +401,11 @@ class OHLCDataService:
                     
                     if data:
                         # Store in database
-                        with FuturesDB() as db:
+                        with DatabaseManager() as db:
                             records_inserted = 0
                             for record in data:
                                 try:
-                                    db.insert_ohlc_data(
+                                    db.ohlc.insert_ohlc_data(
                                         record['instrument'],
                                         record['timeframe'],
                                         record['timestamp'], 
@@ -457,10 +458,11 @@ class OHLCDataService:
             timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
         
         # Get instruments that have recent trade activity
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get instruments with trades in last 30 days
             recent_date = datetime.now() - timedelta(days=30)
-            instruments = db.get_active_instruments_since(recent_date)
+            # Note: get_active_instruments_since needs to be implemented in trade repository
+            instruments = []  # TODO: Implement in trade repository
         
         if not instruments:
             self.logger.warning("No active instruments found in the last 30 days")

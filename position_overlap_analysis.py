@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from position_service import PositionService
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 
 class PositionOverlapAnalyzer:
@@ -19,7 +19,7 @@ class PositionOverlapAnalyzer:
         
     def analyze_current_positions(self) -> Dict[str, Any]:
         """Analyze current positions for potential overlaps"""
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get all positions ordered by account, instrument, and time
             db.cursor.execute("""
                 SELECT id, instrument, account, position_type, entry_time, exit_time, 
@@ -142,7 +142,7 @@ class PositionOverlapAnalyzer:
     
     def validate_position_boundaries(self) -> Dict[str, Any]:
         """Validate that positions follow proper 0 → +/- → 0 boundaries"""
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get all trades ordered by account, instrument, and time
             db.cursor.execute("""
                 SELECT id, instrument, account, side_of_market, quantity, entry_time, 

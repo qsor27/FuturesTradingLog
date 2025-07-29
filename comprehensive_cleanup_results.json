@@ -1,0 +1,67 @@
+{
+  "file_statistics": {
+    "documentation": {
+      "count": 49,
+      "total_size": 372392
+    },
+    "configuration": {
+      "count": 21,
+      "total_size": 57621
+    },
+    "scripts": {
+      "count": 16,
+      "total_size": 293989
+    }
+  },
+  "outdated_documentation": [
+    "USER_PROFILES_IMPLEMENTATION.md",
+    "PROFILE_API_IMPLEMENTATION.md",
+    "SETTINGS_VERSION_HISTORY_IMPLEMENTATION.md",
+    "ENHANCED_SETTINGS_IMPLEMENTATION.md",
+    "AUTO_IMPORT_SETUP.md",
+    "docs/ai-context/project-structure.md",
+    "docs/ai-context/docs-overview.md",
+    ".claude/commands/full-context.md"
+  ],
+  "duplicate_documentation": [
+    {
+      "base_name": "claude",
+      "files": [
+        "CLAUDE.md",
+        "docs/CLAUDE.md"
+      ]
+    },
+    {
+      "base_name": "readme",
+      "files": [
+        "README.md",
+        "tests/README.md",
+        "docs/README.md",
+        ".claude/commands/README.md"
+      ]
+    },
+    {
+      "base_name": "handoff",
+      "files": [
+        "docs/ai-context/handoff.md",
+        ".claude/commands/handoff.md"
+      ]
+    }
+  ],
+  "unused_configurations": [
+    "db_methods.txt",
+    "new_import_method.txt",
+    "config/docker-security.json",
+    "config/fail2ban-filters.conf",
+    "config/nginx-trading-app.conf",
+    ".claude/settings.local.json"
+  ],
+  "unused_scripts": [
+    "manage-watchtower.sh"
+  ],
+  "cleanup_summary": {
+    "safe_to_remove": 13,
+    "review_needed": 13,
+    "code_cleanup_opportunities": 111
+  }
+}

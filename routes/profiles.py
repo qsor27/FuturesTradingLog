@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import tempfile
 import logging
 from werkzeug.utils import secure_filename
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 profiles_bp = Blueprint('profiles', __name__)
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def ensure_unique_profile_name(profile_name: str, user_id: int = 1) -> str:
     Ensure profile name is unique by adding suffix if needed
     Returns a unique profile name
     """
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         original_name = profile_name
         counter = 1
         
@@ -75,7 +75,7 @@ def get_profiles():
     try:
         user_id = request.args.get('user_id', 1, type=int)
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profiles = db.get_user_profiles(user_id)
             
             # Parse settings_snapshot JSON for each profile
@@ -104,7 +104,7 @@ def get_profiles():
 def get_profile(profile_id):
     """Get a specific user profile"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profile = db.get_user_profile(profile_id)
             
             if not profile:
@@ -137,7 +137,7 @@ def get_profile(profile_id):
 def export_profile(profile_id):
     """Export a single profile as JSON download"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profile = db.get_user_profile(profile_id)
             
             if not profile:
@@ -252,7 +252,7 @@ def import_profile():
         unique_name = ensure_unique_profile_name(original_name, user_id)
         
         # Create profile in database
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profile_id = db.create_user_profile(
                 profile_name=unique_name,
                 settings_snapshot=profile_data['settings_snapshot'],
@@ -307,7 +307,7 @@ def create_profile():
         
         user_id = data.get('user_id', 1)
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Check if profile name already exists
             existing_profile = db.get_user_profile_by_name(data['profile_name'], user_id)
             if existing_profile:
@@ -355,7 +355,7 @@ def update_profile(profile_id):
                 'error': 'No data provided'
             }), 400
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Check if profile exists
             existing_profile = db.get_user_profile(profile_id)
             if not existing_profile:
@@ -403,7 +403,7 @@ def update_profile(profile_id):
 def delete_profile(profile_id):
     """Delete a user profile"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Check if profile exists
             existing_profile = db.get_user_profile(profile_id)
             if not existing_profile:
@@ -439,7 +439,7 @@ def get_default_profile():
     try:
         user_id = request.args.get('user_id', 1, type=int)
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profile = db.get_default_user_profile(user_id)
             
             if not profile:
@@ -482,7 +482,7 @@ def bulk_export_profiles():
                 'error': 'No profile IDs provided'
             }), 400
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profiles = []
             for profile_id in profile_ids:
                 profile = db.get_user_profile(profile_id)

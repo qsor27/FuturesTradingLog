@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 import time
 
 def test_database_performance():
@@ -16,7 +16,7 @@ def test_database_performance():
     print("🔍 Testing Database Performance")
     print("=" * 50)
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Get performance analysis
         perf_info = db.analyze_performance()
         
@@ -35,7 +35,7 @@ def test_database_performance():
         print("🔄 Testing Cursor-Based Pagination:")
         
         start_time = time.time()
-        trades, total_count, total_pages, cursor_id, cursor_time = db.get_recent_trades(
+        trades, total_count, total_pages, cursor_id, cursor_time = db.trades.get_recent_trades(
             page_size=50,
             page=1,
             sort_by='entry_time',
@@ -46,7 +46,7 @@ def test_database_performance():
         
         if cursor_id and cursor_time:
             start_time = time.time()
-            trades_page2, _, _, _, _ = db.get_recent_trades(
+            trades_page2, _, _, _, _ = db.trades.get_recent_trades(
                 page_size=50,
                 page=2,
                 sort_by='entry_time',
@@ -100,7 +100,7 @@ def test_index_usage():
     print("\n🔍 Index Usage Analysis")
     print("=" * 50)
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Check index list
         db.cursor.execute("PRAGMA index_list(trades)")
         indexes = db.cursor.fetchall()

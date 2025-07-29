@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from data_service import ohlc_service
 from datetime import datetime, timedelta
 import json
@@ -36,7 +36,7 @@ def test_instrument_mapping():
             print(f"  Base symbol: {base_symbol}")
             
             # Check OHLC data availability
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 count = db.get_ohlc_count(base_symbol)
                 print(f"  OHLC records for {base_symbol}: {count}")
             
@@ -101,7 +101,7 @@ def validate_migration():
     """Validate the migration worked correctly"""
     print("\n=== VALIDATING MIGRATION ===")
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Check for any remaining instruments with expiration dates
         db.cursor.execute("""
             SELECT DISTINCT instrument 

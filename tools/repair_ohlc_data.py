@@ -6,7 +6,7 @@ Comprehensive tool for cleaning and repairing problematic OHLC data
 
 import time
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from typing import List, Dict, Any, Optional
 import logging
 
@@ -52,7 +52,7 @@ class OHLCDataRepairer:
             'data_after': {}
         }
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get initial statistics
             repair_results['data_before'] = self._get_data_statistics(db, instrument)
             

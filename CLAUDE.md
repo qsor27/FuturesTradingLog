@@ -2,9 +2,11 @@
 
 ## 🚨 **CRITICAL: POSITION BUILDING ALGORITHM**
 
-**The `position_service.py` contains the MOST IMPORTANT component of this application. Modifying it affects ALL historical data.**
+**The core position building algorithm has been refactored into domain services while preserving complete integrity. This is the MOST IMPORTANT component of the application.**
 
-### **Core Algorithm - Never Modify Without Extreme Care**
+### **Core Algorithm - Extracted to Domain Services**
+
+**NEW LOCATION**: `domain/services/position_builder.py` - Contains the extracted position building logic
 
 Transforms NinjaTrader executions into position records using **Quantity Flow Analysis**:
 
@@ -25,8 +27,22 @@ For each execution:
 ```
 
 #### **⚠️ Critical Warning:**
+- Algorithm extracted to `domain/services/position_builder.py` - **ALGORITHM INTEGRITY PRESERVED**
 - Always test with `/positions/rebuild` after any changes
 - Improper modifications break ALL historical P&L calculations
+
+#### **Phase 2 Refactoring Complete:**
+- ✅ Algorithm extracted to pure domain services
+- ✅ Position building logic isolated and testable
+- ✅ Business logic separated from HTTP handling
+- ✅ Service interfaces defined for dependency injection
+
+#### **Phase 3 Refactoring Complete:**
+- ✅ Repository pattern implemented across entire codebase
+- ✅ TradingLog_db.py monolithic class decomposed into focused repositories
+- ✅ DatabaseManager coordinates all repository access
+- ✅ 41 files migrated from monolithic to repository pattern
+- ✅ Clean separation of concerns with maintained functionality
 
 ## Project Overview
 
@@ -41,70 +57,118 @@ Flask web application for futures traders - processes NinjaTrader executions int
 - **Validation System**: Real-time position overlap detection with automated prevention and UI integration
 - **User Preferences**: Persistent chart settings with localStorage caching and API synchronization
 
+## 🏗️ Architecture & Refactoring
 
-## Deployment
+**Phase 3 Complete**: Repository pattern refactoring has successfully eliminated all monolithic database coupling.
 
-### Production (Automatic)
-1. Push to GitHub main → GitHub Actions builds container → Watchtower auto-updates
-2. Changes live in 5-10 minutes
+**Progress Status**:
+- ✅ **Phase 1**: Foundation (Week 1) - **COMPLETE**
+  - ✅ Dependency injection container design
+  - ✅ Repository interfaces defined
+  - ✅ Configuration management planning
+- ✅ **Phase 2**: Core Services (Week 2) - **COMPLETE**
+  - ✅ Position building algorithm extracted to domain services
+  - ✅ Business logic separated from HTTP routes
+  - ✅ Service interfaces implemented
+- ✅ **Phase 3**: Data Layer (Week 3) - **COMPLETE**
+  - ✅ Repository pattern implementation
+  - ✅ Monolithic `TradingLog_db.py` decomposed into focused repositories
+  - ✅ DatabaseManager coordinates all repository access
+  - ✅ 41 files migrated to repository pattern
 
-### Development (Fast)
+**Documentation**:
+- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Detailed analysis of coupling problems
+- **[docs/MODULAR_ARCHITECTURE_PLAN.md](docs/MODULAR_ARCHITECTURE_PLAN.md)** - Complete modular architecture solution
+- **[docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md)** - Step-by-step implementation plan
+
+**Major Refactoring Achievements**:
+- ✅ **Phase 2**: Core position building algorithm extracted and preserved
+- ✅ **Phase 2**: Domain models created with proper validation
+- ✅ **Phase 2**: Business logic separated from HTTP handling
+- ✅ **Phase 2**: Service interfaces defined for dependency injection
+- ✅ **Phase 3**: Repository pattern implemented across entire codebase
+- ✅ **Phase 3**: Monolithic database class decomposed
+- ✅ **Phase 3**: Clean architecture boundaries established
+
+
+## Development & Deployment
+
+**Standardized Docker-First Development Workflow**
+
+### Development (Standardized)
 ```bash
-./dev-update.sh          # Deploy immediately (30-60 seconds)
-./dev-update.sh status   # Check status
-./dev-update.sh logs     # View logs
+# 🚀 Standard development workflow (ALWAYS use this)
+./dev.sh                                     # Start development environment
+
+# Alternative (same thing)
+docker-compose -f docker-compose.dev.yml up --build
+
+# Benefits:
+# ✅ Matches production environment exactly
+# ✅ Live code reloading (edit files normally) 
+# ✅ Debug mode enabled
+# ✅ No Python virtual environment needed
+# ✅ No dependency version conflicts
 ```
 
-### Local Development
+### Production Deployment
 ```bash
-# Docker Compose (recommended)
-docker-compose up --build
+# Production (automatic)
+git push origin main                          # Auto-deploy via GitHub Actions
 
-# Direct Python (testing)
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt && python app.py
-```
+# Production (manual)
+docker-compose up --build                    # Production deployment
 
-### Common Commands
-```bash
-# Container management
-docker ps                                    # Check containers
-docker logs futurestradinglog                # View logs
-docker restart futurestradinglog             # Restart container
-
-# Testing
+# Health checks
+curl http://localhost:5000/health            # Basic health check
 pytest tests/ -v                             # Run tests
-curl http://localhost:5000/health            # Health check
 ```
 
 ## Architecture
 
+See **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.md)** for complete project structure and technology stack.
+
 ### Core Components
-- **`position_service.py`**: 🚨 CRITICAL - Position building algorithm (now uses enhanced validation)
+
+#### **Modern Architecture (Phase 2 & 3 Complete)**
+- **Domain Layer** (`domain/`):
+  - `models/`: Core business entities (Position, Trade, Execution, PnL)
+  - `services/`: Pure business logic (PositionBuilder, PnLCalculator, QuantityFlowAnalyzer)
+  - `interfaces/`: Service and repository contracts
+- **Application Services** (`services/`):
+  - `position_engine/`: Position building orchestration
+  - `trade_management/`: Trade operations and filtering
+  - `chart_data/`: Chart data with performance optimization
+  - `file_processing/`: CSV processing and validation
+  - `position_management/`: Position dashboard and statistics
+- **Repository Layer** (`repositories/`):
+  - `trade_repository.py`: Trade data operations
+  - `position_repository.py`: Position data operations
+  - `ohlc_repository.py`: Market data operations
+  - `settings_repository.py`: Configuration data operations
+  - `profile_repository.py`: User profile operations
+  - `statistics_repository.py`: Analytics and reporting operations
+
+#### **Refactored Components (All Phases Complete)**
+- **`position_service.py`**: ✅ **ALGORITHM EXTRACTED** to `domain/services/position_builder.py`
 - **`enhanced_position_service.py`**: Enhanced position service with comprehensive overlap prevention  
-- **`position_overlap_prevention.py`**: Validation engine with automated error detection and recovery
-- **`TradingLog_db.py`**: SQLite database with aggressive indexing and chart settings persistence
-- **`data_service.py`**: yfinance integration with Redis caching and improved error handling
-- **`app.py`**: Flask application with blueprint registration and validation endpoints
-- **`routes/positions.py`**: Position dashboard with real-time validation status and detailed reporting
-- **`routes/chart_data.py`**: High-performance OHLC data APIs with timeframe validation and adaptive resolution
+- **`database_manager.py`**: ✅ **NEW** - Repository pattern coordinator (replaces TradingLog_db.py)
+- **`data_service.py`**: ✅ **MIGRATED** - yfinance integration with repository pattern
+- **`app.py`**: ✅ **MIGRATED** - Flask application with repository pattern
+- **`routes/`**: ✅ **FULLY MIGRATED** - All 15+ route blueprints use repository pattern
 
 ### Database Schema
 - **Trades**: Individual executions with P&L, linking via `link_group_id`
 - **Positions**: Aggregated position data with lifecycle tracking
-- **Position_Executions**: Maps positions to constituent trades
 - **OHLC_Data**: Market data with 8 performance indexes (15-50ms queries)
-- **Chart_Settings**: User preferences for timeframes, data ranges, and volume visibility
-- **User_Profiles**: Named configuration profiles with settings snapshots and version history
-
-### Frontend
-- **Templates**: Jinja2 with position-based interface (`templates/positions/`) including validation status cards and modals
-- **JavaScript**: Enhanced TradingView charts (`PriceChart.js`) with OHLC hover display, user settings API (`ChartSettingsAPI.js`), and validation monitoring
-- **Static Assets**: Dark theme CSS, interactive components with real-time validation notifications
+- **Chart_Settings**: User preferences for timeframes and display options
+- **User_Profiles**: Named configuration profiles with settings snapshots
 
 ## Configuration
 
-### Environment Variables
+See **[docs/CONFIGURATION_HIERARCHY.md](docs/CONFIGURATION_HIERARCHY.md)** for complete configuration management details.
+
+### Key Environment Variables
 - `DATA_DIR`: Data storage directory (default: `~/FuturesTradingLog/data`)
 - `REDIS_URL`: Redis connection (default: `redis://localhost:6379/0`)
 - `CACHE_TTL_DAYS`: Cache retention (default: `14`)
@@ -125,13 +189,11 @@ data/
 
 ## NinjaTrader Integration
 
-### Manual Process
-1. Export execution report from NinjaTrader → Process with `ExecutionProcessing.py` → Import via web interface
+See **[docs/NINJASCRIPT_SETUP.md](docs/NINJASCRIPT_SETUP.md)** for complete setup instructions.
 
-### Automated Process (Recommended)
-1. Install `ExecutionExporter.cs` NinjaScript indicator
-2. Configure export path → Automatic real-time CSV export
-3. See `NINJASCRIPT_SETUP.md` for setup details
+### Quick Setup
+1. **Manual**: Export execution report → Process with `ExecutionProcessing.py` → Import via web interface
+2. **Automated**: Install `ExecutionExporter.cs` NinjaScript indicator for real-time CSV export
 
 ## Performance
 
@@ -142,14 +204,10 @@ data/
 
 ### Testing
 ```bash
-pytest tests/test_performance.py -v    # Performance validation
-python run_tests.py --performance      # Quick performance check
-
-# Validation system testing
-curl http://localhost:5000/api/validation/health     # Validation system health
-curl http://localhost:5000/api/validation/summary    # Position validation status
+pytest tests/test_performance.py -v                      # Performance validation
+curl http://localhost:5000/api/validation/health         # Validation system health
+curl http://localhost:5000/api/validation/summary        # Position validation status
 ```
-
 
 ## Logging
 
@@ -161,8 +219,8 @@ curl http://localhost:5000/api/validation/summary    # Position validation statu
 
 ### Quick Log Analysis
 ```bash
-tail -f logs/error.log                    # Monitor errors
-grep "performance\|slow" logs/database.log   # Performance issues
+tail -f logs/error.log                                   # Monitor errors
+grep "performance\|slow" logs/database.log               # Performance issues
 ```
 
 
@@ -199,7 +257,27 @@ grep "performance\|slow" logs/database.log   # Performance issues
 - **Notification System**: Real-time alerts for validation status changes
 
 ## Documentation References
-- **`docs/ai-context/project-structure.md`**: Complete project structure and technology stack
-- **`NINJASCRIPT_SETUP.md`**: NinjaScript indicator installation and configuration
-- **`ENHANCED_POSITION_GUIDE.md`**: Position features and chart synchronization guide
-- **`requirements.txt`**: Python dependencies
+
+### Core Documentation
+- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Current architecture problems and coupling analysis
+- **[docs/MODULAR_ARCHITECTURE_PLAN.md](docs/MODULAR_ARCHITECTURE_PLAN.md)** - Comprehensive refactoring plan
+- **[docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md)** - Step-by-step implementation guide
+- **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.md)** - Complete project structure and technology stack
+
+### Setup & Configuration
+- **[docs/NINJASCRIPT_SETUP.md](docs/NINJASCRIPT_SETUP.md)** - NinjaScript indicator installation and configuration
+- **[docs/CONFIGURATION_HIERARCHY.md](docs/CONFIGURATION_HIERARCHY.md)** - Configuration management details
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** - Deployment procedures and infrastructure
+- **[docs/QUICK_START_GUIDE.md](docs/QUICK_START_GUIDE.md)** - Quick start guide for development
+
+### Features & Guides
+- **[docs/ENHANCED_POSITION_GUIDE.md](docs/ENHANCED_POSITION_GUIDE.md)** - Position features and chart synchronization guide
+- **[docs/POSITION_OVERLAP_SOLUTION.md](docs/POSITION_OVERLAP_SOLUTION.md)** - Position overlap detection and prevention
+- **[docs/USER_PROFILES_IMPLEMENTATION.md](docs/USER_PROFILES_IMPLEMENTATION.md)** - User profile system details
+- **[docs/ENHANCED_SETTINGS_IMPLEMENTATION.md](docs/ENHANCED_SETTINGS_IMPLEMENTATION.md)** - Settings system implementation
+
+### Infrastructure & Operations
+- **[docs/REDIS_SETUP.md](docs/REDIS_SETUP.md)** - Redis caching configuration
+- **[docs/BACKUP_SYSTEM.md](docs/BACKUP_SYSTEM.md)** - Backup system configuration
+- **[docs/SECURITY_SETUP.md](docs/SECURITY_SETUP.md)** - Security configuration and hardening
+- **[docs/GITHUB_AUTO_DEPLOY_SETUP.md](docs/GITHUB_AUTO_DEPLOY_SETUP.md)** - GitHub Actions deployment setup

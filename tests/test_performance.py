@@ -7,7 +7,7 @@ import tempfile
 import os
 import time
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 class TestOHLCPerformance:
     """Test OHLC database performance with large datasets"""
@@ -62,7 +62,7 @@ class TestOHLCPerformance:
             
             # Insert all records
             for record in large_dataset:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -92,7 +92,7 @@ class TestOHLCPerformance:
         with FuturesDB(temp_db) as db:
             # Insert test data
             for record in large_dataset:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -105,7 +105,7 @@ class TestOHLCPerformance:
             
             # Test 1: Instrument + Timeframe query (primary use case)
             start_time = time.time()
-            results = db.get_ohlc_data('MNQ', '1m', limit=1000)
+            results = db.ohlc.get_ohlc_data('MNQ', '1m', limit=1000)
             query_time_ms = (time.time() - start_time) * 1000
             
             print(f"\nInstrument+Timeframe Query Performance:")
@@ -121,7 +121,7 @@ class TestOHLCPerformance:
             end_timestamp = large_dataset[2000]['timestamp']
             
             start_time = time.time()
-            range_results = db.get_ohlc_data('MNQ', '1m', start_timestamp, end_timestamp)
+            range_results = db.ohlc.get_ohlc_data('MNQ', '1m', start_timestamp, end_timestamp)
             range_query_time_ms = (time.time() - start_time) * 1000
             
             print(f"\nTime Range Query Performance:")
@@ -148,7 +148,7 @@ class TestOHLCPerformance:
             gapped_data = [record for i, record in enumerate(large_dataset[:10000]) if i % 10 != 5]
             
             for record in gapped_data:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -182,7 +182,7 @@ class TestOHLCPerformance:
         with FuturesDB(temp_db) as db:
             # Insert test data
             for record in large_dataset[:20000]:  # Smaller dataset for threading test
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -197,7 +197,7 @@ class TestOHLCPerformance:
         def run_queries():
             with FuturesDB(temp_db) as db:
                 for _ in range(10):
-                    db.get_ohlc_data('MNQ', '1m', limit=100)
+                    db.ohlc.get_ohlc_data('MNQ', '1m', limit=100)
                     db.get_ohlc_count('ES')
         
         # Test concurrent queries
@@ -229,7 +229,7 @@ class TestOHLCPerformance:
         with FuturesDB(temp_db) as db:
             # Insert test data
             for record in large_dataset[:10000]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -268,7 +268,7 @@ class TestOHLCPerformance:
             
             # Insert data
             for record in large_dataset[:10000]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -303,7 +303,7 @@ class TestOHLCPerformance:
         with FuturesDB(temp_db) as db:
             # Insert substantial dataset
             for record in large_dataset[:25000]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     record['instrument'],
                     record['timeframe'],
                     record['timestamp'],
@@ -318,7 +318,7 @@ class TestOHLCPerformance:
             
             # Target: Chart loading 15-50ms
             start_time = time.time()
-            chart_data = db.get_ohlc_data('MNQ', '1m', limit=1440)  # 1 day of 1m data
+            chart_data = db.ohlc.get_ohlc_data('MNQ', '1m', limit=1440)  # 1 day of 1m data
             chart_load_time_ms = (time.time() - start_time) * 1000
             
             print(f"  Chart Loading: {chart_load_time_ms:.2f}ms (target: 15-50ms)")
@@ -329,7 +329,7 @@ class TestOHLCPerformance:
             end_timestamp = large_dataset[5100]['timestamp']
             
             start_time = time.time()
-            context_data = db.get_ohlc_data('MNQ', '1m', start_timestamp, end_timestamp)
+            context_data = db.ohlc.get_ohlc_data('MNQ', '1m', start_timestamp, end_timestamp)
             context_time_ms = (time.time() - start_time) * 1000
             
             print(f"  Trade Context: {context_time_ms:.2f}ms (target: 10-25ms)")
@@ -345,7 +345,7 @@ class TestOHLCPerformance:
             
             # Target: Real-time insert 1-5ms
             start_time = time.time()
-            db.insert_ohlc_data('TEST', '1m', int(time.time()), 100.0, 101.0, 99.0, 100.5, 1000)
+            db.ohlc.insert_ohlc_data('TEST', '1m', int(time.time()), 100.0, 101.0, 99.0, 100.5, 1000)
             insert_time_ms = (time.time() - start_time) * 1000
             
             print(f"  Real-time Insert: {insert_time_ms:.2f}ms (target: 1-5ms)")

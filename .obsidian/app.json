@@ -1,0 +1,14 @@
+{
+  "promptDelete": false,
+  "showInlineTitle": true,
+  "showLineNumber": true,
+  "spellcheck": true,
+  "foldIndent": true,
+  "foldHeading": true,
+  "showFrontmatter": true,
+  "showUnsupportedFiles": false,
+  "defaultViewMode": "preview",
+  "newFileLocation": "folder",
+  "newFileFolderPath": "notes",
+  "alwaysUpdateLinks": true
+}

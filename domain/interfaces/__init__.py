@@ -1,0 +1,1 @@
+# Domain interfaces - Service and repository contracts

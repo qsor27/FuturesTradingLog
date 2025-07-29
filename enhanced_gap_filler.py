@@ -13,7 +13,7 @@ import logging
 import time
 from typing import List, Dict, Tuple, Optional
 from data_service import ohlc_service
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from background_services import gap_filling_service
 
 class EnhancedGapFiller:
@@ -26,7 +26,7 @@ class EnhancedGapFiller:
     def get_instruments_needing_data(self, days_back: int = 30) -> List[str]:
         """Get instruments that have recent trade activity but missing OHLC data"""
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 # Get instruments with recent trades
                 cutoff_date = datetime.now() - timedelta(days=days_back)
                 
@@ -174,7 +174,7 @@ class EnhancedGapFiller:
     def get_gap_analysis(self) -> Dict[str, any]:
         """Analyze current gaps in the system"""
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 # Get all instruments with trades
                 all_instruments = db.execute_query("""
                     SELECT DISTINCT instrument FROM trades 

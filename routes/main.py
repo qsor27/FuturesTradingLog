@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from enhanced_position_service import EnhancedPositionService as PositionService
 import os
 import time
@@ -41,9 +41,9 @@ def trades_legacy():
     if page_size not in allowed_page_sizes:
         page_size = 50
     
-    with FuturesDB() as db:
-        accounts = db.get_unique_accounts()
-        trades, total_count, total_pages, next_cursor_id, next_cursor_time = db.get_recent_trades(
+    with DatabaseManager() as db:
+        accounts = db.trades.get_unique_accounts()
+        trades, total_count = db.trades.get_recent_trades(
             page_size=page_size,
             page=page,
             sort_by=sort_by,
@@ -94,8 +94,8 @@ def delete_trades():
         if not trade_ids:
             return jsonify({'success': False, 'message': 'No trades selected'})
         
-        with FuturesDB() as db:
-            success = db.delete_trades(trade_ids)
+        with DatabaseManager() as db:
+            success = db.trades.delete_trades(trade_ids)
         
         return jsonify({'success': success})
     except Exception as e:
@@ -115,7 +115,7 @@ def upload_file():
         temp_path = 'temp_trades.csv'
         file.save(temp_path)
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             success = db.import_csv(temp_path)
         
         os.remove(temp_path)

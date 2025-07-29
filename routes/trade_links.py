@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, render_template
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 trade_links_bp = Blueprint('trade_links', __name__)
 
@@ -11,11 +11,11 @@ def update_group(group_id):
     validated = data.get('validated', False)
     reviewed = data.get('reviewed', False)
     
-    with FuturesDB() as db:
-        trades = db.get_linked_trades(group_id)
+    with DatabaseManager() as db:
+        trades = db.trades.get_linked_trades(group_id)
         success = True
         for trade in trades:
-            if not db.update_trade_details(trade['id'], chart_url=chart_url, notes=notes, 
+            if not db.trades.update_trade_details(trade['id'], chart_url=chart_url, notes=notes, 
                                        confirmed_valid=validated, reviewed=reviewed):
                 success = False
     
@@ -32,8 +32,8 @@ def link_trades():
             'message': 'At least two trades must be selected for linking'
         })
     
-    with FuturesDB() as db:
-        success, group_id = db.link_trades(trade_ids)
+    with DatabaseManager() as db:
+        success, group_id = db.trades.link_trades(trade_ids)
     
     return jsonify({
         'success': success,
@@ -51,8 +51,8 @@ def unlink_trades():
             'message': 'No trades selected for unlinking'
         })
     
-    with FuturesDB() as db:
-        success = db.unlink_trades(trade_ids)
+    with DatabaseManager() as db:
+        success = db.trades.unlink_trades(trade_ids)
     
     return jsonify({
         'success': success
@@ -60,8 +60,8 @@ def unlink_trades():
 
 @trade_links_bp.route('/linked-trades/<int:group_id>')
 def linked_trades(group_id):
-    with FuturesDB() as db:
-        trades = db.get_linked_trades(group_id)
+    with DatabaseManager() as db:
+        trades = db.trades.get_linked_trades(group_id)
         stats = db.get_group_statistics(group_id)
         # Get notes and chart URL from the first trade to show as group values
         if trades:

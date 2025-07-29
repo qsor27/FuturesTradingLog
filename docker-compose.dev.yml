@@ -1,0 +1,36 @@
+services:
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: futurestradinglog-dev
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount source code for live editing
+      - .:/app
+      # Mount data directory
+      - type: bind
+        source: ${DATA_DIR:-./data}
+        target: /app/data
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - DATA_DIR=/app/data
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - FLASK_SECRET_KEY=dev-secret-key
+      - REDIS_URL=redis://localhost:6379/0
+      - CACHE_ENABLED=true
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Override the default command for development
+    command: python -u app.py
+    # Run as root in development for easier file editing
+    user: root

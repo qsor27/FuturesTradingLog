@@ -12,8 +12,8 @@ def example_user_profiles_usage():
     Example showing how to use the user_profiles functionality
     
     Note: This is a demonstration script. In actual use, you would:
-    1. Import TradingLog_db: from TradingLog_db import FuturesDB
-    2. Use with FuturesDB() as db: to get a database connection
+    1. Import TradingLog_db: from database_manager import DatabaseManager
+    2. Use with DatabaseManager() as db: to get a database connection
     """
     
     print("User Profiles Usage Examples")
@@ -138,7 +138,7 @@ def example_user_profiles_usage():
     
     print("# Example: Load user's default settings on app startup")
     print("def load_user_settings():")
-    print("    with FuturesDB() as db:")
+    print("    with DatabaseManager() as db:")
     print("        default_profile = db.get_default_user_profile()")
     print("        if default_profile:")
     print("            settings = default_profile['settings_snapshot']")
@@ -152,7 +152,7 @@ def example_user_profiles_usage():
     
     print("# Example: Switch to a different profile")
     print("def switch_profile(profile_name):")
-    print("    with FuturesDB() as db:")
+    print("    with DatabaseManager() as db:")
     print("        profile = db.get_user_profile_by_name(profile_name)")
     print("        if profile:")
     print("            settings = profile['settings_snapshot']")
@@ -174,7 +174,7 @@ def example_user_profiles_usage():
     print("        'theme_settings': get_current_theme_settings()")
     print("    }")
     print("    ")
-    print("    with FuturesDB() as db:")
+    print("    with DatabaseManager() as db:")
     print("        profile_id = db.create_user_profile(")
     print("            profile_name=profile_name,")
     print("            settings_snapshot=current_settings,")
@@ -185,7 +185,7 @@ def example_user_profiles_usage():
     
     print("# Export profile for sharing")
     print("def export_profile(profile_name, filepath):")
-    print("    with FuturesDB() as db:")
+    print("    with DatabaseManager() as db:")
     print("        profile = db.get_user_profile_by_name(profile_name)")
     print("        if profile:")
     print("            export_data = {")

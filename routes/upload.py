@@ -1,6 +1,6 @@
 import os
 from flask import Blueprint, request, render_template
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 upload_bp = Blueprint('upload', __name__)
 
@@ -11,7 +11,7 @@ def upload_form():
 @upload_bp.route('/upload', methods=['POST'])
 def upload_file():
     # Debug: Check database structure
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         db.cursor.execute("SELECT * FROM sqlite_master WHERE type='table' AND name='trades'")
         table_info = db.cursor.fetchone()
         if table_info:
@@ -30,7 +30,7 @@ def upload_file():
         temp_path = 'temp_trades.csv'
         file.save(temp_path)
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             success = db.import_csv(temp_path)
         
         os.remove(temp_path)

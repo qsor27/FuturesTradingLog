@@ -34,7 +34,7 @@ def test_with_mock_dependencies():
         })()
         
         # Now import and test TradingLog_db
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Test database creation
         with FuturesDB(test_db_path) as db:
@@ -151,7 +151,7 @@ def test_methods_with_simple_data():
             'read_sql_query': lambda *args, **kwargs: None
         })()
         
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         with FuturesDB(test_db_path) as db:
             # Create a test profile

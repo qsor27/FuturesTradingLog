@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 statistics_bp = Blueprint('statistics', __name__, url_prefix='/statistics')
 
@@ -9,9 +9,9 @@ def statistics():
     # Get filter parameters
     selected_accounts = request.args.getlist('accounts')
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Get list of all accounts for the filter dropdown
-        accounts = db.get_unique_accounts()
+        accounts = db.trades.get_unique_accounts()
         
         # Get statistics for different time periods
         stats = {

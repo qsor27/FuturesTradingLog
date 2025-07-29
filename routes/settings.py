@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 import json
 import os
 from config import config
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -23,8 +23,8 @@ def settings():
     # Load chart settings
     chart_settings = {}
     try:
-        with FuturesDB() as db:
-            chart_settings = db.get_chart_settings()
+        with DatabaseManager() as db:
+            chart_settings = db.settings.get_chart_settings()
     except Exception as e:
         flash(f'Error loading chart settings: {e}', 'error')
         # Provide defaults if error
@@ -100,8 +100,8 @@ def delete_multiplier(instrument):
 def get_chart_settings():
     """Get chart settings for API access"""
     try:
-        with FuturesDB() as db:
-            settings = db.get_chart_settings()
+        with DatabaseManager() as db:
+            settings = db.settings.get_chart_settings()
             return jsonify({
                 'success': True,
                 'settings': settings
@@ -135,8 +135,8 @@ def update_chart_settings():
         if all(v is None for v in [default_timeframe, default_data_range, volume_visibility]):
             return jsonify({'success': False, 'error': 'No settings provided to update'}), 400
         
-        with FuturesDB() as db:
-            success = db.update_chart_settings(
+        with DatabaseManager() as db:
+            success = db.settings.update_chart_settings(
                 default_timeframe=default_timeframe,
                 default_data_range=default_data_range,
                 volume_visibility=volume_visibility
@@ -144,7 +144,7 @@ def update_chart_settings():
             
             if success:
                 # Get updated settings to return
-                updated_settings = db.get_chart_settings()
+                updated_settings = db.settings.get_chart_settings()
                 return jsonify({
                     'success': True,
                     'message': 'Chart settings updated successfully',
@@ -167,8 +167,8 @@ def update_chart_settings_form():
         default_data_range = request.form.get('default_data_range')
         volume_visibility = request.form.get('volume_visibility') == 'on'
         
-        with FuturesDB() as db:
-            success = db.update_chart_settings(
+        with DatabaseManager() as db:
+            success = db.settings.update_chart_settings(
                 default_timeframe=default_timeframe,
                 default_data_range=default_data_range,
                 volume_visibility=volume_visibility
@@ -195,8 +195,8 @@ def get_categorized_settings():
     try:
         # Get chart settings from database
         chart_settings = {}
-        with FuturesDB() as db:
-            chart_settings = db.get_chart_settings()
+        with DatabaseManager() as db:
+            chart_settings = db.settings.get_chart_settings()
         
         # Get instrument multipliers from JSON file
         instrument_multipliers = {}
@@ -278,8 +278,8 @@ def update_categorized_settings():
                 chart_updates['volume_visibility'] = chart_data['volume_visibility']
             
             if chart_updates:
-                with FuturesDB() as db:
-                    success = db.update_chart_settings(**chart_updates)
+                with DatabaseManager() as db:
+                    success = db.settings.update_chart_settings(**chart_updates)
                     if success:
                         updated_sections.append('chart')
                     else:
@@ -328,8 +328,8 @@ def update_categorized_settings():
         # Get updated settings to return
         updated_settings = {}
         try:
-            with FuturesDB() as db:
-                chart_settings = db.get_chart_settings()
+            with DatabaseManager() as db:
+                chart_settings = db.settings.get_chart_settings()
                 updated_settings['chart'] = chart_settings
         except Exception:
             pass
@@ -365,7 +365,7 @@ def _update_active_profile_settings(settings):
     """Update active profile's settings_snapshot with new settings"""
     try:
         # Get the default/active profile
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             profile = db.get_default_user_profile(user_id=1)
             
             if profile:

@@ -230,16 +230,16 @@ class BackgroundGapFillingService:
         bg_logger.warning("🚨 EMERGENCY GAP FILLING TRIGGERED")
         
         try:
-            from TradingLog_db import FuturesDB
-            
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 # Get instruments with recent trades
                 cutoff_date = datetime.now() - timedelta(days=days_back)
-                recent_instruments_query = db.execute_query("""
+                # Query recent instruments via cursor
+                db.cursor.execute("""
                     SELECT DISTINCT instrument 
                     FROM trades 
                     WHERE entry_time >= ?
                 """, (cutoff_date.strftime('%Y-%m-%d'),))
+                recent_instruments_query = db.cursor.fetchall()
                 
                 instruments_needing_data = []
                 
@@ -248,11 +248,12 @@ class BackgroundGapFillingService:
                     base_instrument = instrument.split(' ')[0] if ' ' in instrument else instrument
                     
                     # Check if OHLC data is current
-                    latest_data_query = db.execute_query("""
+                    db.cursor.execute("""
                         SELECT MAX(timestamp) 
                         FROM ohlc_data 
                         WHERE instrument IN (?, ?)
                     """, (instrument, base_instrument))
+                    latest_data_query = db.cursor.fetchone()
                     
                     if latest_data_query and latest_data_query[0] and latest_data_query[0][0]:
                         latest_timestamp = latest_data_query[0][0]

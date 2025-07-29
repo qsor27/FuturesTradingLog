@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime, timedelta
 import logging
 from automated_data_sync import get_data_sync_status, force_data_sync
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 data_monitoring_bp = Blueprint('data_monitoring', __name__)
 logger = logging.getLogger(__name__)
@@ -194,7 +194,7 @@ def resolve_alert(alert_id):
 def get_instrument_coverage(instrument):
     """Get detailed data coverage for a specific instrument"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get trade activity for this instrument
             trades_query = db.execute_query("""
                 SELECT MIN(entry_time) as first_trade, 

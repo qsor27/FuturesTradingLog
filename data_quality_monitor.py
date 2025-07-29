@@ -4,7 +4,7 @@ Data Quality Monitor
 Simple monitoring tool for ongoing OHLC data quality
 """
 
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from typing import Dict, List, Any
 import logging
 
@@ -32,7 +32,7 @@ class DataQualityMonitor:
             'quality_score': 'UNKNOWN'
         }
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             for check in self.quality_checks:
                 try:
                     check_result = check(db, instrument)
@@ -188,7 +188,7 @@ def monitor_all_instruments() -> Dict[str, Any]:
     results = {}
     monitor = DataQualityMonitor()
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Get all unique instruments
         db.cursor.execute("SELECT DISTINCT instrument FROM ohlc_data")
         instruments = [row[0] for row in db.cursor.fetchall()]

@@ -21,7 +21,7 @@ from routes.data_monitoring import data_monitoring_bp
 from routes.profiles import profiles_bp
 from routes.tasks import bp as tasks_bp
 from routes.cache_management import cache_bp
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from background_services import start_background_services, stop_background_services, get_services_status
 from automated_data_sync import start_automated_data_sync, stop_automated_data_sync, get_data_sync_status, force_data_sync
 import atexit
@@ -194,7 +194,7 @@ def inject_symbol_service():
 def health_check():
     try:
         # Test database connection
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             db.cursor.execute("SELECT 1")
             db_status = "healthy"
     except Exception as e:
@@ -248,7 +248,7 @@ def detailed_health_check():
         db_status = "healthy"
         db_response_time = 0
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 start_db = time.time()
                 db.cursor.execute("SELECT COUNT(*) FROM trades")
                 trade_count = db.cursor.fetchone()[0]
@@ -545,7 +545,7 @@ def check_and_send_alerts():
         
         # Database connectivity
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 start_time = time.time()
                 db.cursor.execute("SELECT 1")
                 db_response_time = time.time() - start_time

@@ -1,16 +1,16 @@
-# [PROJECT NAME] - AI Context Template (claude-master)
+# FuturesTradingLog - AI Context
 
 ## 1. Project Overview
-- **Vision:** [Describe your project's vision and goals]
-- **Current Phase:** [Current development phase and status]
-- **Key Architecture:** [High-level architecture description]
-- **Development Strategy:** [Development approach and strategy notes]
+- **Vision:** Flask web application for futures traders that processes NinjaTrader executions into position-based trading analytics
+- **Current Phase:** Production-ready with modern repository pattern architecture (Phase 3 Complete)
+- **Key Architecture:** Domain-driven design with repository pattern, clean separation of concerns
+- **Development Strategy:** Modular architecture with testable components and clean dependency flow
 
 ## 2. Project Structure
 
 **⚠️ CRITICAL: AI agents MUST read the [Project Structure documentation](/docs/ai-context/project-structure.md) before attempting any task to understand the complete technology stack, file tree and project organization.**
 
-[Project Name] follows a [describe architecture pattern]. For the complete tech stack and file tree structure, see [docs/ai-context/project-structure.md](/docs/ai-context/project-structure.md).
+FuturesTradingLog follows a repository pattern with domain-driven design. For the complete tech stack and file tree structure, see [docs/ai-context/project-structure.md](/docs/ai-context/project-structure.md).
 
 ## 3. Coding Standards & AI Instructions
 

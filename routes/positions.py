@@ -4,7 +4,7 @@ Position Routes - Handle position-based views and operations
 
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
 from enhanced_position_service import EnhancedPositionService as PositionService
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from position_overlap_integration import rebuild_positions_with_overlap_prevention
 from position_overlap_prevention import PositionOverlapPrevention
 from position_overlap_analysis import PositionOverlapAnalyzer
@@ -57,9 +57,9 @@ def positions_dashboard():
         position_stats = pos_service.get_position_statistics(account=account_filter)
     
     # Get unique values for filters
-    with FuturesDB() as db:
-        accounts = db.get_unique_accounts()
-        instruments = db.get_unique_instruments()
+    with DatabaseManager() as db:
+        accounts = db.trades.get_unique_accounts()
+        instruments = db.trades.get_unique_instruments()
     
     # Ensure page is within valid range
     if page > total_pages and total_pages > 0:
@@ -247,10 +247,10 @@ def api_position_executions(position_id):
 @positions_bp.route('/debug')
 def debug_positions():
     """Debug page to examine position building logic"""
-    from TradingLog_db import FuturesDB
+    from database_manager import DatabaseManager
     
     # Get recent trades for debugging
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         db.cursor.execute("""
             SELECT * FROM trades 
             ORDER BY entry_time DESC 
@@ -275,9 +275,9 @@ def debug_positions():
 @positions_bp.route('/debug/<account>/<instrument>')
 def debug_account_instrument(account, instrument):
     """Debug specific account/instrument combination"""
-    from TradingLog_db import FuturesDB
+    from database_manager import DatabaseManager
     
-    with FuturesDB() as db:
+    with DatabaseManager() as db:
         # Get all trades for this account/instrument
         db.cursor.execute("""
             SELECT * FROM trades 
@@ -447,7 +447,7 @@ def reimport_csv():
         print(f"Read {len(df)} raw executions from {filename}")
         
         # Import raw executions directly to database
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             success = db.import_raw_executions(csv_path)
         
         if success:
@@ -640,5 +640,28 @@ def get_validation_health():
             'success': False,
             'status': 'unhealthy',
             'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/process-files', methods=['POST'])
+def process_files_manually():
+    """Manually trigger file watcher to check and process CSV files"""
+    try:
+        # Import file watcher
+        from services.file_watcher import file_watcher
+        
+        # Trigger manual processing
+        file_watcher.process_now()
+        
+        return jsonify({
+            'success': True,
+            'message': 'File processing triggered manually'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error triggering manual file processing: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error triggering file processing: {str(e)}'
         }), 500
 

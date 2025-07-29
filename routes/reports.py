@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -10,15 +10,15 @@ reports_bp = Blueprint('reports', __name__)
 def reports_dashboard():
     """Main reports dashboard with overview cards and filters"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get basic overview stats
             overview_stats = db.get_overview_statistics()
             
             # Get available accounts for filtering
-            accounts = db.get_unique_accounts()
+            accounts = db.trades.get_unique_accounts()
             
             # Get available instruments for filtering
-            instruments = db.get_unique_instruments()
+            instruments = db.trades.get_unique_instruments()
             
             # Get date range for filtering
             date_range = db.get_date_range()
@@ -43,7 +43,7 @@ def performance_report():
         end_date = request.args.get('end_date')
         period = request.args.get('period', 'daily')  # daily, weekly, monthly
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get performance data
             performance_data = db.get_performance_analysis(
                 account=account,
@@ -54,8 +54,8 @@ def performance_report():
             )
             
             # Get accounts and instruments for filters
-            accounts = db.get_unique_accounts()
-            instruments = db.get_unique_instruments()
+            accounts = db.trades.get_unique_accounts()
+            instruments = db.trades.get_unique_instruments()
             
         return render_template('reports/performance.html',
                              performance_data=performance_data,
@@ -80,13 +80,13 @@ def monthly_summary():
         account = request.args.get('account')
         year = request.args.get('year', str(datetime.now().year))
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get monthly data
             monthly_data = db.get_monthly_performance(account=account, year=int(year))
             
             # Get available years and accounts
             years = db.get_available_years()
-            accounts = db.get_unique_accounts()
+            accounts = db.trades.get_unique_accounts()
             
         return render_template('reports/monthly_summary.html',
                              monthly_data=monthly_data,
@@ -109,7 +109,7 @@ def instrument_analysis():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get instrument performance data
             instrument_data = db.get_instrument_performance(
                 account=account,
@@ -118,7 +118,7 @@ def instrument_analysis():
             )
             
             # Get accounts for filters
-            accounts = db.get_unique_accounts()
+            accounts = db.trades.get_unique_accounts()
             
         return render_template('reports/instrument_analysis.html',
                              instrument_data=instrument_data,
@@ -140,7 +140,7 @@ def trade_distribution():
         account = request.args.get('account')
         instrument = request.args.get('instrument')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get distribution data
             distribution_data = db.get_trade_distribution_analysis(
                 account=account,
@@ -148,8 +148,8 @@ def trade_distribution():
             )
             
             # Get accounts and instruments for filters
-            accounts = db.get_unique_accounts()
-            instruments = db.get_unique_instruments()
+            accounts = db.trades.get_unique_accounts()
+            instruments = db.trades.get_unique_instruments()
             
         return render_template('reports/trade_distribution.html',
                              distribution_data=distribution_data,
@@ -174,7 +174,7 @@ def api_performance_data():
         end_date = request.args.get('end_date')
         period = request.args.get('period', 'daily')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             data = db.get_performance_chart_data(
                 account=account,
                 instrument=instrument,
@@ -198,7 +198,7 @@ def api_summary_stats():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             stats = db.get_summary_statistics(
                 account=account,
                 instrument=instrument,

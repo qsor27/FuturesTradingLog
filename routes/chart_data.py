@@ -6,7 +6,7 @@ from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime, timedelta
 import logging
 from data_service import ohlc_service
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER
 from utils.instrument_utils import get_root_symbol
 from services.ohlc_service import OHLCOnDemandService
@@ -55,6 +55,18 @@ def get_chart_data(instrument):
         # Get parameters
         timeframe = request.args.get('timeframe', '1m')
         days = int(request.args.get('days', 1))
+        
+        # Memory protection: Check estimated data size before processing
+        estimated_candles = estimate_candle_count(days, timeframe)
+        MAX_CANDLES = 10000  # ~40MB memory limit for safety
+        
+        if estimated_candles > MAX_CANDLES:
+            return jsonify({
+                'success': False,
+                'error': f'Date range too large. Estimated {estimated_candles:,} candles exceeds limit of {MAX_CANDLES:,}. Please reduce days or use larger timeframe.',
+                'estimated_candles': estimated_candles,
+                'max_allowed': MAX_CANDLES
+            }), 400
         
         # Calculate date range
         end_date = datetime.now()
@@ -166,9 +178,9 @@ def get_adaptive_chart_data(instrument):
 def get_trade_markers(trade_id):
     """Get trade entry/exit markers for chart overlay"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get trade details
-            trade = db.get_trade_by_id(trade_id)
+            trade = db.trades.get_trade_by_id(trade_id)
             if not trade:
                 return jsonify({'success': False, 'error': 'Trade not found'}), 404
             
@@ -220,7 +232,7 @@ def update_instrument_data(instrument):
         success = ohlc_service.update_recent_data(instrument, timeframes)
         
         if success:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 count = db.get_ohlc_count(instrument)
             
             return jsonify({
@@ -245,9 +257,9 @@ def update_instrument_data(instrument):
 def get_position_entry_lines(trade_id):
     """Get position entry price lines for chart overlay"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get trade details
-            trade = db.get_trade_by_id(trade_id)
+            trade = db.trades.get_trade_by_id(trade_id)
             if not trade:
                 return jsonify({'success': False, 'error': 'Trade not found'}), 404
             
@@ -365,7 +377,7 @@ def chart_page(instrument):
     """Standalone chart page for an instrument"""
     try:
         # Get recent trades for this instrument
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get recent trades for this instrument
             db.cursor.execute("""
                 SELECT * FROM trades 
@@ -402,7 +414,7 @@ def chart_page(instrument):
 def get_available_instruments():
     """Get list of instruments with OHLC data"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get unique instruments from both trades and OHLC data
             db.cursor.execute("""
                 SELECT DISTINCT instrument FROM trades
@@ -435,7 +447,7 @@ def get_available_timeframes(instrument):
         root_symbol = get_root_symbol(instrument)
         logger.info(f"Getting available timeframes for {instrument} (root: {root_symbol})")
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # 1. Check if any data exists for the root symbol
             fetch_attempted = False
             fetch_error = None
@@ -590,7 +602,7 @@ def update_instrument_timeframes(instrument):
 def get_batch_update_status():
     """Get information about what instruments can be batch updated"""
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get active instruments from last 30 days
             recent_date = datetime.now() - timedelta(days=30)
             active_instruments = db.get_active_instruments_since(recent_date)

@@ -14,7 +14,7 @@ import threading
 import json
 import os
 from data_service import ohlc_service
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 class AutomatedDataSyncer:
     """Automated system to keep OHLC data current for all trading instruments"""
@@ -41,7 +41,7 @@ class AutomatedDataSyncer:
     def get_all_trading_instruments(self) -> Set[str]:
         """Get all base instruments that have ever been traded"""
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 # Get all unique instruments from trades
                 instruments_query = db.execute_query("""
                     SELECT DISTINCT instrument FROM trades 
@@ -64,7 +64,7 @@ class AutomatedDataSyncer:
     def get_data_coverage_status(self, instrument: str) -> Dict[str, any]:
         """Get current data coverage status for an instrument"""
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 status = {
                     'instrument': instrument,
                     'has_trades': False,

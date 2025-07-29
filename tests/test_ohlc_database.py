@@ -6,7 +6,7 @@ import tempfile
 import os
 import time
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 class TestOHLCDatabase:
     """Test OHLC database operations and performance"""
@@ -103,7 +103,7 @@ class TestOHLCDatabase:
         with FuturesDB(temp_db) as db:
             # Insert first record
             data = sample_ohlc_data[0]
-            result = db.insert_ohlc_data(
+            result = db.ohlc.insert_ohlc_data(
                 data['instrument'],
                 data['timeframe'],
                 data['timestamp'],
@@ -121,7 +121,7 @@ class TestOHLCDatabase:
             assert count == 1, "Should have 1 record"
             
             # Test duplicate prevention
-            result2 = db.insert_ohlc_data(
+            result2 = db.ohlc.insert_ohlc_data(
                 data['instrument'],
                 data['timeframe'],
                 data['timestamp'],
@@ -141,7 +141,7 @@ class TestOHLCDatabase:
         with FuturesDB(temp_db) as db:
             # Insert test data
             for data in sample_ohlc_data[:10]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     data['instrument'],
                     data['timeframe'],
                     data['timestamp'],
@@ -153,14 +153,14 @@ class TestOHLCDatabase:
                 )
             
             # Test basic retrieval
-            results = db.get_ohlc_data('MNQ', '1m')
+            results = db.ohlc.get_ohlc_data('MNQ', '1m')
             assert len(results) == 10, "Should retrieve all 10 records"
             
             # Test time range filtering
             start_time = sample_ohlc_data[2]['timestamp']
             end_time = sample_ohlc_data[7]['timestamp']
             
-            filtered_results = db.get_ohlc_data('MNQ', '1m', start_time, end_time)
+            filtered_results = db.ohlc.get_ohlc_data('MNQ', '1m', start_time, end_time)
             assert len(filtered_results) == 6, "Should retrieve 6 records in range"
             
             # Test data structure
@@ -178,7 +178,7 @@ class TestOHLCDatabase:
             # Insert data with gaps (skip 2 consecutive records every 5 records)
             for i, data in enumerate(sample_ohlc_data[:20]):
                 if i % 5 not in [2, 3]:  # Skip 2 consecutive records every 5
-                    db.insert_ohlc_data(
+                    db.ohlc.insert_ohlc_data(
                         data['instrument'],
                         data['timeframe'],
                         data['timestamp'],
@@ -231,7 +231,7 @@ class TestOHLCDatabase:
             
             # Insert all data
             for data in large_dataset:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     data['instrument'],
                     data['timeframe'],
                     data['timestamp'],
@@ -244,7 +244,7 @@ class TestOHLCDatabase:
             
             # Test query performance
             start_time = time.time()
-            results = db.get_ohlc_data('MNQ', '1m', limit=1000)
+            results = db.ohlc.get_ohlc_data('MNQ', '1m', limit=1000)
             query_time = (time.time() - start_time) * 1000  # Convert to milliseconds
             
             # Should be under 100ms for indexed query
@@ -255,7 +255,7 @@ class TestOHLCDatabase:
             start_time = time.time()
             start_ts = base_time + 1000
             end_ts = base_time + 5000
-            filtered_results = db.get_ohlc_data('MNQ', '1m', start_ts, end_ts)
+            filtered_results = db.ohlc.get_ohlc_data('MNQ', '1m', start_ts, end_ts)
             filter_time = (time.time() - start_time) * 1000
             
             assert filter_time < 50, f"Filtered query should be very fast (<50ms), took {filter_time:.2f}ms"
@@ -265,7 +265,7 @@ class TestOHLCDatabase:
         with FuturesDB(temp_db) as db:
             # Insert mixed data
             for data in sample_ohlc_data[:10]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     data['instrument'],
                     data['timeframe'],
                     data['timestamp'],
@@ -280,7 +280,7 @@ class TestOHLCDatabase:
             for i in range(5):
                 data = sample_ohlc_data[i].copy()
                 data['instrument'] = 'ES'
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     data['instrument'],
                     data['timeframe'],
                     data['timestamp'] + 10000,  # Different timestamps
@@ -324,13 +324,13 @@ class TestOHLCDatabase:
         """Test OHLC data validation and error handling"""
         with FuturesDB(temp_db) as db:
             # Test with invalid data types
-            result = db.insert_ohlc_data('MNQ', '1m', 'invalid_timestamp', 100.0, 101.0, 99.0, 100.5, 1000)
+            result = db.ohlc.insert_ohlc_data('MNQ', '1m', 'invalid_timestamp', 100.0, 101.0, 99.0, 100.5, 1000)
             assert result == False, "Should fail with invalid timestamp"
             
             # Test with None required values
-            result = db.insert_ohlc_data(None, '1m', 1234567890, 100.0, 101.0, 99.0, 100.5, 1000)
+            result = db.ohlc.insert_ohlc_data(None, '1m', 1234567890, 100.0, 101.0, 99.0, 100.5, 1000)
             assert result == False, "Should fail with None instrument"
             
             # Test retrieval with invalid parameters
-            results = db.get_ohlc_data('NONEXISTENT', '1m')
+            results = db.ohlc.get_ohlc_data('NONEXISTENT', '1m')
             assert len(results) == 0, "Should return empty list for non-existent instrument"

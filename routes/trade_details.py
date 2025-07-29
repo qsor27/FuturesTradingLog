@@ -1,14 +1,14 @@
 from flask import Blueprint, render_template, request, jsonify
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 trade_details_bp = Blueprint('trade_details', __name__)
 
 @trade_details_bp.route('/trade/<int:trade_id>')
 def trade_detail(trade_id):
     try:
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # First try to get the basic trade data
-            trade = db.get_trade_by_id(trade_id)
+            trade = db.trades.get_trade_by_id(trade_id)
             if not trade:
                 return render_template('error.html', 
                                      error="Trade not found", 
@@ -51,7 +51,7 @@ def trade_detail(trade_id):
             if trade and trade.get('link_group_id'):
                 try:
                     # Get linked trades and group statistics separately
-                    linked_trades = db.get_linked_trades(trade['link_group_id'])
+                    linked_trades = db.trades.get_linked_trades(trade['link_group_id'])
                     group_stats = db.get_group_statistics(trade['link_group_id'])
                     if linked_trades and group_stats:
                         group_total_pnl = group_stats.get('total_pnl', 0)
@@ -81,7 +81,7 @@ def update_trade(trade_id):
     notes = data.get('notes')
     chart_url = data.get('chart_url')
     
-    with FuturesDB() as db:
-        success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes)
+    with DatabaseManager() as db:
+        success = db.trades.update_trade_details(trade_id, chart_url=chart_url, notes=notes)
     
     return jsonify({'success': success})

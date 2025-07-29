@@ -163,28 +163,92 @@ class PositionService:
             return {'positions_created': 0, 'trades_processed': 0}
     
     def _build_positions_from_execution_flow(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
-        """Build position objects from raw execution data using quantity flow analysis
+        """Build position objects from execution data using adaptive algorithm
         
-        RAW EXECUTION MODEL: Aggregate individual executions into complete positions.
-        Track quantity flow from 0 → +/- → 0 to determine position lifecycle.
+        ADAPTIVE MODEL: Detect data type and use appropriate processing method.
+        - Raw executions: Use quantity flow analysis (0 → +/- → 0)
+        - Completed trades: Convert directly to positions
+        - Mixed data: Separate and process each type appropriately
         """
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
-        logger.info(f"Processing {len(trades)} raw executions using QUANTITY FLOW MODEL")
+        logger.info(f"Processing {len(trades)} trades using ADAPTIVE MODEL")
         
-        # Sort executions by entry time for chronological processing
+        # Sort trades by entry time for chronological processing
         trades_sorted = sorted(trades, key=lambda t: t.get('entry_time', ''))
         
-        # Log all raw executions for debugging
-        for i, trade in enumerate(trades_sorted):
-            entry_exit = "Entry" if trade.get('entry_price') == trade.get('exit_price') else "Exit"
-            logger.info(f"Raw Execution {i+1}: {trade['side_of_market']} {trade['quantity']} @ ${trade['entry_price']} | Time: {trade.get('entry_time')} | ID: {trade.get('entry_execution_id', 'N/A')}")
+        # Detect data types
+        completed_trades = []
+        raw_executions = []
         
-        # Build positions from execution flow using quantity tracking
-        positions = self._aggregate_executions_into_positions(trades_sorted, account, instrument)
+        for trade in trades_sorted:
+            entry_time = trade.get('entry_time', '')
+            exit_time = trade.get('exit_time', '')
+            entry_price = trade.get('entry_price', 0)
+            exit_price = trade.get('exit_price', 0)
+            
+            # CRITICAL FIX: Process all individual executions from NinjaTrader data
+            # For NinjaTrader executions, entry_time == exit_time is normal for individual executions
+            # Only skip trades that are clearly completed round-trip trades (with non-zero P&L calculation)
+            points_pnl = trade.get('points_gain_loss', 0)
+            dollars_pnl = trade.get('dollars_gain_loss', 0)
+            
+            if points_pnl != 0 or dollars_pnl != 0:
+                # This is a completed trade with P&L - convert directly to position
+                completed_trades.append(trade)
+            else:
+                # This is a raw execution that needs to be aggregated
+                raw_executions.append(trade)
+        
+        logger.info(f"Data type analysis: {len(completed_trades)} completed trades, {len(raw_executions)} raw executions")
+        
+        positions = []
+        
+        # Process completed trades directly
+        if completed_trades:
+            logger.info("Processing completed trades directly to positions")
+            for trade in completed_trades:
+                position = self._convert_completed_trade_to_position(trade, account, instrument)
+                if position:
+                    positions.append(position)
+        
+        # Process raw executions using quantity flow analysis
+        if raw_executions:
+            logger.info("Processing raw executions using quantity flow analysis")
+            raw_positions = self._aggregate_executions_into_positions(raw_executions, account, instrument)
+            positions.extend(raw_positions)
         
         logger.info(f"=== POSITION BUILDING COMPLETE ===")
-        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} raw executions")
+        logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} trades")
         return positions
+    
+    def _convert_completed_trade_to_position(self, trade: Dict, account: str, instrument: str) -> Dict:
+        """Convert a completed trade directly to a position
+        
+        For trades where entry_time == exit_time and entry_price == exit_price,
+        this represents a complete round-trip position.
+        """
+        try:
+            position = {
+                'instrument': instrument,
+                'account': account,
+                'position_type': 'Long' if trade.get('side_of_market') == 'Buy' else 'Short',
+                'entry_time': trade.get('entry_time'),
+                'exit_time': trade.get('exit_time'),
+                'executions': [trade],
+                'total_quantity': abs(int(trade.get('quantity', 0))),
+                'max_quantity': abs(int(trade.get('quantity', 0))),
+                'position_status': 'closed',
+                'execution_count': 1
+            }
+            
+            # Calculate position totals
+            self._calculate_position_totals_from_executions(position)
+            
+            return position
+            
+        except Exception as e:
+            logger.error(f"Error converting completed trade to position: {e}")
+            return None
     
     def _aggregate_executions_into_positions(self, executions: List[Dict], account: str, instrument: str) -> List[Dict]:
         """Aggregate raw executions into complete positions using quantity flow tracking
@@ -221,10 +285,14 @@ class PositionService:
             action = execution.get('side_of_market', '').strip()
             
             # Convert to signed quantity change effect based on market actions
-            if action == "Buy":
+            if action in ["Buy", "BuyToCover"]:
                 signed_qty_change = quantity  # Buying contracts (+)
-            elif action == "Sell": 
+            elif action in ["Sell", "SellShort"]: 
                 signed_qty_change = -quantity  # Selling contracts (-)
+            elif action == "Short":
+                signed_qty_change = -quantity  # Opening short position (-)
+            elif action == "Long":
+                signed_qty_change = quantity  # Opening long position (+)
             else:
                 logger.warning(f"Unknown side_of_market '{action}' for execution {execution.get('entry_execution_id', 'Unknown')}")
                 continue
@@ -242,6 +310,7 @@ class PositionService:
                     'account': account,
                     'position_type': 'Long' if running_quantity > 0 else 'Short',
                     'entry_time': execution.get('entry_time'),
+                    'exit_time': None,
                     'executions': [execution],
                     'total_quantity': abs(running_quantity),
                     'max_quantity': abs(running_quantity),
@@ -272,6 +341,7 @@ class PositionService:
                     'account': account,
                     'position_type': new_position_type,
                     'entry_time': execution.get('entry_time'),
+                    'exit_time': None,
                     'executions': [execution],  # This execution is the entry for the new position
                     'total_quantity': abs(running_quantity),
                     'max_quantity': abs(running_quantity),
@@ -300,7 +370,8 @@ class PositionService:
                 # Modifying existing position (non-zero → non-zero)
                 # Since positions never change sides without going to 0, this is always adding to current position
                 current_position['executions'].append(execution)
-                current_position['total_quantity'] = abs(running_quantity)
+                # CRITICAL FIX: Keep total_quantity as the original position size, not current running quantity
+                # total_quantity represents the full position size that was established
                 current_position['max_quantity'] = max(current_position['max_quantity'], abs(running_quantity))
                 current_position['execution_count'] = len(current_position['executions'])
                 
@@ -309,6 +380,32 @@ class PositionService:
                     logger.info(f"  → Added to {current_position['position_type']} position, new quantity: {abs(running_quantity)}")
                 else:
                     logger.info(f"  → Reduced {current_position['position_type']} position, new quantity: {abs(running_quantity)}")
+            
+            else:
+                # CRITICAL FIX: Handle executions that don't match expected lifecycle patterns
+                # This catches executions that would otherwise be silently dropped
+                logger.warning(f"  → UNHANDLED EXECUTION: {action} {quantity} | Previous: {previous_quantity} → Current: {running_quantity} | current_position: {current_position is not None}")
+                
+                # If no current position exists but we have a non-zero quantity, create a new position
+                if current_position is None and running_quantity != 0:
+                    # SECURITY FIX: Validate execution before creating position in recovery mode
+                    if not self._validate_execution_sequence(execution, running_quantity):
+                        logger.error(f"  → SKIPPING INVALID EXECUTION in recovery mode: {execution}")
+                        continue  # Skip invalid executions rather than create corrupted positions
+                    
+                    logger.info(f"  → Creating position for unhandled execution (recovery mode)")
+                    current_position = {
+                        'instrument': instrument,
+                        'account': account,
+                        'position_type': 'Long' if running_quantity > 0 else 'Short',
+                        'entry_time': execution.get('entry_time'),
+                        'exit_time': None,
+                        'executions': [execution],
+                        'total_quantity': abs(running_quantity),
+                        'max_quantity': abs(running_quantity),
+                        'position_status': 'open',
+                        'execution_count': 1
+                    }
         
         # Handle any remaining open position
         if current_position:
@@ -382,6 +479,9 @@ class PositionService:
             # For closed positions, set exit time to the last execution
             if position['position_status'] == 'closed':
                 position['exit_time'] = sorted_executions[-1].get('entry_time')
+            else:
+                # Open positions don't have an exit time yet
+                position['exit_time'] = None
         
         # Separate entry and exit executions based on position direction
         # For a Long position: Buy actions = entries, Sell actions = exits
@@ -434,6 +534,10 @@ class PositionService:
         else:
             position['total_points_pnl'] = 0
             position['total_dollars_pnl'] = 0
+        
+        # CRITICAL FIX: Set total_quantity to the maximum position size reached, not just entry quantity
+        # This represents the peak size of the position that was established during its lifecycle
+        position['total_quantity'] = position.get('max_quantity', total_entry_quantity)
         
         # Total commission
         position['total_commission'] = sum(float(e.get('commission', 0)) for e in executions)
@@ -510,6 +614,45 @@ class PositionService:
             'points_pnl': total_pnl,
             'matched_quantity': matched_quantity
         }
+
+    def _validate_execution_sequence(self, execution: Dict, running_quantity: int) -> bool:
+        """Validate execution sequence to prevent invalid position creation"""
+        try:
+            # Check required fields
+            required_fields = ['instrument', 'quantity', 'entry_time', 'price', 'action']
+            for field in required_fields:
+                if field not in execution or execution[field] is None:
+                    logger.error(f"Execution missing required field '{field}': {execution}")
+                    return False
+            
+            # Validate data types and ranges
+            quantity = int(execution['quantity'])
+            price = float(execution['price'])
+            
+            if quantity <= 0:
+                logger.error(f"Invalid quantity {quantity} in execution: {execution}")
+                return False
+                
+            if price <= 0:
+                logger.error(f"Invalid price {price} in execution: {execution}")
+                return False
+            
+            # Validate action type
+            valid_actions = ['Buy', 'Sell', 'Buy to Cover', 'Sell Short']
+            if execution['action'] not in valid_actions:
+                logger.error(f"Invalid action '{execution['action']}' in execution: {execution}")
+                return False
+            
+            # Validate running quantity makes sense
+            if abs(running_quantity) > 10000:  # Reasonable position size limit
+                logger.error(f"Running quantity {running_quantity} exceeds reasonable limits for execution: {execution}")
+                return False
+                
+            return True
+            
+        except (ValueError, TypeError) as e:
+            logger.error(f"Data validation error for execution {execution}: {e}")
+            return False
     
     def _convert_completed_trades_to_positions(self, trades: List[Dict], account: str, instrument: str) -> List[Dict]:
         """Convert completed trades into position records (1:1 mapping)

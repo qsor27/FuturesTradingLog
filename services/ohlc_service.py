@@ -6,7 +6,7 @@ import pandas as pd
 import logging
 from datetime import datetime
 from typing import List, Dict
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from config import SUPPORTED_TIMEFRAMES, YFINANCE_TIMEFRAME_MAP
 from utils.instrument_utils import get_root_symbol
 from symbol_service import symbol_service

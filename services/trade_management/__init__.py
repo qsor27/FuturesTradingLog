@@ -1,0 +1,1 @@
+# Trade management services - Business logic for trade operations

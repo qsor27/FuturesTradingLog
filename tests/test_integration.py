@@ -38,8 +38,8 @@ class TestOHLCIntegration:
         assert response.status_code == 200
         
         # Verify OHLC table and indexes were created
-        from TradingLog_db import FuturesDB
-        with FuturesDB() as db:
+        from database_manager import DatabaseManager
+        with DatabaseManager() as db:
             # Check OHLC table exists
             db.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ohlc_data'")
             assert db.cursor.fetchone() is not None
@@ -52,16 +52,16 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.update_recent_data')
     def test_end_to_end_chart_data_flow(self, mock_update, client):
         """Test complete data flow from API fetch to chart display"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Setup mock to return success and insert test data
         mock_update.return_value = True
         
         # Pre-insert test data directly into database
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             for i in range(5):
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     'MNQ', '1m', base_time + (i * 60),
                     100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 1000 + i
                 )
@@ -96,10 +96,10 @@ class TestOHLCIntegration:
     
     def test_trade_markers_integration(self, client):
         """Test trade markers integration with chart data"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Insert a test trade
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             db.cursor.execute("""
                 INSERT INTO trades (instrument, side_of_market, quantity, entry_price, 
                                   entry_time, exit_time, exit_price, dollars_gain_loss, account)
@@ -131,19 +131,19 @@ class TestOHLCIntegration:
     
     def test_gap_detection_and_backfill_integration(self, client):
         """Test gap detection and automatic backfilling"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         from data_service import ohlc_service
         
         # Use a unique instrument to avoid interference from other tests
         test_instrument = 'GAP_TEST'
         
         # Insert some OHLC data with gaps
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             # Insert data with a gap (skip timestamps 3 and 4)
             for i in [1, 2, 5, 6, 7]:
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     test_instrument, '1m', base_time + (i * 60),
                     100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 1000 + i
                 )
@@ -152,7 +152,7 @@ class TestOHLCIntegration:
         start_date = datetime.fromtimestamp(base_time)
         end_date = datetime.fromtimestamp(base_time + 480)  # 8 minutes later
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             gaps = db.find_ohlc_gaps(test_instrument, '1m', base_time, base_time + 480)
             assert len(gaps) > 0, "Should detect gaps in data"
         
@@ -179,15 +179,15 @@ class TestOHLCIntegration:
         """Test support for multiple instruments"""
         instruments = ['MNQ', 'ES', 'YM', 'RTY']
         
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Insert data for multiple instruments
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             for i, instrument in enumerate(instruments):
                 for j in range(5):  # 5 candles per instrument
-                    db.insert_ohlc_data(
+                    db.ohlc.insert_ohlc_data(
                         instrument, '1m', base_time + (j * 60) + (i * 1000),
                         100.0 + i + j, 101.0 + i + j, 99.0 + i + j, 
                         100.5 + i + j, 1000 + i + j
@@ -217,15 +217,15 @@ class TestOHLCIntegration:
         """Test support for different timeframes"""
         timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
         
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Insert data for different timeframes
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             for i, timeframe in enumerate(timeframes):
                 for j in range(3):
-                    db.insert_ohlc_data(
+                    db.ohlc.insert_ohlc_data(
                         'MNQ', timeframe, base_time + (j * 3600) + (i * 100),
                         100.0 + i + j, 101.0 + i + j, 99.0 + i + j,
                         100.5 + i + j, 1000 + i + j
@@ -261,14 +261,14 @@ class TestOHLCIntegration:
     
     def test_chart_page_integration(self, client):
         """Test complete chart page functionality"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Setup test data
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Insert OHLC data
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             for i in range(10):
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     'MNQ', '1m', base_time + (i * 60),
                     100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 1000 + i
                 )
@@ -296,19 +296,19 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.detect_and_fill_gaps')
     def test_performance_under_load(self, mock_fill_gaps, mock_fetch, client):
         """Test performance with realistic data load"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Mock gap detection and data fetching to avoid yfinance calls
         mock_fill_gaps.return_value = True
         mock_fetch.return_value = []  # No external data fetched
         
         # Insert a substantial amount of test data
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             base_time = int(datetime(2024, 1, 1, 10, 0).timestamp())
             
             # Insert 1440 minutes of data (1 day)
             for i in range(1440):
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     'MNQ', '1m', base_time + (i * 60),
                     100.0 + (i * 0.01), 100.5 + (i * 0.01), 
                     99.5 + (i * 0.01), 100.25 + (i * 0.01), 1000 + i
@@ -334,20 +334,20 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.detect_and_fill_gaps')
     def test_data_consistency_across_apis(self, mock_fill_gaps, mock_fetch, client):
         """Test data consistency across different API endpoints"""
-        from TradingLog_db import FuturesDB
+        from database_manager import DatabaseManager
         
         # Mock gap detection and data fetching to prevent additional data
         mock_fill_gaps.return_value = True
         mock_fetch.return_value = []  # No external data fetched
         
         # Insert test data with recent timestamps
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Use recent timestamps so they appear in "days=1" query
             from datetime import datetime
             base_time = int((datetime.now() - timedelta(hours=2)).timestamp())
             
             for i in range(100):
-                db.insert_ohlc_data(
+                db.ohlc.insert_ohlc_data(
                     'MNQ', '1m', base_time + (i * 60),
                     100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 1000 + i
                 )
@@ -357,7 +357,7 @@ class TestOHLCIntegration:
         chart_data = json.loads(response1.data)
         
         # Get count via instruments API
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             count = db.get_ohlc_count('MNQ', '1m')
         
         # Simple consistency check - verify we got data and it's reasonable

@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +15,7 @@ def execution_quality():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get execution quality analysis
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
@@ -25,8 +25,8 @@ def execution_quality():
             )
             
             # Get accounts and instruments for filters
-            accounts = db.get_unique_accounts()
-            instruments = db.get_unique_instruments()
+            accounts = db.trades.get_unique_accounts()
+            instruments = db.trades.get_unique_instruments()
             
         return render_template('reports/execution_quality.html',
                              analysis_data=analysis_data,
@@ -52,7 +52,7 @@ def timing_analysis():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get execution quality analysis (includes timing data)
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
@@ -62,8 +62,8 @@ def timing_analysis():
             )
             
             # Get accounts and instruments for filters
-            accounts = db.get_unique_accounts()
-            instruments = db.get_unique_instruments()
+            accounts = db.trades.get_unique_accounts()
+            instruments = db.trades.get_unique_instruments()
             
         return render_template('reports/timing_analysis.html',
                              analysis_data=analysis_data,
@@ -89,7 +89,7 @@ def position_sizing():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             # Get execution quality analysis (includes position sizing data)
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
@@ -99,8 +99,8 @@ def position_sizing():
             )
             
             # Get accounts and instruments for filters
-            accounts = db.get_unique_accounts()
-            instruments = db.get_unique_instruments()
+            accounts = db.trades.get_unique_accounts()
+            instruments = db.trades.get_unique_instruments()
             
         return render_template('reports/position_sizing.html',
                              analysis_data=analysis_data,
@@ -126,7 +126,7 @@ def api_hourly_data():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
                 instrument=instrument,
@@ -149,7 +149,7 @@ def api_position_size_data():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
                 instrument=instrument,
@@ -172,7 +172,7 @@ def api_hold_time_data():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         
-        with FuturesDB() as db:
+        with DatabaseManager() as db:
             analysis_data = db.get_execution_quality_analysis(
                 account=account,
                 instrument=instrument,

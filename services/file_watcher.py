@@ -10,7 +10,7 @@ import shutil
 from typing import List, Dict, Any
 
 from config import config
-from TradingLog_db import FuturesDB
+from database_manager import DatabaseManager
 
 # Import ExecutionProcessing conditionally
 try:
@@ -76,10 +76,10 @@ class FileWatcher:
         pattern = "NinjaTrader_Executions_*.csv"
         for file_path in config.data_dir.glob(pattern):
             if file_path.name not in self.processed_files:
-                # Check if file has been modified recently (within last 24 hours)
-                # This prevents processing very old files on startup
+                # Check if file has been modified recently (within last 7 days)
+                # This allows processing recent files but prevents very old ones
                 file_age = time.time() - file_path.stat().st_mtime
-                if file_age < 86400:  # 24 hours in seconds
+                if file_age < 604800:  # 7 days in seconds (increased from 24 hours)
                     new_files.append(file_path)
         
         return new_files
@@ -133,7 +133,7 @@ class FileWatcher:
             return True
             
         try:
-            with FuturesDB() as db:
+            with DatabaseManager() as db:
                 imported_count = 0
                 for trade in trades:
                     # Convert the trade dictionary to match database format
