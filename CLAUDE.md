@@ -1,12 +1,14 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## 🚨 **CRITICAL: POSITION BUILDING ALGORITHM**
 
-**The core position building algorithm has been refactored into domain services while preserving complete integrity. This is the MOST IMPORTANT component of the application.**
+**The core position building algorithm is located in `domain/services/position_builder.py` and is the MOST IMPORTANT component of the application.**
 
-### **Core Algorithm - Extracted to Domain Services**
+### **Core Algorithm Location**
 
-**NEW LOCATION**: `domain/services/position_builder.py` - Contains the extracted position building logic
+**LOCATION**: `domain/services/position_builder.py` - Contains the position building logic
 
 Transforms NinjaTrader executions into position records using **Quantity Flow Analysis**:
 
@@ -27,22 +29,9 @@ For each execution:
 ```
 
 #### **⚠️ Critical Warning:**
-- Algorithm extracted to `domain/services/position_builder.py` - **ALGORITHM INTEGRITY PRESERVED**
+- Algorithm is in `domain/services/position_builder.py` - **PRESERVE ALGORITHM INTEGRITY**
 - Always test with `/positions/rebuild` after any changes
 - Improper modifications break ALL historical P&L calculations
-
-#### **Phase 2 Refactoring Complete:**
-- ✅ Algorithm extracted to pure domain services
-- ✅ Position building logic isolated and testable
-- ✅ Business logic separated from HTTP handling
-- ✅ Service interfaces defined for dependency injection
-
-#### **Phase 3 Refactoring Complete:**
-- ✅ Repository pattern implemented across entire codebase
-- ✅ TradingLog_db.py monolithic class decomposed into focused repositories
-- ✅ DatabaseManager coordinates all repository access
-- ✅ 41 files migrated from monolithic to repository pattern
-- ✅ Clean separation of concerns with maintained functionality
 
 ## Project Overview
 
@@ -57,80 +46,13 @@ Flask web application for futures traders - processes NinjaTrader executions int
 - **Validation System**: Real-time position overlap detection with automated prevention and UI integration
 - **User Preferences**: Persistent chart settings with localStorage caching and API synchronization
 
-## 🏗️ Architecture & Refactoring
-
-**Phase 3 Complete**: Repository pattern refactoring has successfully eliminated all monolithic database coupling.
-
-**Progress Status**:
-- ✅ **Phase 1**: Foundation (Week 1) - **COMPLETE**
-  - ✅ Dependency injection container design
-  - ✅ Repository interfaces defined
-  - ✅ Configuration management planning
-- ✅ **Phase 2**: Core Services (Week 2) - **COMPLETE**
-  - ✅ Position building algorithm extracted to domain services
-  - ✅ Business logic separated from HTTP routes
-  - ✅ Service interfaces implemented
-- ✅ **Phase 3**: Data Layer (Week 3) - **COMPLETE**
-  - ✅ Repository pattern implementation
-  - ✅ Monolithic `TradingLog_db.py` decomposed into focused repositories
-  - ✅ DatabaseManager coordinates all repository access
-  - ✅ 41 files migrated to repository pattern
-
-**Documentation**:
-- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Detailed analysis of coupling problems
-- **[docs/MODULAR_ARCHITECTURE_PLAN.md](docs/MODULAR_ARCHITECTURE_PLAN.md)** - Complete modular architecture solution
-- **[docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md)** - Step-by-step implementation plan
-
-**Major Refactoring Achievements**:
-- ✅ **Phase 2**: Core position building algorithm extracted and preserved
-- ✅ **Phase 2**: Domain models created with proper validation
-- ✅ **Phase 2**: Business logic separated from HTTP handling
-- ✅ **Phase 2**: Service interfaces defined for dependency injection
-- ✅ **Phase 3**: Repository pattern implemented across entire codebase
-- ✅ **Phase 3**: Monolithic database class decomposed
-- ✅ **Phase 3**: Clean architecture boundaries established
-
-
-## Development & Deployment
-
-**Standardized Docker-First Development Workflow**
-
-### Development (Standardized)
-```bash
-# 🚀 Standard development workflow (ALWAYS use this)
-./dev.sh                                     # Start development environment
-
-# Alternative (same thing)
-docker-compose -f docker-compose.dev.yml up --build
-
-# Benefits:
-# ✅ Matches production environment exactly
-# ✅ Live code reloading (edit files normally) 
-# ✅ Debug mode enabled
-# ✅ No Python virtual environment needed
-# ✅ No dependency version conflicts
-```
-
-### Production Deployment
-```bash
-# Production (automatic)
-git push origin main                          # Auto-deploy via GitHub Actions
-
-# Production (manual)
-docker-compose up --build                    # Production deployment
-
-# Health checks
-curl http://localhost:5000/health            # Basic health check
-pytest tests/ -v                             # Run tests
-```
-
 ## Architecture
 
 See **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.md)** for complete project structure and technology stack.
 
 ### Core Components
 
-#### **Modern Architecture (Phase 2 & 3 Complete)**
+#### **Modern Architecture (Repository Pattern)**
 - **Domain Layer** (`domain/`):
   - `models/`: Core business entities (Position, Trade, Execution, PnL)
   - `services/`: Pure business logic (PositionBuilder, PnLCalculator, QuantityFlowAnalyzer)
@@ -149,13 +71,13 @@ See **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.m
   - `profile_repository.py`: User profile operations
   - `statistics_repository.py`: Analytics and reporting operations
 
-#### **Refactored Components (All Phases Complete)**
-- **`position_service.py`**: ✅ **ALGORITHM EXTRACTED** to `domain/services/position_builder.py`
+#### **Key Components**
+- **`position_service.py`**: Position building algorithm (extracted to domain services)
 - **`enhanced_position_service.py`**: Enhanced position service with comprehensive overlap prevention  
-- **`database_manager.py`**: ✅ **NEW** - Repository pattern coordinator (replaces TradingLog_db.py)
-- **`data_service.py`**: ✅ **MIGRATED** - yfinance integration with repository pattern
-- **`app.py`**: ✅ **MIGRATED** - Flask application with repository pattern
-- **`routes/`**: ✅ **FULLY MIGRATED** - All 15+ route blueprints use repository pattern
+- **`database_manager.py`**: Repository pattern coordinator (replaces TradingLog_db.py)
+- **`data_service.py`**: yfinance integration with repository pattern
+- **`app.py`**: Flask application with repository pattern
+- **`routes/`**: All route blueprints use repository pattern
 
 ### Database Schema
 - **Trades**: Individual executions with P&L, linking via `link_group_id`
@@ -163,6 +85,43 @@ See **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.m
 - **OHLC_Data**: Market data with 8 performance indexes (15-50ms queries)
 - **Chart_Settings**: User preferences for timeframes and display options
 - **User_Profiles**: Named configuration profiles with settings snapshots
+
+## Development & Deployment
+
+### Development (Docker-First)
+```bash
+# Standard development workflow
+./dev.sh                                     # Start development environment
+
+# Alternative
+docker-compose -f docker-compose.dev.yml up --build
+
+# Benefits:
+# - Matches production environment exactly
+# - Live code reloading (edit files normally) 
+# - Debug mode enabled
+# - No Python virtual environment needed
+# - No dependency version conflicts
+```
+
+### Production Deployment
+```bash
+# Production (automatic via GitHub Actions)
+git push origin main                          # Auto-deploy via GitHub Actions
+
+# Production (manual)
+docker-compose up --build                    # Production deployment
+
+# Health checks
+curl http://localhost:5000/health            # Basic health check
+pytest tests/ -v                             # Run tests
+```
+
+### GitHub Actions Workflow
+The deployment pipeline consists of 3 jobs:
+1. **Test**: Code quality validation and basic functionality tests
+2. **Build-and-Push**: Creates Docker image and pushes to GitHub Container Registry
+3. **Security-Scan**: Vulnerability scanning with Trivy (optional but recommended)
 
 ## Configuration
 
@@ -223,7 +182,6 @@ tail -f logs/error.log                                   # Monitor errors
 grep "performance\|slow" logs/database.log               # Performance issues
 ```
 
-
 ## Key Implementation Notes
 - **Position-based architecture** with quantity flow analysis (0 → +/- → 0 lifecycle) and comprehensive overlap prevention
 - **Enhanced validation system** with real-time monitoring, automated error detection, and UI integration
@@ -259,7 +217,7 @@ grep "performance\|slow" logs/database.log               # Performance issues
 ## Documentation References
 
 ### Core Documentation
-- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Current architecture problems and coupling analysis
+- **[docs/ARCHITECTURAL_ANALYSIS.md](docs/ARCHITECTURAL_ANALYSIS.md)** - Architecture problems and coupling analysis
 - **[docs/MODULAR_ARCHITECTURE_PLAN.md](docs/MODULAR_ARCHITECTURE_PLAN.md)** - Comprehensive refactoring plan
 - **[docs/REFACTORING_ROADMAP.md](docs/REFACTORING_ROADMAP.md)** - Step-by-step implementation guide
 - **[docs/ai-context/project-structure.md](docs/ai-context/project-structure.md)** - Complete project structure and technology stack
@@ -281,3 +239,33 @@ grep "performance\|slow" logs/database.log               # Performance issues
 - **[docs/BACKUP_SYSTEM.md](docs/BACKUP_SYSTEM.md)** - Backup system configuration
 - **[docs/SECURITY_SETUP.md](docs/SECURITY_SETUP.md)** - Security configuration and hardening
 - **[docs/GITHUB_AUTO_DEPLOY_SETUP.md](docs/GITHUB_AUTO_DEPLOY_SETUP.md)** - GitHub Actions deployment setup
+
+## Important Implementation Notes
+- Database uses context managers for connection handling
+- All routes use blueprint registration pattern
+- CSV processing includes duplicate detection and validation
+- Trade linking allows grouping related positions
+- Frontend uses hybrid server-side rendering with JavaScript enhancements
+- Database automatically creates indexes and applies performance optimizations on startup
+- Cursor-based pagination scales to millions of trades efficiently
+- **Position-Based Architecture**: Complete trade aggregation system showing positions instead of individual executions
+- **Quantity-Based Position Logic**: Positions tracked purely on contract quantity changes (0 → +/- → 0) without time-based grouping
+- **Pure FIFO Position Flow**: Accurate position lifecycle from first non-zero quantity to return to zero quantity
+- **Multi-Account Processing**: Proper separation and FIFO tracking for NinjaTrader trade copying
+- **Execution Pairing**: Uses Entry/Exit markers (not Buy/Sell) for accurate position matching
+- **Instrument Multipliers**: Web-based management with real-time updates to trade processing
+- **Unique Trade IDs**: Traceable execution chains prevent duplicate database entries
+- **Enhanced Error Handling**: Comprehensive logging and timestamp conversion for SQLite compatibility
+- **Position Debug Interface**: Troubleshooting tools for examining trade grouping and position building logic
+- **Gap Detection**: Enhanced algorithm prevents equal timestamp issues in OHLC data
+- **Test Isolation**: Comprehensive mocking ensures tests don't depend on external APIs
+- **Docker Ready**: Cross-platform deployment with optimized build configuration
+- **CI/CD Pipeline**: GitHub Actions integration with robust error handling and security scanning
+- **Redis Caching**: 2-week OHLC data retention with intelligent cleanup and cache warming
+- **Background Services**: Automated gap-filling every 15 minutes with extended 4-hour cycles
+- **Chart-Table Synchronization**: Bidirectional highlighting between execution tables and TradingView charts
+- **Position Analysis**: Comprehensive FIFO tracking with execution flow visualization and lifecycle status
+- **OHLC Chart Integration**: TradingView Lightweight Charts embedded in position detail pages for market context
+- **Universal Dark Theme**: Professional dark color scheme enforced across all pages via base.html template
+- **Compact UI Design**: Space-efficient filter controls and optimized dashboard layouts
+- **CSV Re-import System**: Ability to scan data directory and re-import trades from archived CSV files
