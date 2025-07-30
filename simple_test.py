@@ -37,54 +37,54 @@ def run_tests():
     try:
         print("\n1. Testing basic imports...")
         import config
-        print("  ✓ Config module imported")
+        print("  [OK] Config module imported")
         
         from config import config as app_config
-        print("  ✓ Config instance imported")
+        print("  [OK] Config instance imported")
         
         # Test config initialization
-        print(f"  ✓ Data directory: {app_config.data_dir}")
+        print(f"  [OK] Data directory: {app_config.data_dir}")
         
     except Exception as e:
-        print(f"  ✗ Config import failed: {e}")
+        print(f"  [FAIL] Config import failed: {e}")
         success = False
     
     # Test 2: Database manager import
     try:
         print("\n2. Testing database imports...")
         from database_manager import DatabaseManager
-        print("  ✓ DatabaseManager imported")
+        print("  [OK] DatabaseManager imported")
     except Exception as e:
-        print(f"  ✗ Database import failed: {e}")
+        print(f"  [FAIL] Database import failed: {e}")
         # Don't fail on this since it might need Redis/other deps
-        print("  ! Continuing anyway (database might need additional setup)")
+        print("  [WARN] Continuing anyway (database might need additional setup)")
     
     # Test 3: Flask app
     try:
         print("\n3. Testing Flask app...")
         from app import app as flask_app
-        print("  ✓ Flask app imported")
+        print("  [OK] Flask app imported")
         
         with flask_app.test_client() as client:
-            print("  ✓ Test client created")
+            print("  [OK] Test client created")
             
             # Test health endpoint
             response = client.get('/health')
             if response.status_code == 200:
-                print("  ✓ Health endpoint returns 200")
+                print("  [OK] Health endpoint returns 200")
                 
                 # Check if response contains expected content
                 data = response.get_json()
                 if data and 'status' in data:
-                    print("  ✓ Health response contains status")
+                    print("  [OK] Health response contains status")
                 else:
-                    print("  ! Health response format unexpected but continuing")
+                    print("  [WARN] Health response format unexpected but continuing")
             else:
-                print(f"  ✗ Health endpoint failed: {response.status_code}")
+                print(f"  [FAIL] Health endpoint failed: {response.status_code}")
                 success = False
                 
     except Exception as e:
-        print(f"  ✗ Flask app test failed: {e}")
+        print(f"  [FAIL] Flask app test failed: {e}")
         success = False
     
     return success
