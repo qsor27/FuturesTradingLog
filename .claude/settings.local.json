@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__github__list_workflow_runs",
+      "mcp__github__list_workflows"
+    ],
+    "deny": []
+  }
+}

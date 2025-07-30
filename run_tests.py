@@ -120,9 +120,9 @@ def main():
     # Summary
     print(f"\n{'='*60}")
     if success:
-        print("✅ All tests completed successfully!")
+        print("All tests completed successfully!")
     else:
-        print("❌ Some tests failed. Check output above for details.")
+        print("Some tests failed. Check output above for details.")
     print(f"{'='*60}")
     
     return 0 if success else 1
