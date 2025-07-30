@@ -1,0 +1,19 @@
+# Minimal requirements for basic testing and Docker build
+# These should install reliably in GitHub Actions
+
+# Core Flask Application  
+Flask==3.0.0
+Werkzeug==3.0.1
+python-dotenv>=0.19.0
+
+# Basic testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock>=3.8.0
+
+# Essential dependencies
+requests==2.31.0
+pydantic==2.5.0
+
+# Redis (optional but lightweight)
+redis==5.0.1
