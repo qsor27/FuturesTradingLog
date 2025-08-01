@@ -4,7 +4,8 @@
     "allow": [
       "Bash(git pull:*)",
       "Bash(git merge:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
