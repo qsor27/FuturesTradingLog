@@ -83,3 +83,10 @@ data/last_sync.json
 # Backup files
 *.backup
 *.bak
+
+# SQLite WAL files
+*.db-shm
+*.db-wal
+
+# Claude settings
+.claude/settings.local.json
