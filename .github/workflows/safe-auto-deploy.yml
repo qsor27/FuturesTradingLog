@@ -1,7 +1,10 @@
-name: Safe Auto Deploy to Production
+name: Build, Test, and Deploy
 
 on:
   push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
     inputs:
@@ -11,13 +14,45 @@ on:
         default: 'false'
         type: boolean
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
+  # Test first
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run quick tests
+      run: |
+        python tools/run_tests.py --quick
+    
+    - name: Run performance tests
+      run: |
+        python tools/run_tests.py --performance
+
   # Build and push Docker image
   build:
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
       image-digest: ${{ steps.build.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -28,7 +63,7 @@ jobs:
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
-        registry: ghcr.io
+        registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
@@ -36,9 +71,12 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/qsor27/futurestradinglog
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
           type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
     
@@ -52,11 +90,56 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
 
-  # Notify deployment ready - Watchtower will handle actual deployment
-  notify-deployment:
+  # Security scan
+  security-scan:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata for security scan
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Notify deployment ready - Watchtower will handle actual deployment (only for main branch)
+  notify-deployment:
+    needs: [build, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
     - name: Check market hours
       id: market-check
@@ -98,39 +181,3 @@ jobs:
         echo "🤖 Watchtower will automatically deploy this image to production"
         echo "📊 Monitor deployment at: http://localhost:5000/health"
         echo "⏱️ Deployment typically completes within 2-5 minutes"
-
-  # Run basic tests that don't require deployment
-  test-build:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    
-    - name: Run quick tests
-      run: |
-        echo "🧪 Running quick validation tests..."
-        python -c "import app; print('✅ App imports successfully')"
-        python -c "from TradingLog_db import FuturesDB; print('✅ Database module imports successfully')"
-        python -c "import config; print('✅ Config module imports successfully')"
-        echo "✅ All import tests passed"
-    
-    - name: Validate Docker image
-      run: |
-        echo "🐳 Validating Docker image..."
-        # Pull the just-built image (using lowercase repository name)
-        docker pull ghcr.io/qsor27/futurestradinglog:latest
-        
-        # Quick container test (without full startup)
-        docker run --rm ghcr.io/qsor27/futurestradinglog:latest python -c "import app; print('✅ Container Python environment OK')"
-        echo "✅ Docker image validation passed"

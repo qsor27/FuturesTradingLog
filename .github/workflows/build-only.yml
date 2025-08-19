@@ -24,7 +24,7 @@ jobs:
     
     - name: Run tests
       run: |
-        python run_tests.py --quick
+        python tools/run_tests.py --quick
     
     - name: Test Docker build
       run: |
