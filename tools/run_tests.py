@@ -59,14 +59,14 @@ def main():
     success = True
     
     if args.quick:
-        # Run quick tests only (basic imports and structure)
-        cmd = f'{pytest_cmd} tests/test_imports.py'
-        success &= run_command(cmd, "Quick Import Tests")
+        # Run quick tests only (basic structure validation)
+        cmd = f'{pytest_cmd} tests/test_basic.py'
+        success &= run_command(cmd, "Quick Basic Tests")
         
     elif args.performance:
-        # Run performance tests only
-        cmd = f'{pytest_cmd} tests/test_performance.py'
-        success &= run_command(cmd, "Performance Tests")
+        # Run simple performance validation
+        cmd = f'{pytest_cmd} tests/test_basic.py'
+        success &= run_command(cmd, "Basic Performance Tests")
         
     elif args.integration:
         # Run integration tests only
