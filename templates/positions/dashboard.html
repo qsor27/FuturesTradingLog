@@ -1,14 +1,24 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Trading Positions</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-    <style>
-        /* Dark mode compatible styling */
-        body {
-            background-color: #1a1a1a;
-            color: #e5e5e5;
+{% extends "base.html" %}
+
+{% block title %}Trading Positions{% endblock %}
+
+{% block extra_head %}
+<style>
+        /* Position-specific styling using CSS variables */
+        .page-header {
+            background-color: var(--section-bg);
+            color: var(--text-color);
+            border-bottom: 1px solid var(--border-color);
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header-buttons {
+            display: flex;
+            gap: 10px;
         }
         
         .position-status {
@@ -37,12 +47,12 @@
             margin-bottom: 30px;
         }
         .stat-card {
-            background: #2a2a2a;
+            background: var(--card-bg);
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             text-align: center;
-            border: 1px solid #404040;
+            border: 1px solid var(--border-color);
         }
         .stat-value {
             font-size: 24px;
@@ -362,12 +372,14 @@
             }
         }
     </style>
-</head>
-<body>
-    <!-- Header Section -->
-    <div class="header">
+{% endblock %}
+
+{% block content %}
+    <!-- Page Header Section -->
+    <div class="page-header">
         <h1>Trading Positions</h1>
         <div class="header-buttons">
+            <a href="{{ url_for('main.csv_manager') }}" class="btn">CSV Manager</a>
             <a href="{{ url_for('main.index') }}" class="btn">View Trades</a>
             <a href="{{ url_for('statistics.statistics') }}" class="btn stats-btn">Statistics</a>
             <a href="{{ url_for('settings.settings') }}" class="btn settings-btn">Settings</a>
@@ -603,8 +615,10 @@
         {% endif %}
     </div>
     {% endif %}
+{% endblock %}
 
-    <script>
+{% block scripts %}
+<script>
         function rebuildPositions() {
             const btn = document.getElementById('rebuildBtn');
             const status = document.getElementById('managementStatus');
@@ -1079,6 +1093,5 @@
         document.addEventListener('DOMContentLoaded', function() {
             window.validationManager = new ValidationStatusManager();
         });
-    </script>
-</body>
-</html>
+</script>
+{% endblock %}

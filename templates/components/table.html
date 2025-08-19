@@ -1,0 +1,35 @@
+{#
+    Reusable Table Component
+    
+    Usage:
+    {% include 'components/table.html' with context %}
+    
+    Parameters:
+    - headers: List of table header strings
+    - rows: List of lists containing row data
+    - class: Optional additional CSS classes
+    - table_id: Optional table ID
+    - sortable: Boolean for sortable table functionality
+    - selectable: Boolean for row selection checkboxes
+    - actions: Boolean for actions column
+#}
+<div class="table-container{% if class %} {{ class }}{% endif %}">
+    <table class="data-table"{% if table_id %} id="{{ table_id }}"{% endif %}>
+        <thead>
+            <tr>
+                {% if selectable %}
+                <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                {% endif %}
+                {% for header in headers %}
+                <th{% if sortable %} class="sortable"{% endif %}>{{ header }}</th>
+                {% endfor %}
+                {% if actions %}
+                <th>Actions</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {{ table_body|safe }}
+        </tbody>
+    </table>
+</div>

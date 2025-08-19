@@ -1,97 +1,54 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html" %}
+
 {# Set default values for pagination variables #}
 {% set current_page = current_page|default(1) %}
 {% set total_pages = total_pages|default(1) %}
 {% set page_size = page_size|default(50) %}
 {% set total_count = total_count|default(0) %}
-<head>
-    <title>Futures Trades</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-    <style>
-        /* Dark theme overrides */
-        body {
-            background-color: #1a1a1a;
-            color: #e5e5e5;
-        }
-        
-        .header {
-            background-color: #1f1f1f;
-            color: #e5e5e5;
-            border-bottom: 1px solid #404040;
-            padding: 20px;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .header-buttons {
-            display: flex;
-            gap: 10px;
-        }
-        
-        .import-section, .import-step {
-            background-color: #2a2a2a;
-            border: 1px solid #404040;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .import-steps {
-            display: flex;
-            gap: 20px;
-            justify-content: flex-start;
-        }
-        
-        .import-step {
-            flex: 0 1 auto;
-        }
-        
-        h1, h2 {
-            color: #e5e5e5;
-        }
-        
-        p {
-            color: #d1d5db;
-        }
-        
-        label {
-            color: #d1d5db;
-            display: block;
-            margin-bottom: 8px;
-        }
-        
-        input[type="file"] {
-            background-color: #1f1f1f;
-            border: 1px solid #404040;
-            color: #e5e5e5;
-            border-radius: 4px;
-            padding: 8px;
-            width: 100%;
-        }
-        
-        .btn {
-            background-color: #404040;
-            color: #e5e5e5;
-            border: 1px solid #606060;
-            padding: 8px 16px;
-            border-radius: 4px;
-            text-decoration: none;
-            display: inline-block;
-            cursor: pointer;
-        }
-        
-        .btn:hover {
-            background-color: #505050;
-        }
-    </style>
-</head>
-<body>
+
+{% block title %}Futures Trades{% endblock %}
+
+{% block extra_head %}
+<style>
+    .import-section, .import-step {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .import-steps {
+        display: flex;
+        gap: 20px;
+        justify-content: flex-start;
+    }
+    
+    .import-step {
+        flex: 0 1 auto;
+    }
+    
+    .page-header {
+        background-color: var(--section-bg);
+        color: var(--text-color);
+        border-bottom: 1px solid var(--border-color);
+        padding: 20px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .header-buttons {
+        display: flex;
+        gap: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
     <!-- Header Section -->
-    <div class="header">
+    <div class="page-header">
         <h1>Futures Trades Log</h1>
         <div class="header-buttons">
             <a href="{{ url_for('positions.positions_dashboard') }}" class="btn">View Positions</a>
@@ -152,42 +109,43 @@
     {% include 'partials/filters.html' %}
     {% include 'partials/trade_table.html' %}
     {% include 'partials/pagination.html' %}
+{% endblock %}
 
-    <script>
-    function processNTExport() {
-        const fileInput = document.getElementById('ntFile');
-        const statusDiv = document.getElementById('processStatus');
-        const statusText = document.getElementById('statusText');
-        
-        if (fileInput.files.length === 0) {
-            alert('Please select a NinjaTrader Grid CSV file');
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        
-        statusDiv.classList.remove('hidden');
-        statusText.textContent = 'Processing NT Executions...';
-        
-        fetch('{{ url_for("main.process_nt_executions") }}', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                statusText.textContent = 'Processing complete! You can now upload the processed TradeLog.csv';
-                fileInput.value = '';
-            } else {
-                throw new Error(data.message || 'Error processing NT Export');
-            }
-        })
-        .catch(error => {
-            alert('Error: ' + error.message);
-            statusDiv.classList.add('hidden');
-        });
+{% block scripts %}
+<script>
+function processNTExport() {
+    const fileInput = document.getElementById('ntFile');
+    const statusDiv = document.getElementById('processStatus');
+    const statusText = document.getElementById('statusText');
+    
+    if (fileInput.files.length === 0) {
+        alert('Please select a NinjaTrader Grid CSV file');
+        return;
     }
-    </script>
-</body>
-</html>
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    
+    statusDiv.classList.remove('hidden');
+    statusText.textContent = 'Processing NT Executions...';
+    
+    fetch('{{ url_for("main.process_nt_executions") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusText.textContent = 'Processing complete! You can now upload the processed TradeLog.csv';
+            fileInput.value = '';
+        } else {
+            throw new Error(data.message || 'Error processing NT Export');
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+        statusDiv.classList.add('hidden');
+    });
+}
+</script>
+{% endblock %}

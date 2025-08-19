@@ -267,3 +267,133 @@ h1, h2, h3, h4, h5, h6 {
 .btn.reset-btn:hover {
     background-color: var(--btn-secondary-hover);
 }
+
+/* ============================================
+   COMPONENT SYSTEM ADDITIONS
+   ============================================ */
+
+/* Additional Button Variants */
+.btn-danger {
+    background-color: #dc2626;
+    color: #ffffff;
+    border: 1px solid #b91c1c;
+}
+
+.btn-danger:hover {
+    background-color: #b91c1c;
+}
+
+.btn-danger:disabled {
+    background-color: #4a1a1a;
+    color: #6b7280;
+    border: 1px solid #374151;
+    cursor: not-allowed;
+}
+
+/* Button Sizes */
+.btn-small, .btn-compact {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Status Indicators */
+.position-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.status-open { background-color: #4a4a00; color: #ffff80; }
+.status-closed { background-color: #1a4a1a; color: #80ff80; }
+
+.position-type {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.type-long { background-color: #1a4a1a; color: #80ff80; }
+.type-short { background-color: #4a1a1a; color: #ff8080; }
+
+/* P&L Colors */
+.pnl-positive { color: var(--positive-text); font-weight: bold; }
+.pnl-negative { color: var(--negative-text); font-weight: bold; }
+.pnl-neutral { color: #9ca3af; }
+
+/* Validation Status */
+.validation-healthy { color: var(--positive-text) !important; }
+.validation-warning { color: #fbbf24 !important; }
+.validation-error { color: var(--negative-text) !important; }
+.validation-loading { color: #9ca3af !important; }
+
+/* Utility Classes */
+.text-center { text-align: center; }
+.hidden { display: none; }
+.spinner { 
+    width: 16px; height: 16px; 
+    border: 2px solid #404040; 
+    border-top: 2px solid var(--link-color); 
+    border-radius: 50%; 
+    animation: spin 1s linear infinite; 
+}
+
+@keyframes spin { 
+    0% { transform: rotate(0deg); } 
+    100% { transform: rotate(360deg); } 
+}
+
+/* Navigation Styles */
+.nav-bar {
+    background-color: var(--section-bg);
+    border-bottom: 2px solid var(--border-color);
+    padding: 15px 20px;
+    margin-bottom: 20px;
+}
+
+.nav-links {
+    display: flex;
+    gap: 30px;
+    align-items: center;
+}
+
+.nav-link {
+    color: var(--text-color);
+    text-decoration: none;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.nav-link:hover {
+    background-color: var(--card-bg);
+    color: var(--link-color);
+}
+
+.nav-link.active {
+    background-color: var(--btn-primary-bg);
+    color: var(--link-color);
+}
+
+.nav-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--text-color);
+    margin-right: 40px;
+}
+
+/* Links */
+a {
+    color: var(--link-color);
+}
+
+a:hover {
+    color: #80ccff;
+}
+
+/* Paragraphs */
+p {
+    color: #d1d5db;
+}

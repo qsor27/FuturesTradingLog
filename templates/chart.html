@@ -3,16 +3,16 @@
 {% block title %}{{ instrument }} Chart - Futures Trading Log{% endblock %}
 
 {% block extra_head %}
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.development.js"></script>
 <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
 <style>
 .chart-container {
     position: relative;
     width: 100%;
     min-height: 500px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: #fff;
+    background: var(--bg-color);
     margin-bottom: 20px;
 }
 
@@ -21,30 +21,31 @@
     align-items: center;
     gap: 15px;
     padding: 15px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #ddd;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border-color);
     flex-wrap: wrap;
 }
 
 .chart-controls select,
 .chart-controls button {
     padding: 6px 12px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: white;
+    background: var(--section-bg);
+    color: var(--text-color);
     font-size: 14px;
 }
 
 .chart-controls button {
-    background: #007bff;
-    color: white;
+    background: var(--btn-primary-bg);
+    color: var(--text-color);
     cursor: pointer;
-    border-color: #007bff;
+    border-color: var(--border-color);
 }
 
 .chart-controls button:hover {
-    background: #0056b3;
-    border-color: #0056b3;
+    background: var(--btn-primary-hover);
+    border-color: var(--border-color);
 }
 
 .chart-loading {
@@ -53,7 +54,9 @@
     left: 50%;
     transform: translate(-50%, -50%);
     padding: 20px;
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     display: none;
     z-index: 1000;
@@ -65,9 +68,9 @@
     left: 50%;
     transform: translate(-50%, -50%);
     padding: 20px;
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
+    background: var(--negative-bg);
+    color: var(--negative-text);
+    border: 1px solid var(--negative-text);
     border-radius: 4px;
     display: none;
     z-index: 1000;
@@ -76,8 +79,8 @@
 }
 
 .trades-panel {
-    background: #f8f9fa;
-    border: 1px solid #ddd;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 15px;
     margin-top: 20px;
@@ -86,7 +89,7 @@
 .trades-panel h3 {
     margin: 0 0 15px 0;
     font-size: 18px;
-    color: #333;
+    color: var(--text-color);
 }
 
 .trade-item {
@@ -94,8 +97,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 10px;
-    background: white;
-    border: 1px solid #ddd;
+    background: var(--section-bg);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     margin-bottom: 10px;
     cursor: pointer;
@@ -103,12 +106,12 @@
 }
 
 .trade-item:hover {
-    background: #e9ecef;
+    background: #333333;
 }
 
 .trade-item.selected {
-    background: #cce5ff;
-    border-color: #007bff;
+    background: rgba(102, 179, 255, 0.2);
+    border-color: var(--link-color);
 }
 
 .trade-info {
@@ -199,8 +202,10 @@
             <strong>Timeframe:</strong>
             <select id="timeframeSelect">
                 <option value="1m">1 Minute</option>
+                <option value="3m">3 Minutes</option>
                 <option value="5m">5 Minutes</option>
                 <option value="15m">15 Minutes</option>
+                <option value="30m">30 Minutes</option>
                 <option value="1h">1 Hour</option>
                 <option value="4h">4 Hours</option>
                 <option value="1d">1 Day</option>

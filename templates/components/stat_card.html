@@ -1,0 +1,28 @@
+{#
+    Reusable Statistics Card Component
+    
+    Usage:
+    {% include 'components/stat_card.html' with context %}
+    
+    Parameters:
+    - value: Required statistic value to display
+    - label: Required label for the statistic
+    - trend: Optional trend indicator ('positive', 'negative', 'neutral')
+    - color_class: Optional CSS class for value color
+    - id: Optional card ID
+    - class: Optional additional CSS classes
+    - onclick: Optional JavaScript onclick handler
+    - details: Optional additional details text
+    - icon: Optional icon class for the stat
+#}
+<div class="stat-card{% if class %} {{ class }}{% endif %}"
+     {% if id %}id="{{ id }}"{% endif %}
+     {% if onclick %}onclick="{{ onclick }}" style="cursor: pointer;"{% endif %}>
+    <div class="stat-value{% if color_class %} {{ color_class }}{% elif trend %} pnl-{{ trend }}{% endif %}">
+        {% if icon %}<i class="{{ icon }}"></i> {% endif %}{{ value }}
+    </div>
+    <div class="stat-label">{{ label }}</div>
+    {% if details %}
+    <div class="stat-details">{{ details }}</div>
+    {% endif %}
+</div>

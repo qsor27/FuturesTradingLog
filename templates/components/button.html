@@ -1,0 +1,42 @@
+{#
+    Reusable Button Component
+    
+    Usage:
+    {% include 'components/button.html' with context %}
+    
+    Parameters:
+    - text: Required button text
+    - type: Button type ('button', 'submit', 'reset') - default: 'button'
+    - variant: Button variant ('primary', 'secondary', 'danger', 'success') - default: 'primary'
+    - size: Button size ('small', 'medium', 'large') - default: 'medium'
+    - href: If provided, renders as link instead of button
+    - onclick: JavaScript onclick handler
+    - disabled: Boolean for disabled state
+    - id: Optional button ID
+    - class: Optional additional CSS classes
+    - icon: Optional icon class (e.g., 'fas fa-save')
+    - attributes: Optional additional HTML attributes as string
+#}
+{% set btn_classes = ['btn'] %}
+{% if variant %}{% set _ = btn_classes.append('btn-' + variant) %}{% endif %}
+{% if size and size != 'medium' %}{% set _ = btn_classes.append('btn-' + size) %}{% endif %}
+{% if class %}{% set _ = btn_classes.append(class) %}{% endif %}
+
+{% if href %}
+<a href="{{ href }}" 
+   class="{{ btn_classes|join(' ') }}"
+   {% if id %}id="{{ id }}"{% endif %}
+   {% if onclick %}onclick="{{ onclick }}"{% endif %}
+   {{ attributes|safe if attributes }}>
+   {% if icon %}<i class="{{ icon }}"></i> {% endif %}{{ text }}
+</a>
+{% else %}
+<button type="{{ type|default('button') }}" 
+        class="{{ btn_classes|join(' ') }}"
+        {% if id %}id="{{ id }}"{% endif %}
+        {% if onclick %}onclick="{{ onclick }}"{% endif %}
+        {% if disabled %}disabled{% endif %}
+        {{ attributes|safe if attributes }}>
+        {% if icon %}<i class="{{ icon }}"></i> {% endif %}{{ text }}
+</button>
+{% endif %}

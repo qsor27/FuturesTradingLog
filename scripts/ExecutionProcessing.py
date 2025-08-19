@@ -4,257 +4,349 @@ import os
 from datetime import datetime
 import glob
 import shutil
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+import logging
+
+from config import config
+
+# Import secure processor if available
+try:
+    from secure_execution_processing import SecureExecutionProcessor
+    SECURE_PROCESSING_AVAILABLE = True
+except ImportError:
+    SECURE_PROCESSING_AVAILABLE = False
+    logging.warning("Secure processing not available - using legacy mode")
+
+# Import cache manager for invalidation
+try:
+    from cache_manager import get_cache_manager
+    CACHE_INVALIDATION_AVAILABLE = True
+except ImportError:
+    CACHE_INVALIDATION_AVAILABLE = False
+    logging.warning("Cache invalidation not available")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Security limits
+MAX_FILE_SIZE_MB = 10
+MAX_ROWS = 100000
+
+def validate_file_security(file_path: str) -> Tuple[bool, str]:
+    """
+    Basic security validation for CSV files.
+    
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        file_path_obj = Path(file_path)
+        
+        # Check file exists
+        if not file_path_obj.exists():
+            return False, f"File not found: {file_path}"
+        
+        # Check file size
+        file_size = file_path_obj.stat().st_size
+        max_size_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+        if file_size > max_size_bytes:
+            return False, f"File too large: {file_size / (1024*1024):.1f}MB > {MAX_FILE_SIZE_MB}MB limit"
+        
+        # Check file extension
+        if file_path_obj.suffix.lower() != '.csv':
+            return False, f"Invalid file type: {file_path_obj.suffix}. Only CSV files allowed."
+        
+        return True, "File validation passed"
+        
+    except Exception as e:
+        return False, f"File validation error: {str(e)}"
+
 
 def create_archive_folder():
     """Create Archive folder if it doesn't exist"""
-    if not os.path.exists('Archive'):
-        os.makedirs('Archive')
+    archive_path = config.data_dir / 'archive'
+    if not archive_path.exists():
+        archive_path.mkdir(parents=True)
 
-def print_dataframe_info(df, label):
-    """Print detailed information about a DataFrame"""
-    print(f"\n{label} DataFrame Info:")
-    print(f"Number of rows: {len(df)}")
-    if len(df) > 0:
-        print("First row:")
-        first_row = df.iloc[0]
-        for col in df.columns:
-            print(f"{col}: {first_row[col]} (type: {type(first_row[col]).__name__})")
 
-def load_existing_trades():
-    """Load existing trades from TradeLog.csv"""
-    if not os.path.exists('TradeLog.csv'):
-        print("No TradeLog.csv found.")
-        return pd.DataFrame()
+def invalidate_cache_after_import(processed_trades: List[Dict]) -> None:
+    """
+    Invalidate cache after processing trades to ensure data consistency.
+    """
+    if not CACHE_INVALIDATION_AVAILABLE or not processed_trades:
+        return
+    
+    try:
+        # Extract unique instruments and accounts from processed trades
+        instruments = set()
+        accounts = set()
+        
+        for trade in processed_trades:
+            if 'Instrument' in trade:
+                instruments.add(trade['Instrument'])
+            if 'Account' in trade:
+                accounts.add(trade['Account'])
+        
+        instruments = list(instruments)
+        accounts = list(accounts)
+        
+        if instruments or accounts:
+            cache_manager = get_cache_manager()
+            result = cache_manager.on_trade_import(instruments, accounts)
+            
+            logger.info(f"Cache invalidation completed for {len(instruments)} instruments, {len(accounts)} accounts")
+            logger.debug(f"Cache invalidation details: {result}")
+    
+    except Exception as e:
+        logger.error(f"Cache invalidation failed: {e}")
+        # Don't raise - cache invalidation failure shouldn't stop trade processing
 
-    print("\nLoading existing trades...")
-    df = pd.read_csv('TradeLog.csv')
-    print(f"Loaded {len(df)} existing trades")
-    print_dataframe_info(df, "Existing Trades")
-    return df
-
-def compare_trades(new_trade, existing_trade):
-    """Compare two trades and print details if they might be duplicates"""
-    print("\nComparing trades:")
-    print("New trade:")
-    for key, value in new_trade.items():
-        print(f"{key}: {value} (type: {type(value).__name__})")
-    print("\nExisting trade:")
-    for key, value in existing_trade.items():
-        print(f"{key}: {value} (type: {type(value).__name__})")
-
-def is_duplicate_trade(new_trade, existing_trades_df):
-    """Check if a trade already exists in the database"""
-    if len(existing_trades_df) == 0:
-        return False
-
-    print("\nChecking for duplicates with following values:")
-    print(f"Entry Time: {new_trade['Entry Time']}")
-    print(f"Exit Time: {new_trade['Exit Time']}")
-    print(f"Entry Price: {new_trade['Entry Price']}")
-    print(f"Exit Price: {new_trade['Exit Price']}")
-    print(f"Quantity: {new_trade['Quantity']}")
-    print(f"Account: {new_trade['Account']}")
-
-    # Convert times to string format for exact comparison
-    new_entry_time = pd.to_datetime(new_trade['Entry Time']).strftime('%Y-%m-%d %H:%M:%S')
-    new_exit_time = pd.to_datetime(new_trade['Exit Time']).strftime('%Y-%m-%d %H:%M:%S')
-    existing_trades_df['Entry_Time_Str'] = pd.to_datetime(existing_trades_df['Entry Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-    existing_trades_df['Exit_Time_Str'] = pd.to_datetime(existing_trades_df['Exit Time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    # Convert numeric values to exact types
-    new_entry_price = float(new_trade['Entry Price'])
-    new_exit_price = float(new_trade['Exit Price'])
-    new_quantity = int(new_trade['Quantity'])
-    new_account = str(new_trade['Account'])
-
-    matches = existing_trades_df[
-        (existing_trades_df['Entry_Time_Str'] == new_entry_time) &
-        (existing_trades_df['Exit_Time_Str'] == new_exit_time) &
-        (existing_trades_df['Entry Price'].astype(float) == new_entry_price) &
-        (existing_trades_df['Exit Price'].astype(float) == new_exit_price) &
-        (existing_trades_df['Quantity'].astype(int) == new_quantity) &
-        (existing_trades_df['Account'].astype(str) == new_account)
-    ]
-
-    if len(matches) > 0:
-        print("\n!!! DUPLICATE FOUND !!!")
-        print("Matching trade in database:")
-        for idx, match in matches.iterrows():
-            print(f"Entry Time: {match['Entry_Time_Str']}")
-            print(f"Exit Time: {match['Exit_Time_Str']}")
-            print(f"Entry Price: {match['Entry Price']}")
-            print(f"Exit Price: {match['Exit Price']}")
-            print(f"Quantity: {match['Quantity']}")
-            print(f"Account: {match['Account']}")
-        return True
-
-    print("No duplicate found")
-    return False
-
-def process_trades(df, multipliers, existing_trades_df):
-    """Process trades from a NinjaTrader DataFrame"""
-    print('\nStarting trade processing...')
-    print_dataframe_info(df, 'Input')
-
-    # Create an explicit copy
+def process_trades(df, multipliers):
+    """Process trades from a NinjaTrader DataFrame using proper account-based position tracking"""
+    # Validate DataFrame size
+    if len(df) > MAX_ROWS:
+        raise ValueError(f"DataFrame too large: {len(df)} rows > {MAX_ROWS} limit")
+    
+    # Create an explicit copy of the DataFrame
     ninja_trades_df = df.copy()
     
-    # Convert Commission to float, removing '$' if present
-    ninja_trades_df['Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
+    # Validate required columns
+    required_columns = ['ID', 'Account', 'Instrument', 'Time', 'Action', 'E/X', 'Quantity', 'Price', 'Commission']
+    missing_columns = [col for col in required_columns if col not in ninja_trades_df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {missing_columns}")
+    
+    # Convert Commission to float with error handling
+    try:
+        ninja_trades_df.loc[:, 'Commission'] = ninja_trades_df['Commission'].str.replace('$', '', regex=False).astype(float)
+    except Exception as e:
+        raise ValueError(f"Failed to parse Commission column: {str(e)}")
 
-    # Sort by Time
-    ninja_trades_df['Time'] = pd.to_datetime(ninja_trades_df['Time'])
-    ninja_trades_df = ninja_trades_df.sort_values('Time')
+    # Remove duplicates based on ID while keeping the first occurrence
+    ninja_trades_df = ninja_trades_df.drop_duplicates(subset=['ID'])
 
-    # Split entries and exits
-    entries = ninja_trades_df[ninja_trades_df['E/X'] == 'Entry']
-    exits = ninja_trades_df[ninja_trades_df['E/X'] == 'Exit']
+    # Sort by Time to ensure proper order with error handling
+    try:
+        ninja_trades_df.loc[:, 'Time'] = pd.to_datetime(ninja_trades_df['Time'])
+        ninja_trades_df = ninja_trades_df.sort_values(['Account', 'Time'])
+    except Exception as e:
+        raise ValueError(f"Failed to parse Time column: {str(e)}")
 
+    # Initialize list to store processed trades
     processed_trades = []
-    skipped_trades = 0
 
-    print(f'\nProcessing {len(entries)} potential trades...')
-
-    for _, entry in entries.iterrows():
-        try:
-            # Find matching exit by time and quantity
-            matching_exits = exits[
-                (exits['Time'] > entry['Time']) & 
-                (exits['Quantity'] == entry['Quantity'])
-            ]
-            
-            if len(matching_exits) == 0:
-                print(f'No matching exit found for entry at {entry["Time"]} with quantity {entry["Quantity"]}')
+    # Process each account separately to handle copied trades
+    for account in ninja_trades_df['Account'].unique():
+        account_df = ninja_trades_df[ninja_trades_df['Account'] == account].copy()
+        print(f"Processing account: {account}")
+        
+        # Track open positions for this account using FIFO
+        open_positions = []  # List of open entry executions
+        
+        for _, execution in account_df.iterrows():
+            try:
+                qty = int(execution['Quantity'])
+                price = float(execution['Price'])
+                time = execution['Time']
+                exec_id = execution['ID']
+                commission = float(execution['Commission'])
+                instrument = execution['Instrument']
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Skipping invalid execution row {execution['ID']}: {str(e)}")
                 continue
             
-            matching_exit = matching_exits.iloc[0]
+            print(f"  Processing {execution['E/X']}: {execution['Action']} {qty} at {price} (ID: {exec_id})")
             
-            # Calculate trade details
-            if entry['Action'] == 'Buy':
-                side = 'Long'
-                points_pl = float(matching_exit['Price']) - float(entry['Price'])
-            else:
-                side = 'Short'
-                points_pl = float(entry['Price']) - float(matching_exit['Price'])
-            
-            multiplier = float(multipliers[entry['Instrument']])
-            commission = float(entry['Commission']) + float(matching_exit['Commission'])
-            dollar_pl = (points_pl * multiplier * float(entry['Quantity'])) - commission
-            
-            # Create trade record
-            trade = {
-                'Instrument': entry['Instrument'],
-                'Side of Market': side,
-                'Quantity': int(entry['Quantity']),
-                'Entry Price': float(entry['Price']),
-                'Entry Time': entry['Time'],
-                'Exit Time': matching_exit['Time'],
-                'Exit Price': float(matching_exit['Price']),
-                'Result Gain/Loss in Points': round(points_pl, 2),
-                'Gain/Loss in Dollars': round(dollar_pl, 2),
-                'Commission': round(commission, 2),
-                'Account': str(entry['Account']),
-                'ID': entry['ID']
-            }
-            
-            print(f'\nProcessed trade:')
-            print(f'Entry Time: {trade["Entry Time"]}')
-            print(f'Exit Time: {trade["Exit Time"]}')
-            print(f'Account: {trade["Account"]}')
-            print(f'Points: {trade["Result Gain/Loss in Points"]}')
-            print(f'P&L: ${trade["Gain/Loss in Dollars"]}')
-            
-            if not is_duplicate_trade(trade, existing_trades_df):
-                processed_trades.append(trade)
-                print('Trade added to processing list')
-            else:
-                skipped_trades += 1
-                print('Trade skipped as duplicate')
+            if execution['E/X'] == 'Entry':
+                # Opening new position - add to open positions
+                open_positions.append({
+                    'price': price,
+                    'quantity': qty,
+                    'time': time,
+                    'id': exec_id,
+                    'commission': commission,
+                    'side': execution['Action']  # Preserve Buy/Sell terminology
+                })
+                print(f"    Added to open positions: {qty} contracts at {price}")
                 
-        except Exception as e:
-            print(f'Error processing trade: {str(e)}')
-            import traceback
-            traceback.print_exc()
+            elif execution['E/X'] == 'Exit':
+                # Closing position - match against open positions using FIFO
+                remaining_to_close = qty
+                
+                # Process open positions in FIFO order (oldest first)
+                positions_to_remove = []
+                
+                for i, open_pos in enumerate(open_positions):
+                    if remaining_to_close <= 0:
+                        break
+                    
+                    # Determine how much of this position to close
+                    close_qty = min(remaining_to_close, open_pos['quantity'])
+                    
+                    # Calculate P&L for this portion
+                    # Calculate P&L for this portion based on actual market actions
+                    if open_pos['side'] == 'Buy':
+                        points_pl = price - open_pos['price']  # Long position: exit - entry
+                    else:  # open_pos['side'] == 'Sell'
+                        points_pl = open_pos['price'] - price  # Short position: entry - exit
+                    
+                    # Get multiplier for this instrument
+                    multiplier = float(multipliers.get(instrument, 1))
+                    
+                    # Calculate commission (entry + proportional exit commission)
+                    entry_commission = open_pos['commission'] * (close_qty / open_pos['quantity'])
+                    exit_commission = commission * (close_qty / qty)
+                    total_commission = entry_commission + exit_commission
+                    
+                    # Calculate dollar P&L
+                    dollar_pl = (points_pl * multiplier * close_qty) - total_commission
+                    
+                    # Create unique trade ID
+                    unique_id = f"{open_pos['id']}_to_{exec_id}_{len(processed_trades)+1}"
+                    
+                    # Create completed trade record
+                    trade = {
+                        'Instrument': instrument,
+                        'Side of Market': open_pos['side'],
+                        'Quantity': close_qty,
+                        'Entry Price': open_pos['price'],
+                        'Entry Time': open_pos['time'],
+                        'Exit Time': time,
+                        'Exit Price': price,
+                        'Result Gain/Loss in Points': round(points_pl, 2),
+                        'Gain/Loss in Dollars': round(dollar_pl, 2),
+                        'ID': unique_id,
+                        'Commission': round(total_commission, 2),
+                        'Account': account
+                    }
+                    
+                    processed_trades.append(trade)
+                    print(f"    Created trade: {close_qty} contracts, P&L: ${dollar_pl:.2f}")
+                    
+                    # Update the open position
+                    open_pos['quantity'] -= close_qty
+                    remaining_to_close -= close_qty
+                    
+                    # Mark for removal if fully closed
+                    if open_pos['quantity'] <= 0:
+                        positions_to_remove.append(i)
+                
+                # Remove fully closed positions (in reverse order to maintain indices)
+                for i in reversed(positions_to_remove):
+                    open_positions.pop(i)
+                
+                if remaining_to_close > 0:
+                    print(f"    WARNING: Could not match {remaining_to_close} contracts for exit")
+        
+        print(f"  Account {account} completed with {len(open_positions)} open positions remaining")
 
-    print(f'\nProcessing complete:')
-    print(f'Processed trades: {len(processed_trades)}')
-    print(f'Skipped duplicates: {skipped_trades}')
-    
     return processed_trades
 
 def main():
-    try:
-        print("\nStarting execution processing...")
-        create_archive_folder()
+    # Change to the script's directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    print(f"Script directory: {script_dir}")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Data directory from config: {config.data_dir}")
+    print(f"Data directory exists: {os.path.exists(str(config.data_dir))}")
+    
+    # Ensure data directory exists
+    os.makedirs(str(config.data_dir), exist_ok=True)
+    
+    # Create Archive folder
+    create_archive_folder()
 
-        # Load multipliers
-        print("\nLoading instrument multipliers...")
-        with open('instrument_multipliers.json', 'r') as f:
-            multipliers = json.load(f)
-        print(f"Loaded multipliers for instruments: {list(multipliers.keys())}")
+    # Read the instrument multipliers
+    with open(config.instrument_config, 'r') as f:
+        multipliers = json.load(f)
 
-        # Load existing trades
-        existing_trades_df = load_existing_trades()
+    # Get glob pattern with full path
+    ninja_files = []
+    pattern = os.path.join(str(config.data_dir), 'NinjaTrader*.csv')
+    for file in glob.glob(pattern):
+        ninja_files.append(os.path.basename(file))
+    
+    if not ninja_files:
+        print("No NinjaTrader files found for processing")
+        return
 
-        # Find files to process
-        ninja_files = glob.glob('NinjaTrader*.csv')
-        if not ninja_files:
-            print("\nNo files to process")
-            return True
-
-        print(f"\nFound {len(ninja_files)} files to process: {ninja_files}")
-        all_processed_trades = []
-
-        # Process each file
-        for ninja_file in ninja_files:
-            print(f"\nProcessing {ninja_file}...")
-            df = pd.read_csv(ninja_file)
-            
-            # Process trades
-            processed_trades = process_trades(df, multipliers, existing_trades_df)
-            if processed_trades:
-                all_processed_trades.extend(processed_trades)
-            
-            # Move to archive
-            archive_path = os.path.join('Archive', ninja_file)
-            shutil.move(ninja_file, archive_path)
-            print(f"Moved {ninja_file} to Archive")
-
-        if len(all_processed_trades) == 0:
-            print("\nNo new unique trades to add")
-            return True
-
-        # Final duplicate check before saving
-        final_trades = []
-        print("\nPerforming final duplicate check...")
+    all_processed_trades = []
+    
+    # Process each NinjaTrader file
+    for ninja_file in ninja_files:
+        print(f"Processing {ninja_file}...")
+        full_path = os.path.join(str(config.data_dir), ninja_file)
         
-        for trade in all_processed_trades:
-            if not is_duplicate_trade(trade, existing_trades_df):
-                final_trades.append(trade)
+        # Validate file security
+        is_valid, error_msg = validate_file_security(full_path)
+        if not is_valid:
+            logger.error(f"Security validation failed for {ninja_file}: {error_msg}")
+            continue
+        
+        try:
+            # Read the trades CSV
+            df = pd.read_csv(full_path)
+            
+            # Process the trades
+            processed_trades = process_trades(df, multipliers)
+            all_processed_trades.extend(processed_trades)
+        except Exception as e:
+            logger.error(f"Failed to process {ninja_file}: {str(e)}")
+            continue
+        
+        # Move processed file to Archive folder
+        archive_path = config.data_dir / 'archive' / os.path.basename(ninja_file)
+        shutil.move(full_path, str(archive_path))
+        print(f"Moved {ninja_file} to Archive folder")
 
-        if len(final_trades) == 0:
-            print("\nAll trades were duplicates - nothing to add")
-            return True
+    # Convert processed trades to DataFrame
+    new_trades_df = pd.DataFrame(all_processed_trades)
+    
+    # Invalidate cache after processing trades
+    invalidate_cache_after_import(all_processed_trades)
 
+    trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+
+    print(f"Data directory: {config.data_dir}")
+    print(f"Trade log path: {trade_log_path}")
+
+    # If trade log exists, append to it; otherwise create new
+    if os.path.exists(trade_log_path):
+        existing_trades_df = pd.read_csv(trade_log_path)
+        # Convert datetime columns to consistent format
+        datetime_columns = ['Entry Time', 'Exit Time']
+        for col in datetime_columns:
+            new_trades_df[col] = pd.to_datetime(new_trades_df[col])
+            existing_trades_df[col] = pd.to_datetime(existing_trades_df[col])
+        
+        # Combine existing and new trades
+        combined_trades_df = pd.concat([existing_trades_df, new_trades_df], ignore_index=True)
+        
+        # Remove any duplicates based on ID
+        combined_trades_df = combined_trades_df.drop_duplicates(subset=['ID'])
+        
+        # Sort by Entry Time
+        combined_trades_df = combined_trades_df.sort_values('Entry Time')
+        
+        # Ensure trade_log.csv is in the data directory
+        trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
+        
         # Save to CSV
-        new_trades_df = pd.DataFrame(final_trades)
-        
-        if len(existing_trades_df) > 0:
-            combined_df = pd.concat([existing_trades_df, new_trades_df], ignore_index=True)
-            combined_df = combined_df.sort_values('Entry Time')
-            combined_df.to_csv('TradeLog.csv', index=False)
-            print(f"\nAdded {len(final_trades)} new trades to TradeLog.csv")
-        else:
-            new_trades_df.to_csv('TradeLog.csv', index=False)
-            print(f"\nCreated new TradeLog.csv with {len(new_trades_df)} trades")
+        combined_trades_df.to_csv(trade_log_path, index=False)
+    else:
+        # Save new trades to CSV
+        print(f"Saving trade log to: {trade_log_path}")
+        new_trades_df.to_csv(trade_log_path, index=False)
+        print(f"Trade log saved successfully: {os.path.exists(trade_log_path)}")
 
-        return True
+        # Verify file location
+        print(f"Actual file location: {os.path.realpath(trade_log_path)}")
 
-    except Exception as e:
-        print(f"\nError in main execution: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return False
+    print(f"Processing complete. {len(all_processed_trades)} new trades have been added to TradeLog.csv")
 
 if __name__ == "__main__":
     main()

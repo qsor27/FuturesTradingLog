@@ -1,0 +1,27 @@
+{#
+    Reusable Card Component
+    
+    Usage:
+    {% set card_content %}
+        <p>Your card content here</p>
+    {% endset %}
+    
+    {% include 'components/card.html' with context %}
+    
+    Parameters:
+    - title: Optional card title
+    - subtitle: Optional card subtitle  
+    - class: Optional additional CSS classes
+    - card_content: Main content of the card
+#}
+<div class="card{% if class %} {{ class }}{% endif %}">
+  {% if title %}
+  <div class="card-header">
+    <h3>{{ title }}</h3>
+    {% if subtitle %}<p class="card-subtitle">{{ subtitle }}</p>{% endif %}
+  </div>
+  {% endif %}
+  <div class="card-body">
+    {{ card_content|safe }}
+  </div>
+</div>

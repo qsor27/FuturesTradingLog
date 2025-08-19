@@ -1,0 +1,44 @@
+{#
+    Reusable Form Field Component
+    
+    Usage:
+    {% include 'components/form_field.html' with context %}
+    
+    Parameters:
+    - id: Required field ID
+    - label: Required field label
+    - type: Input type (default: 'text')
+    - name: Field name (defaults to id if not provided)
+    - value: Field value
+    - placeholder: Placeholder text
+    - required: Boolean for required field
+    - error: Error message to display
+    - class: Optional additional CSS classes
+    - attributes: Optional additional HTML attributes as string
+#}
+<div class="form-field{% if required %} required{% endif %}{% if error %} error{% endif %}{% if class %} {{ class }}{% endif %}">
+  <label for="{{ id }}">{{ label }}{% if required %} *{% endif %}</label>
+  {% if type == 'select' %}
+    <select id="{{ id }}" 
+            name="{{ name|default(id) }}" 
+            {% if required %}required{% endif %}
+            {{ attributes|safe if attributes }}>
+      {{ options|safe }}
+    </select>
+  {% elif type == 'textarea' %}
+    <textarea id="{{ id }}" 
+              name="{{ name|default(id) }}" 
+              {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+              {% if required %}required{% endif %}
+              {{ attributes|safe if attributes }}>{{ value }}</textarea>
+  {% else %}
+    <input type="{{ type|default('text') }}" 
+           id="{{ id }}" 
+           name="{{ name|default(id) }}" 
+           {% if value %}value="{{ value }}"{% endif %}
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+           {% if required %}required{% endif %}
+           {{ attributes|safe if attributes }}>
+  {% endif %}
+  {% if error %}<span class="error-message">{{ error }}</span>{% endif %}
+</div>
