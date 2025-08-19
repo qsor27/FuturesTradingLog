@@ -4,8 +4,8 @@ import time
 import psutil
 import threading
 from config import config
-from logging_config import setup_application_logging, get_logger, log_system_info
-from symbol_service import symbol_service
+from utils.logging_config import setup_application_logging, get_logger, log_system_info
+from services.symbol_service import symbol_service
 from routes.main import main_bp
 from routes.trades import trades_bp
 from routes.upload import upload_bp
@@ -21,9 +21,11 @@ from routes.data_monitoring import data_monitoring_bp
 from routes.profiles import profiles_bp
 from routes.tasks import bp as tasks_bp
 from routes.cache_management import cache_bp
-from TradingLog_db import FuturesDB
-from background_services import start_background_services, stop_background_services, get_services_status
-from automated_data_sync import start_automated_data_sync, stop_automated_data_sync, get_data_sync_status, force_data_sync
+from scripts.TradingLog_db import FuturesDB
+from services.background_services import start_background_services, stop_background_services, get_services_status
+from services.background_data_manager import background_data_manager
+from scripts.automated_data_sync import start_automated_data_sync, stop_automated_data_sync, get_data_sync_status, force_data_sync
+from config import BACKGROUND_DATA_CONFIG
 import atexit
 
 # Setup logging before any other operations
@@ -43,34 +45,54 @@ except ImportError as e:
 app = Flask(__name__)
 
 # Prometheus Metrics for Trading Application
-# Request Metrics
-request_count = Counter('flask_requests_total', 'Total Flask requests', ['method', 'endpoint', 'status'])
-request_duration = Histogram('flask_request_duration_seconds', 'Flask request duration', ['method', 'endpoint'])
+# Request Metrics - with safe registration to prevent duplication errors
+try:
+    request_count = Counter('flask_requests_total', 'Total Flask requests', ['method', 'endpoint', 'status'])
+    request_duration = Histogram('flask_request_duration_seconds', 'Flask request duration', ['method', 'endpoint'])
+except ValueError as e:
+    # Metrics already registered, retrieve existing ones
+    from prometheus_client import REGISTRY
+    request_count = None
+    request_duration = None
+    for collector in list(REGISTRY._collector_to_names.keys()):
+        if hasattr(collector, '_name'):
+            if collector._name == 'flask_requests_total':
+                request_count = collector
+            elif collector._name == 'flask_request_duration_seconds':
+                request_duration = collector
 
-# Trading-Specific Business Metrics
-trades_processed = Counter('trading_trades_processed_total', 'Total trades processed', ['account', 'instrument'])
-positions_created = Counter('trading_positions_created_total', 'Total positions created', ['instrument'])
-chart_requests = Counter('trading_chart_requests_total', 'Total chart data requests', ['instrument', 'timeframe'])
-ohlc_data_points = Counter('trading_ohlc_data_points_total', 'Total OHLC data points stored', ['instrument', 'timeframe'])
-database_queries = Counter('trading_database_queries_total', 'Total database queries', ['table', 'operation'])
-database_query_duration = Histogram('trading_database_query_duration_seconds', 'Database query duration', ['table', 'operation'])
+# Trading-Specific Business Metrics - with safe registration
+try:
+    trades_processed = Counter('trading_trades_processed_total', 'Total trades processed', ['account', 'instrument'])
+    positions_created = Counter('trading_positions_created_total', 'Total positions created', ['instrument'])
+    chart_requests = Counter('trading_chart_requests_total', 'Total chart data requests', ['instrument', 'timeframe'])
+    ohlc_data_points = Counter('trading_ohlc_data_points_total', 'Total OHLC data points stored', ['instrument', 'timeframe'])
+    database_queries = Counter('trading_database_queries_total', 'Total database queries', ['table', 'operation'])
+    database_query_duration = Histogram('trading_database_query_duration_seconds', 'Database query duration', ['table', 'operation'])
+except ValueError as e:
+    # Metrics already registered, use existing ones
+    print(f"Prometheus trading metrics already registered: {e}")
 
-# System Health Metrics
-system_cpu_usage = Gauge('system_cpu_usage_percent', 'CPU usage percentage')
-system_memory_usage = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
-system_disk_usage = Gauge('system_disk_usage_bytes', 'Disk usage in bytes')
-database_connections = Gauge('trading_database_connections_active', 'Active database connections')
-redis_connections = Gauge('trading_redis_connections_active', 'Active Redis connections')
+# System Health Metrics - with safe registration
+try:
+    system_cpu_usage = Gauge('system_cpu_usage_percent', 'CPU usage percentage')
+    system_memory_usage = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
+    system_disk_usage = Gauge('system_disk_usage_bytes', 'Disk usage in bytes')
+    database_connections = Gauge('trading_database_connections_active', 'Active database connections')
+    redis_connections = Gauge('trading_redis_connections_active', 'Active Redis connections')
 
-# Application Health Metrics
-background_services_status = Gauge('trading_background_services_status', 'Background services status', ['service'])
-file_watcher_status = Gauge('trading_file_watcher_status', 'File watcher status')
-cache_hit_ratio = Gauge('trading_cache_hit_ratio', 'Cache hit ratio percentage')
+    # Application Health Metrics
+    background_services_status = Gauge('trading_background_services_status', 'Background services status', ['service'])
+    file_watcher_status = Gauge('trading_file_watcher_status', 'File watcher status')
+    cache_hit_ratio = Gauge('trading_cache_hit_ratio', 'Cache hit ratio percentage')
 
-# Performance Metrics
-chart_load_time = Histogram('trading_chart_load_time_seconds', 'Chart loading time', ['instrument', 'timeframe'])
-position_calculation_time = Histogram('trading_position_calculation_time_seconds', 'Position calculation time')
-data_sync_duration = Histogram('trading_data_sync_duration_seconds', 'Data synchronization duration', ['instrument'])
+    # Performance Metrics
+    chart_load_time = Histogram('trading_chart_load_time_seconds', 'Chart loading time', ['instrument', 'timeframe'])
+    position_calculation_time = Histogram('trading_position_calculation_time_seconds', 'Position calculation time')
+    data_sync_duration = Histogram('trading_data_sync_duration_seconds', 'Data synchronization duration', ['instrument'])
+except ValueError as e:
+    # Metrics already registered, use existing ones
+    print(f"Prometheus system/performance metrics already registered: {e}")
 
 # Apply configuration
 app.config.update(config.flask_config)
@@ -91,9 +113,15 @@ def after_request(response):
         endpoint = request.endpoint or 'unknown'
         status = str(response.status_code)
         
-        # Record metrics
-        request_count.labels(method=method, endpoint=endpoint, status=status).inc()
-        request_duration.labels(method=method, endpoint=endpoint).observe(duration)
+        # Record metrics (safely handle None values)
+        try:
+            if request_count:
+                request_count.labels(method=method, endpoint=endpoint, status=status).inc()
+            if request_duration:
+                request_duration.labels(method=method, endpoint=endpoint).observe(duration)
+        except Exception as e:
+            # Ignore metrics errors to prevent breaking the application
+            pass
         
         # Log slow requests (> 1 second)
         if duration > 1.0:
@@ -117,7 +145,7 @@ def collect_system_metrics():
             
             # Cache hit ratio (if Redis available)
             try:
-                from redis_cache_service import get_cache_stats
+                from services.redis_cache_service import get_cache_stats
                 stats = get_cache_stats()
                 if 'hit_ratio' in stats:
                     cache_hit_ratio.set(stats['hit_ratio'])
@@ -126,7 +154,7 @@ def collect_system_metrics():
             
             # Background services status
             try:
-                from background_services import get_services_status
+                from services.background_services import get_services_status
                 services = get_services_status()
                 for service_name, is_running in services.items():
                     background_services_status.labels(service=service_name).set(1 if is_running else 0)
@@ -145,7 +173,7 @@ metrics_thread.start()
 # Blueprint registration
 app.register_blueprint(main_bp)  # Main routes (no prefix)
 app.register_blueprint(trades_bp, url_prefix='/trades')
-app.register_blueprint(upload_bp, url_prefix='/upload')
+app.register_blueprint(upload_bp)
 app.register_blueprint(statistics_bp)  # Changed from stats_bp to statistics_bp
 app.register_blueprint(trade_details_bp, url_prefix='/trade')
 app.register_blueprint(trade_links_bp)
@@ -184,6 +212,29 @@ def yfinance_symbol_filter(instrument):
 def contract_multiplier_filter(instrument):
     """Get contract multiplier (e.g., 'MNQ' -> 2.0)"""
     return symbol_service.get_multiplier(instrument)
+
+@app.template_filter('timestamp_to_date')
+def timestamp_to_date_filter(timestamp):
+    """Convert timestamp to readable date"""
+    if timestamp:
+        from datetime import datetime
+        try:
+            # Handle different timestamp formats
+            if isinstance(timestamp, (int, float)):
+                return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+            elif isinstance(timestamp, str):
+                # Try parsing ISO format string
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    return dt.strftime('%Y-%m-%d')
+                except ValueError:
+                    return timestamp
+            elif hasattr(timestamp, 'strftime'):
+                # Already a datetime object
+                return timestamp.strftime('%Y-%m-%d')
+        except (ValueError, OSError):
+            return str(timestamp)
+    return 'N/A'
 
 # Make symbol_service available in templates
 @app.context_processor
@@ -273,7 +324,7 @@ def detailed_health_check():
         cache_status = "unavailable"
         cache_stats = {}
         try:
-            from redis_cache_service import get_cache_stats
+            from services.redis_cache_service import get_cache_stats
             cache_stats = get_cache_stats()
             cache_status = "healthy" if cache_stats.get('connected', False) else "error"
         except Exception as e:
@@ -375,7 +426,7 @@ def background_services_status():
 def cache_stats():
     """Get cache statistics"""
     try:
-        from redis_cache_service import get_cache_service
+        from services.redis_cache_service import get_cache_service
         cache_service = get_cache_service()
         
         if not cache_service or not cache_service.redis_client:
@@ -390,7 +441,7 @@ def cache_stats():
 def cache_clean():
     """Manually trigger cache cleanup"""
     try:
-        from redis_cache_service import get_cache_service
+        from services.redis_cache_service import get_cache_service
         cache_service = get_cache_service()
         
         if not cache_service or not cache_service.redis_client:
@@ -435,7 +486,7 @@ def force_data_sync_api(sync_type):
 def force_gap_filling(instrument):
     """Manually trigger gap filling for specific instrument"""
     try:
-        from background_services import gap_filling_service
+        from services.background_services import gap_filling_service
         from flask import request
         
         data = request.get_json() or {}
@@ -652,14 +703,27 @@ if __name__ == '__main__':
         logger.info("Auto-import is disabled")
         print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
     
-    # Start background services for gap-filling and caching
+    # Start enhanced background data manager (replaces old gap-filling)
+    if BACKGROUND_DATA_CONFIG['enabled']:
+        try:
+            background_data_manager.start()
+            logger.info("Enhanced Background Data Manager started successfully")
+            print("Enhanced Background Data Manager started (batch processing, cache-only charts)")
+        except Exception as e:
+            logger.warning(f"Enhanced Background Data Manager failed to start: {e}")
+            print(f"Warning: Enhanced Background Data Manager failed to start: {e}")
+    else:
+        logger.info("Enhanced Background Data Manager is disabled")
+        print("Enhanced Background Data Manager is disabled (BACKGROUND_DATA_CONFIG['enabled'] = False)")
+    
+    # Start legacy background services for gap-filling and caching (as fallback)
     try:
         start_background_services()
-        logger.info("Background services started successfully")
-        print("Background services started (gap-filling, cache maintenance)")
+        logger.info("Legacy background services started successfully")
+        print("Legacy background services started (gap-filling, cache maintenance)")
     except Exception as e:
-        logger.warning(f"Background services failed to start: {e}")
-        print(f"Warning: Background services failed to start: {e}")
+        logger.warning(f"Legacy background services failed to start: {e}")
+        print(f"Warning: Legacy background services failed to start: {e}")
     
     # Start automated data sync system
     try:
@@ -671,6 +735,7 @@ if __name__ == '__main__':
         print(f"Warning: Automated data sync system failed to start: {e}")
     
     # Register cleanup on exit
+    atexit.register(lambda: background_data_manager.stop())
     atexit.register(stop_background_services)
     atexit.register(stop_automated_data_sync)
     
