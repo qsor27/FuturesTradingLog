@@ -6,7 +6,7 @@ import tempfile
 import os
 import time
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 class TestOHLCDatabase:
     """Test OHLC database operations and performance"""

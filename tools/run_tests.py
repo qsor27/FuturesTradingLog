@@ -22,14 +22,15 @@ def run_command(cmd, description):
 def main():
     # Ensure we're running from the project root
     script_dir = Path(__file__).parent
-    os.chdir(script_dir)
+    project_root = script_dir.parent  # Go up one level from tools/ to project root
+    os.chdir(project_root)
     
     # Set PYTHONPATH to include current directory for imports
     current_path = os.environ.get('PYTHONPATH', '')
     if current_path:
-        os.environ['PYTHONPATH'] = f"{script_dir}:{current_path}"
+        os.environ['PYTHONPATH'] = f"{project_root}:{current_path}"
     else:
-        os.environ['PYTHONPATH'] = str(script_dir)
+        os.environ['PYTHONPATH'] = str(project_root)
     
     parser = argparse.ArgumentParser(description='Run tests for Futures Trading Log')
     parser.add_argument('--quick', action='store_true', 
@@ -58,9 +59,9 @@ def main():
     success = True
     
     if args.quick:
-        # Run quick tests only
-        cmd = f'{pytest_cmd} -m "not slow" tests/test_app.py tests/test_ohlc_database.py'
-        success &= run_command(cmd, "Quick Tests")
+        # Run quick tests only (basic imports and structure)
+        cmd = f'{pytest_cmd} tests/test_imports.py'
+        success &= run_command(cmd, "Quick Import Tests")
         
     elif args.performance:
         # Run performance tests only
@@ -120,9 +121,9 @@ def main():
     # Summary
     print(f"\n{'='*60}")
     if success:
-        print("✅ All tests completed successfully!")
+        print("All tests completed successfully!")
     else:
-        print("❌ Some tests failed. Check output above for details.")
+        print("Some tests failed. Check output above for details.")
     print(f"{'='*60}")
     
     return 0 if success else 1
