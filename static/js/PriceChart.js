@@ -24,6 +24,8 @@ class PriceChart {
         this.ohlcDisplayEl = null; // OHLC overlay element
         this.crosshairMoveHandler = null; // Store bound handler for cleanup
         this.settingsLoaded = false; // Track if user settings have been applied
+        this.state = 'loading'; // Chart state: loading, ready, error
+        this.statusElement = null; // Status indicator element
         
         this.init();
     }
@@ -159,6 +161,10 @@ class PriceChart {
             console.log('🔄 Setting up resize handler...');
             this.setupResizeHandler();
             
+            // Bind chart controls
+            console.log('🎮 Setting up chart controls...');
+            PriceChart.bindChartControls(this);
+            
             // Load user settings and then data
             console.log('⚙️ Loading user settings...');
             this.loadUserSettings().then(() => {
@@ -229,110 +235,271 @@ class PriceChart {
     
     async loadData() {
         try {
-            this.showLoading(true);
-            console.log(`🔍 Loading chart data for ${this.options.instrument}, timeframe: ${this.options.timeframe}, days: ${this.options.days}`);
+            const loadingMessage = `Loading ${this.options.timeframe} data...`;
+            this.updateStatus('loading', loadingMessage);
+            console.log(`📡 Loading chart data for ${this.options.instrument}, timeframe: ${this.options.timeframe}, days: ${this.options.days}`);
             
-            // Use adaptive endpoint for automatic resolution optimization
-            let url = `/api/chart-data-adaptive/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
-            console.log(`📡 Fetching from adaptive endpoint: ${url}`);
+            // CHART DEBUG: Remove hardcoded dates and use dynamic date range based on days parameter
+            console.log(`🔍 CHART DEBUG: Building URL for ${this.options.days} days of data`);
+            console.log(`🔍 CHART DEBUG: Current date: ${new Date().toISOString()}`);
             
-            let response = await fetch(url);
-            console.log(`📊 Response status: ${response.status} ${response.statusText}`);
+            const url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
+            console.log(`📡 CHART DEBUG: Fetching from: ${url}`);
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            // Show loading overlay for larger datasets
+            if (this.options.days > 30) {
+                this.showLoadingOverlay(`Loading ${this.options.days}-day ${this.options.timeframe} chart...`);
             }
             
-            let data = await response.json();
-            console.log(`📈 Adaptive API Response:`, {
-                success: data.success,
-                count: data.count,
-                hasData: !!(data.data && data.data.length > 0),
-                instrument: data.instrument,
-                requestedTimeframe: data.requested_timeframe,
-                actualTimeframe: data.actual_timeframe,
-                resolutionAdapted: data.resolution_adapted,
-                estimatedCandles: data.estimated_candles,
-                performanceWarning: data.performance_warning
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
-            // Show resolution adaptation info to user
-            if (data.resolution_adapted) {
-                console.log(`🔄 Resolution adapted: ${data.requested_timeframe} → ${data.actual_timeframe} for ${data.days} days (${data.estimated_candles:,} candles)`);
-                this.showResolutionAdaptationNotice(data.requested_timeframe, data.actual_timeframe, data.days);
-            }
-            
-            if (!data.success) {
-                const errorMsg = data.error || 'Failed to fetch chart data';
-                console.error(`❌ API returned error: ${errorMsg}`);
-                throw new Error(errorMsg);
-            }
-            
-            // If no data for requested timeframe, try to find alternative
-            if (!data.data || data.data.length === 0) {
-                console.warn(`⚠️ No data for ${this.options.timeframe}, checking available timeframes...`);
-                
-                try {
-                    const timeframesResponse = await fetch(`/api/available-timeframes/${this.options.instrument}`);
-                    if (timeframesResponse.ok) {
-                        const timeframesData = await timeframesResponse.json();
-                        console.log(`🔍 Available timeframes:`, timeframesData);
-                        
-                        if (timeframesData.has_data && timeframesData.best_timeframe) {
-                            console.log(`🔄 Switching from ${this.options.timeframe} to ${timeframesData.best_timeframe}`);
-                            
-                            // Update options and retry
-                            this.options.timeframe = timeframesData.best_timeframe;
-                            
-                            // Retry with best available timeframe
-                            url = `/api/chart-data/${this.options.instrument}?timeframe=${this.options.timeframe}&days=${this.options.days}`;
-                            response = await fetch(url);
-                            
-                            if (response.ok) {
-                                data = await response.json();
-                                console.log(`🎯 Fallback successful: ${data.count} records with ${this.options.timeframe}`);
-                                
-                                // Update UI to show we switched timeframes
-                                this.updateTimeframeSelect(this.options.timeframe);
-                            }
-                        } else if (timeframesData.fetch_attempted && timeframesData.fetch_error) {
-                            console.error(`❌ Data fetch failed for ${this.options.instrument}: ${timeframesData.fetch_error}`);
-                            this.showError(`Unable to load market data for ${this.options.instrument}. ${timeframesData.fetch_error}`);
-                            return;
-                        } else if (!timeframesData.has_data) {
-                            console.warn(`⚠️ No data available for ${this.options.instrument} in any timeframe`);
-                        }
+            try {
+                const response = await fetch(url, {
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json'
                     }
-                } catch (fallbackError) {
-                    console.error(`❌ Error checking available timeframes: ${fallbackError}`);
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
                 }
+                
+                const data = await response.json();
+                console.log(`📊 CHART DEBUG: API Response received:`, {
+                    success: data.success,
+                    instrument: data.instrument,
+                    timeframe: data.timeframe,
+                    days: data.days,
+                    count: data.count,
+                    hasData: !!(data.data && data.data.length > 0),
+                    firstDataPoint: data.data && data.data.length > 0 ? data.data[0] : null,
+                    lastDataPoint: data.data && data.data.length > 0 ? data.data[data.data.length - 1] : null
+                });
+                
+                // CHART DEBUG: Check data timestamps
+                if (data.data && data.data.length > 0) {
+                    const firstTime = new Date(data.data[0].time * 1000);
+                    const lastTime = new Date(data.data[data.data.length - 1].time * 1000);
+                    console.log(`🔍 CHART DEBUG: Data time range - First: ${firstTime.toISOString()}, Last: ${lastTime.toISOString()}`);
+                    console.log(`🔍 CHART DEBUG: Days difference from today: ${Math.round((new Date() - lastTime) / (1000 * 60 * 60 * 24))} days`);
+                }
+                
+                if (!data.success) {
+                    const errorMessage = this.getDetailedErrorMessage(data.error);
+                    throw new Error(errorMessage);
+                }
+                
+                if (!data.data || data.data.length === 0) {
+                    const noDataMessage = this.getNoDataMessage(data);
+                    this.showError(noDataMessage, data.available_timeframes);
+                    return;
+                }
+                
+                console.log(`✅ Received ${data.data.length} data points`);
+                this.setData(data.data);
+                this.updateStatus('ready', `Loaded ${data.count.toLocaleString()} candles`);
+                this.hideLoadingOverlay();
+                
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                if (fetchError.name === 'AbortError') {
+                    throw new Error('Request timed out. Please try again.');
+                }
+                throw fetchError;
             }
-            
-            if (!data.data || data.data.length === 0) {
-                console.warn(`⚠️ No data available for ${this.options.instrument} in any timeframe`);
-                this.showError(`No market data available for ${this.options.instrument}. Try updating data or check a different instrument.`);
-                return;
-            }
-            
-            console.log(`✅ Received ${data.data.length} data points, calling setData...`);
-            this.setData(data.data);
             
         } catch (error) {
             console.error('❌ Error loading chart data:', error);
-            this.showError(`Failed to load chart: ${error.message}`);
-        } finally {
-            this.showLoading(false);
+            const friendlyMessage = this.getFriendlyErrorMessage(error);
+            this.updateStatus('error', friendlyMessage);
+            this.showError(friendlyMessage);
+            this.hideLoadingOverlay();
         }
     }
     
+    getDetailedErrorMessage(error) {
+        if (!error) return 'Unknown server error occurred';
+        
+        // Map common error patterns to user-friendly messages
+        const errorMappings = {
+            'no data': 'No market data found for this timeframe',
+            'timeout': 'Request timed out - server may be busy',
+            'server error': 'Server temporarily unavailable',
+            'invalid parameters': 'Invalid chart parameters provided',
+            'connection': 'Network connection error'
+        };
+        
+        const lowerError = error.toLowerCase();
+        for (const [pattern, message] of Object.entries(errorMappings)) {
+            if (lowerError.includes(pattern)) {
+                return message;
+            }
+        }
+        
+        return error; // Return original if no mapping found
+    }
+    
+    getNoDataMessage(response) {
+        const { instrument, timeframe, available_timeframes } = response;
+        
+        if (available_timeframes && available_timeframes.length > 0) {
+            return `No ${timeframe} data available for ${instrument}. Try: ${available_timeframes.slice(0, 3).join(', ')}`;
+        }
+        
+        return `No market data available for ${instrument}. Data may need to be updated.`;
+    }
+    
+    getFriendlyErrorMessage(error) {
+        if (error.name === 'AbortError') {
+            return 'Request was cancelled or timed out';
+        }
+        
+        if (error.message.includes('fetch')) {
+            return 'Unable to connect to server';
+        }
+        
+        if (error.message.includes('JSON')) {
+            return 'Server response was invalid';
+        }
+        
+        // Keep the original message if it's already user-friendly
+        if (error.message.length < 100 && !error.message.includes('Error:')) {
+            return error.message;
+        }
+        
+        return 'An unexpected error occurred while loading the chart';
+    }
+    
+    showLoadingOverlay(message) {
+        // Remove existing overlay
+        this.hideLoadingOverlay();
+        
+        const overlay = document.createElement('div');
+        overlay.className = 'chart-loading-overlay';
+        overlay.innerHTML = `
+            <div class="loading-content">
+                <div class="loading-spinner">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                </div>
+                <div class="loading-text">${message}</div>
+                <div class="loading-subtext">This may take a few seconds...</div>
+            </div>
+        `;
+        
+        overlay.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(3px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            animation: fadeIn 0.3s ease;
+        `;
+        
+        // Add loading animation styles if not already present
+        if (!document.querySelector('#loading-overlay-styles')) {
+            const style = document.createElement('style');
+            style.id = 'loading-overlay-styles';
+            style.textContent = `
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                .loading-content {
+                    text-align: center;
+                    color: white;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                }
+                .loading-spinner {
+                    display: inline-block;
+                    position: relative;
+                    width: 64px;
+                    height: 64px;
+                    margin-bottom: 20px;
+                }
+                .spinner-ring {
+                    display: block;
+                    position: absolute;
+                    width: 48px;
+                    height: 48px;
+                    margin: 6px;
+                    border: 3px solid transparent;
+                    border-top-color: #fff;
+                    border-radius: 50%;
+                    animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+                }
+                .spinner-ring:nth-child(1) { animation-delay: -0.45s; }
+                .spinner-ring:nth-child(2) { animation-delay: -0.3s; }
+                .spinner-ring:nth-child(3) { animation-delay: -0.15s; }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                .loading-text {
+                    font-size: 16px;
+                    font-weight: 500;
+                    margin-bottom: 8px;
+                }
+                .loading-subtext {
+                    font-size: 12px;
+                    opacity: 0.8;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        this.container.appendChild(overlay);
+        this.loadingOverlay = overlay;
+    }
+    
+    hideLoadingOverlay() {
+        if (this.loadingOverlay && this.loadingOverlay.parentNode) {
+            this.loadingOverlay.style.animation = 'fadeOut 0.3s ease';
+            setTimeout(() => {
+                if (this.loadingOverlay && this.loadingOverlay.parentNode) {
+                    this.loadingOverlay.parentNode.removeChild(this.loadingOverlay);
+                }
+                this.loadingOverlay = null;
+            }, 300);
+        }
+    }
+    
+    
+    
+    
+    
     setData(data) {
+        console.log(`📊 setData called with data:`, data);
+        console.log(`📊 Data type:`, typeof data);
+        console.log(`📊 Data is array:`, Array.isArray(data));
+        console.log(`📊 Data length:`, data ? data.length : 'null/undefined');
+        
+        // Add smooth data loading transition
+        if (this.candlestickSeries) {
+            this.container.style.transition = 'opacity 0.3s ease';
+            this.container.style.opacity = '0.7';
+        }
+        
         if (!data || data.length === 0) {
+            console.error(`❌ No data available for chart! Data:`, data);
             this.showError('No data available for this instrument and timeframe');
             return;
         }
         
         console.log(`Processing ${data.length} data points for chart...`);
         console.log('Sample raw data:', data[0]);
+        console.log('All raw data (first 5):', data.slice(0, 5));
         
         // Process data for candlestick series with proper timestamp handling
         const candlestickData = data.map(item => {
@@ -388,29 +555,197 @@ class PriceChart {
         }
         
         try {
+            console.log(`📊 About to set candlestick data. Series exists:`, !!this.candlestickSeries);
+            console.log(`📊 Candlestick data to set:`, candlestickData);
+            console.log(`📊 Candlestick data length:`, candlestickData.length);
+            
             // Set data to candlestick series
             this.candlestickSeries.setData(candlestickData);
+            console.log(`✅ Candlestick data set successfully!`);
             
             // Cache volume data for toggle functionality
             this.cachedVolumeData = volumeData;
             
             // Set volume data only if volume is visible
             if (this.volumeVisible && this.volumeSeries) {
+                console.log(`📊 Setting volume data:`, volumeData.slice(0, 3));
                 this.volumeSeries.setData(volumeData);
+                console.log(`✅ Volume data set successfully!`);
+            } else {
+                console.log(`📊 Volume not visible or series doesn't exist. Visible: ${this.volumeVisible}, Series: ${!!this.volumeSeries}`);
             }
             
             // Fit content to show all data with auto-scaling
+            console.log(`📊 Fitting chart content...`);
             this.chart.timeScale().fitContent();
+            console.log(`✅ Chart content fitted!`);
             
-            console.log(`Successfully loaded ${candlestickData.length} candles for ${this.options.instrument}`);
+            console.log(`🎉 Successfully loaded ${candlestickData.length} candles for ${this.options.instrument}`);
             
-            // Force a redraw
+            // Force a redraw with smooth transition
+            console.log(`📊 Forcing chart redraw...`);
             this.chart.applyOptions({});
+            console.log(`✅ Chart redraw complete!`);
+            
+            // Restore opacity with animation
+            if (this.container) {
+                setTimeout(() => {
+                    this.container.style.opacity = '1';
+                }, 100);
+            }
             
         } catch (error) {
-            console.error('Error setting chart data:', error);
+            console.error('❌ Error setting chart data:', error);
+            console.error('❌ Stack trace:', error.stack);
+            this.updateStatus('error', `Chart error: ${error.message}`);
             this.showError(`Chart error: ${error.message}`);
         }
+    }
+    
+    updateStatus(state, message) {
+        this.state = state;
+        
+        if (!this.statusElement) {
+            this.createStatusElement();
+        }
+        
+        const statusText = this.statusElement.querySelector('.status-text');
+        const statusIndicator = this.statusElement.querySelector('.status-indicator');
+        
+        if (statusText) {
+            statusText.textContent = message || '';
+        }
+        
+        if (statusIndicator) {
+            statusIndicator.className = `status-indicator status-${state}`;
+        }
+        
+        // Update control states based on loading state
+        this.updateControlStates(state === 'loading');
+        
+        // Auto-hide success messages after 3 seconds
+        if (state === 'ready') {
+            setTimeout(() => {
+                if (this.state === 'ready' && this.statusElement) {
+                    this.statusElement.style.opacity = '0.7';
+                }
+            }, 3000);
+        } else {
+            this.statusElement.style.opacity = '1';
+        }
+    }
+    
+    updateControlStates(isLoading) {
+        const controls = [
+            document.querySelector('#timeframeSelect'),
+            document.querySelector('#daysSelect'),
+            document.querySelector('#refreshDataBtn'),
+            document.querySelector(`[data-target-chart="${this.containerId}"] select`),
+            document.querySelector(`[data-target-chart="${this.containerId}"] button`)
+        ];
+        
+        controls.forEach(control => {
+            if (control) {
+                control.disabled = isLoading;
+                if (isLoading) {
+                    control.style.opacity = '0.6';
+                    control.style.cursor = 'wait';
+                } else {
+                    control.style.opacity = '1';
+                    control.style.cursor = control.tagName === 'BUTTON' ? 'pointer' : 'default';
+                }
+            }
+        });
+    }
+    
+    createStatusElement() {
+        this.statusElement = document.createElement('div');
+        this.statusElement.className = 'chart-status';
+        this.statusElement.innerHTML = `
+            <div class="status-indicator status-loading"></div>
+            <div class="status-text">Initializing chart...</div>
+        `;
+        
+        this.statusElement.style.cssText = `
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+            font-weight: 500;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: blur(6px);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            min-width: 120px;
+        `;
+        
+        // Add CSS for status indicators with enhanced animations
+        const style = document.createElement('style');
+        style.textContent = `
+            .status-indicator {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                flex-shrink: 0;
+                transition: all 0.3s ease;
+            }
+            .status-loading {
+                background: #ffd700;
+                animation: pulse-glow 1.5s infinite;
+                box-shadow: 0 0 4px rgba(255, 215, 0, 0.6);
+            }
+            .status-ready {
+                background: #4caf50;
+                box-shadow: 0 0 3px rgba(76, 175, 80, 0.4);
+                animation: success-ping 0.6s ease-out;
+            }
+            .status-error {
+                background: #f44336;
+                box-shadow: 0 0 3px rgba(244, 67, 54, 0.4);
+                animation: error-shake 0.6s ease-out;
+            }
+            @keyframes pulse-glow {
+                0%, 50%, 100% { 
+                    opacity: 1;
+                    transform: scale(1);
+                    box-shadow: 0 0 4px rgba(255, 215, 0, 0.6);
+                }
+                25%, 75% { 
+                    opacity: 0.7;
+                    transform: scale(0.9);
+                    box-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+                }
+            }
+            @keyframes success-ping {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.2); }
+                100% { transform: scale(1); }
+            }
+            @keyframes error-shake {
+                0%, 100% { transform: translateX(0); }
+                25% { transform: translateX(-2px); }
+                75% { transform: translateX(2px); }
+            }
+            .chart-status {
+                transition: all 0.3s ease;
+            }
+            .chart-status:hover {
+                background: rgba(0, 0, 0, 0.9);
+            }
+        `;
+        document.head.appendChild(style);
+        
+        this.container.style.position = 'relative';
+        this.container.appendChild(this.statusElement);
     }
     
     async loadTradeMarkers(tradeId) {
@@ -533,13 +868,43 @@ class PriceChart {
     }
     
     updateTimeframe(timeframe) {
+        if (this.state === 'loading') {
+            console.warn('Chart is loading, ignoring timeframe change');
+            return;
+        }
+        
+        console.log(`Updating timeframe from ${this.options.timeframe} to ${timeframe}`);
         this.options.timeframe = timeframe;
+        this.updateTimeframeSelect(timeframe);
         this.loadData();
     }
     
     updateDays(days) {
+        if (this.state === 'loading') {
+            console.warn('Chart is loading, ignoring period change');
+            return;
+        }
+        
+        console.log(`Updating period from ${this.options.days} to ${days}`);
         this.options.days = days;
         this.loadData();
+    }
+    
+    refreshData() {
+        if (this.state === 'loading') {
+            console.warn('Chart is already loading, ignoring refresh request');
+            return;
+        }
+        
+        console.log('Refreshing chart data');
+        this.clearErrors();
+        this.loadData();
+    }
+    
+    clearErrors() {
+        // Remove any existing error messages
+        const existingErrors = this.container.querySelectorAll('.chart-error');
+        existingErrors.forEach(error => error.remove());
     }
     
     updateInstrument(instrument) {
@@ -577,12 +942,73 @@ class PriceChart {
     }
     
     updateTimeframeSelect(timeframe) {
-        // Update the timeframe select dropdown to reflect the current timeframe
-        const timeframeSelect = document.querySelector(`[data-chart-id="${this.containerId}"].timeframe-select`);
-        if (timeframeSelect) {
-            timeframeSelect.value = timeframe;
-            console.log(`🔄 Updated timeframe select to: ${timeframe}`);
+        // Update timeframe select dropdowns that control this chart
+        const selectors = [
+            document.querySelector(`[data-chart-id="${this.containerId}"] .timeframe-select`),
+            document.querySelector(`#timeframeSelect`),
+            document.querySelector(`[data-target-chart="${this.containerId}"] select[name="timeframe"]`)
+        ];
+        
+        selectors.forEach(select => {
+            if (select && select.value !== timeframe) {
+                select.value = timeframe;
+                console.log(`🔄 Updated timeframe select to: ${timeframe}`);
+            }
+        });
+    }
+    
+    static bindChartControls(chartInstance) {
+        const containerId = chartInstance.containerId;
+        
+        // Find controls that should control this chart
+        const timeframeSelect = document.querySelector('#timeframeSelect') || 
+                              document.querySelector(`[data-target-chart="${containerId}"] select[name="timeframe"]`);
+        const daysSelect = document.querySelector('#daysSelect') || 
+                          document.querySelector(`[data-target-chart="${containerId}"] select[name="days"]`);
+        const refreshBtn = document.querySelector('#refreshDataBtn') || 
+                          document.querySelector(`[data-target-chart="${containerId}"] button[data-action="refresh"]`);
+        
+        // Bind timeframe control
+        if (timeframeSelect && !timeframeSelect.hasChartBinding) {
+            timeframeSelect.addEventListener('change', function() {
+                console.log(`Timeframe changed to: ${this.value}`);
+                chartInstance.updateTimeframe(this.value);
+            });
+            timeframeSelect.hasChartBinding = true;
+            console.log('✅ Timeframe control bound to chart');
         }
+        
+        // Bind period control
+        if (daysSelect && !daysSelect.hasChartBinding) {
+            daysSelect.addEventListener('change', function() {
+                console.log(`Period changed to: ${this.value} days`);
+                chartInstance.updateDays(parseInt(this.value));
+            });
+            daysSelect.hasChartBinding = true;
+            console.log('✅ Period control bound to chart');
+        }
+        
+        // Bind refresh control
+        if (refreshBtn && !refreshBtn.hasChartBinding) {
+            refreshBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                console.log('Refresh button clicked');
+                chartInstance.refreshData();
+            });
+            refreshBtn.hasChartBinding = true;
+            console.log('✅ Refresh control bound to chart');
+        }
+        
+        // Store reference to chart instance on container for external access
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.chartInstance = chartInstance;
+        }
+        
+        // Set initial control states
+        chartInstance.updateControlStates(false);
+        
+        console.log('✅ Chart controls successfully bound and initialized');
     }
     
     initOhlcDisplay() {
@@ -770,81 +1196,208 @@ class PriceChart {
         }
     }
 
-    showLoading(show) {
-        const loadingEl = this.container.querySelector('.chart-loading');
-        if (loadingEl) {
-            loadingEl.style.display = show ? 'block' : 'none';
-        }
-    }
 
-    showResolutionAdaptationNotice(requestedTimeframe, actualTimeframe, days) {
-        // Show a subtle notification that resolution was adapted for performance
-        const notice = document.createElement('div');
-        notice.className = 'resolution-adaptation-notice';
-        notice.innerHTML = `
-            <span class="notice-icon">🔄</span>
-            <span class="notice-text">
-                Resolution adapted to ${actualTimeframe} for ${days}-day range (was ${requestedTimeframe})
-            </span>
-            <button class="notice-close" onclick="this.parentElement.remove()">×</button>
-        `;
-        notice.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 123, 255, 0.9);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            max-width: 300px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        `;
-        
-        this.container.style.position = 'relative';
-        this.container.appendChild(notice);
-        
-        // Auto-hide after 8 seconds
-        setTimeout(() => {
-            if (notice.parentElement) {
-                notice.remove();
-            }
-        }, 8000);
-    }
     
-    showError(message) {
+    showError(message, availableTimeframes = null) {
         console.error('Chart error:', message);
         
-        const errorEl = this.container.querySelector('.chart-error');
-        if (errorEl) {
-            errorEl.textContent = message;
-            errorEl.style.display = 'block';
-        } else {
-            // Create error element if it doesn't exist
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'chart-error';
-            errorDiv.style.cssText = `
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                padding: 20px;
-                background: #f8d7da;
-                color: #721c24;
-                border: 1px solid #f5c6cb;
-                border-radius: 4px;
-                z-index: 1000;
-                max-width: 80%;
-                text-align: center;
-                font-size: 14px;
-            `;
-            errorDiv.textContent = message;
-            this.container.appendChild(errorDiv);
+        // Remove existing error elements
+        const existingError = this.container.querySelector('.chart-error');
+        if (existingError) {
+            existingError.remove();
         }
+        
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'chart-error';
+        
+        let errorContent = `
+            <div class="error-icon">⚠️</div>
+            <div class="error-message">${message}</div>
+        `;
+        
+        // Add retry button and timeframe suggestions if available
+        if (availableTimeframes && availableTimeframes.length > 0) {
+            errorContent += `
+                <div class="error-suggestions">
+                    <p>Try these available timeframes:</p>
+                    <div class="timeframe-buttons">
+                        ${availableTimeframes.map(tf => 
+                            `<button class="timeframe-btn" onclick="this.closest('.chart-error').dispatchEvent(new CustomEvent('timeframeChange', {detail: '${tf}'}))">${tf}</button>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        errorContent += `
+            <div class="error-actions">
+                <button class="retry-btn" onclick="this.closest('.chart-error').dispatchEvent(new CustomEvent('retry'))">🔄 Retry</button>
+                <button class="close-btn" onclick="this.closest('.chart-error').remove()">×</button>
+            </div>
+        `;
+        
+        errorDiv.innerHTML = errorContent;
+        
+        errorDiv.style.cssText = `
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(248, 215, 218, 0.95);
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+            border-radius: 8px;
+            z-index: 1000;
+            max-width: 400px;
+            min-width: 300px;
+            padding: 0;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `;
+        
+        // Style internal elements
+        const style = document.createElement('style');
+        style.textContent = `
+            .chart-error .error-icon {
+                font-size: 32px;
+                margin-bottom: 12px;
+            }
+            .chart-error .error-message {
+                font-size: 14px;
+                margin-bottom: 16px;
+                line-height: 1.4;
+            }
+            .chart-error .error-suggestions {
+                margin-bottom: 16px;
+                padding-top: 12px;
+                border-top: 1px solid #f5c6cb;
+            }
+            .chart-error .error-suggestions p {
+                margin: 0 0 8px 0;
+                font-size: 13px;
+                color: #856404;
+            }
+            .chart-error .timeframe-buttons {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .chart-error .timeframe-btn {
+                padding: 4px 8px;
+                font-size: 11px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: background 0.2s;
+            }
+            .chart-error .timeframe-btn:hover {
+                background: #0056b3;
+            }
+            .chart-error .error-actions {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                padding: 16px;
+                border-top: 1px solid #f5c6cb;
+                background: rgba(255, 255, 255, 0.5);
+                border-radius: 0 0 6px 6px;
+            }
+            .chart-error .retry-btn {
+                padding: 8px 16px;
+                background: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                transition: all 0.2s;
+                font-weight: 500;
+            }
+            .chart-error .retry-btn:hover {
+                background: #218838;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            .chart-error .retry-btn:active {
+                transform: translateY(0);
+            }
+            .chart-error .close-btn {
+                padding: 8px 12px;
+                background: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                transition: all 0.2s;
+            }
+            .chart-error .close-btn:hover {
+                background: #5a6268;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+            .chart-error .close-btn:active {
+                transform: translateY(0);
+            }
+            .chart-error {
+                animation: errorSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            }
+            @keyframes errorSlideIn {
+                0% {
+                    transform: translate(-50%, -50%) scale(0.8);
+                    opacity: 0;
+                }
+                100% {
+                    transform: translate(-50%, -50%) scale(1);
+                    opacity: 1;
+                }
+            }
+        `;
+        
+        if (!document.querySelector('#chart-error-styles')) {
+            style.id = 'chart-error-styles';
+            document.head.appendChild(style);
+        }
+        
+        // Add event handlers
+        errorDiv.addEventListener('retry', () => {
+            this.updateStatus('loading', 'Retrying...');
+            errorDiv.remove();
+            // Add small delay to show retry feedback
+            setTimeout(() => {
+                this.loadData();
+            }, 200);
+        });
+        
+        errorDiv.addEventListener('timeframeChange', (event) => {
+            const newTimeframe = event.detail;
+            errorDiv.remove();
+            this.updateStatus('loading', `Switching to ${newTimeframe}...`);
+            // Add small delay to show switch feedback
+            setTimeout(() => {
+                this.updateTimeframe(newTimeframe);
+            }, 200);
+        });
+        
+        this.container.appendChild(errorDiv);
+        
+        // Auto-dismiss error after 15 seconds if no user interaction
+        setTimeout(() => {
+            if (errorDiv.parentNode && this.state === 'error') {
+                errorDiv.style.opacity = '0.8';
+                errorDiv.querySelector('.error-message').innerHTML += '<br><small><em>This error will auto-dismiss in 15 seconds...</em></small>';
+                
+                setTimeout(() => {
+                    if (errorDiv.parentNode) {
+                        errorDiv.remove();
+                    }
+                }, 15000);
+            }
+        }, 15000);
     }
     
     /**
@@ -1003,6 +1556,9 @@ class PriceChart {
         // Clear position price lines before destroying chart
         this.clearPositionLines();
         
+        // Clear any error messages
+        this.clearErrors();
+        
         // Unsubscribe from crosshair events to prevent memory leaks
         if (this.chart && this.crosshairMoveHandler) {
             this.chart.unsubscribeCrosshairMove(this.crosshairMoveHandler);
@@ -1025,6 +1581,18 @@ class PriceChart {
             this.ohlcDisplayEl.parentNode.removeChild(this.ohlcDisplayEl);
             this.ohlcDisplayEl = null;
         }
+        
+        // Remove status element
+        if (this.statusElement && this.statusElement.parentNode) {
+            this.statusElement.parentNode.removeChild(this.statusElement);
+            this.statusElement = null;
+        }
+        
+        // Remove loading overlay
+        this.hideLoadingOverlay();
+        
+        // Restore control states
+        this.updateControlStates(false);
         
         // Clear references to prevent memory leaks
         this.candlestickSeries = null;
