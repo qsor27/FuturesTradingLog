@@ -4,7 +4,7 @@ Data Quality Monitor
 Simple monitoring tool for ongoing OHLC data quality
 """
 
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 from typing import Dict, List, Any
 import logging
 

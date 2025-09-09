@@ -38,7 +38,7 @@ class TestOHLCIntegration:
         assert response.status_code == 200
         
         # Verify OHLC table and indexes were created
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         with FuturesDB() as db:
             # Check OHLC table exists
             db.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ohlc_data'")
@@ -52,7 +52,7 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.update_recent_data')
     def test_end_to_end_chart_data_flow(self, mock_update, client):
         """Test complete data flow from API fetch to chart display"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Setup mock to return success and insert test data
         mock_update.return_value = True
@@ -96,7 +96,7 @@ class TestOHLCIntegration:
     
     def test_trade_markers_integration(self, client):
         """Test trade markers integration with chart data"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Insert a test trade
         with FuturesDB() as db:
@@ -131,7 +131,7 @@ class TestOHLCIntegration:
     
     def test_gap_detection_and_backfill_integration(self, client):
         """Test gap detection and automatic backfilling"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         from data_service import ohlc_service
         
         # Use a unique instrument to avoid interference from other tests
@@ -179,7 +179,7 @@ class TestOHLCIntegration:
         """Test support for multiple instruments"""
         instruments = ['MNQ', 'ES', 'YM', 'RTY']
         
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Insert data for multiple instruments
         with FuturesDB() as db:
@@ -217,7 +217,7 @@ class TestOHLCIntegration:
         """Test support for different timeframes"""
         timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
         
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Insert data for different timeframes
         with FuturesDB() as db:
@@ -261,7 +261,7 @@ class TestOHLCIntegration:
     
     def test_chart_page_integration(self, client):
         """Test complete chart page functionality"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Setup test data
         with FuturesDB() as db:
@@ -296,7 +296,7 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.detect_and_fill_gaps')
     def test_performance_under_load(self, mock_fill_gaps, mock_fetch, client):
         """Test performance with realistic data load"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Mock gap detection and data fetching to avoid yfinance calls
         mock_fill_gaps.return_value = True
@@ -334,7 +334,7 @@ class TestOHLCIntegration:
     @patch('data_service.ohlc_service.detect_and_fill_gaps')
     def test_data_consistency_across_apis(self, mock_fill_gaps, mock_fetch, client):
         """Test data consistency across different API endpoints"""
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         
         # Mock gap detection and data fetching to prevent additional data
         mock_fill_gaps.return_value = True

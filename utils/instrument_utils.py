@@ -2,7 +2,7 @@
 Instrument normalization utilities for futures trading log
 """
 import re
-from symbol_service import symbol_service
+from services.symbol_service import symbol_service
 
 def get_root_symbol(instrument_name: str) -> str:
     """

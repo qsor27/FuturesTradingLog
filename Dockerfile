@@ -26,30 +26,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FLASK_HOST=0.0.0.0 \
     FLASK_PORT=5000
 
-# Install runtime dependencies
+# Install runtime dependencies including gosu for user switching
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user and data directory
+# Create non-root user and data directories
 RUN useradd -m -u 1000 appuser \
-    && mkdir -p /app/data \
+    && mkdir -p /app/data/db /app/data/config /app/data/charts /app/data/logs /app/data/archive \
     && chown -R appuser:appuser /app
 
-# Copy Python packages from builder stage to appuser location
-COPY --from=builder /root/.local /home/appuser/.local
+# Copy Python packages from builder stage to root location for easier access
+COPY --from=builder /root/.local /root/.local
 
 # Copy application code
-COPY --chown=appuser:appuser . .
+COPY . .
 
-# Fix ownership of .local directory
-RUN chown -R appuser:appuser /home/appuser/.local
+# Keep running as root for now to avoid permission issues on Windows
+# USER appuser
 
-# Switch to non-root user
-USER appuser
-
-# Make sure scripts are executable and update PATH for appuser
-ENV PATH=/home/appuser/.local/bin:$PATH
+# Make sure scripts are executable and update PATH for root
+ENV PATH=/root/.local/bin:$PATH
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

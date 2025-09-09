@@ -9,8 +9,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import schedule
-from data_service import ohlc_service
-from redis_cache_service import get_cache_service
+from services.data_service import ohlc_service
+from services.redis_cache_service import get_cache_service
 from config import config
 
 # Get logger
@@ -230,7 +230,7 @@ class BackgroundGapFillingService:
         bg_logger.warning("🚨 EMERGENCY GAP FILLING TRIGGERED")
         
         try:
-            from TradingLog_db import FuturesDB
+            from scripts.TradingLog_db import FuturesDB
             
             with FuturesDB() as db:
                 # Get instruments with recent trades

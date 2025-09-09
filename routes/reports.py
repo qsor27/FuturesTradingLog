@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
-from TradingLog_db import FuturesDB
-from logging_config import get_logger
+from scripts.TradingLog_db import FuturesDB
+from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 reports_bp = Blueprint('reports', __name__)

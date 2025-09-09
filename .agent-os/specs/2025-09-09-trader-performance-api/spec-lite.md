@@ -1,0 +1,3 @@
+# Spec Summary (Lite)
+
+Create REST API endpoints that provide real-time trader performance metrics for external monitoring systems running in local network containers. The API will return current calendar day and weekly P/L, trade counts, and win/loss statistics to enable automated risk management systems that can force-close NinjaTrader processes when performance thresholds are exceeded. These endpoints will integrate with the existing position-based tracking system and maintain sub-50ms response times.

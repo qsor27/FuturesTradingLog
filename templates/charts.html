@@ -1,0 +1,738 @@
+{% extends "base.html" %}
+
+{% block title %}Charts - Futures Trading Log{% endblock %}
+
+{% block extra_head %}
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.development.js"></script>
+<script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
+<style>
+.charts-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.charts-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.charts-title {
+    font-size: 28px;
+    font-weight: bold;
+    color: #333;
+}
+
+.instrument-selector {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.instrument-selector label {
+    font-weight: bold;
+    color: #555;
+}
+
+.instrument-selector select {
+    padding: 8px 15px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    font-size: 16px;
+    min-width: 180px;
+    cursor: pointer;
+}
+
+.instrument-selector select:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+.chart-container {
+    position: relative;
+    width: 100%;
+    min-height: 600px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.chart-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    flex-wrap: wrap;
+}
+
+.chart-controls select,
+.chart-controls button {
+    padding: 8px 15px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background: white;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.chart-controls button {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+    font-weight: bold;
+}
+
+.chart-controls button:hover {
+    background: #0056b3;
+    border-color: #0056b3;
+}
+
+#toggleVolumeBtn {
+    transition: all 0.2s ease;
+}
+
+#toggleVolumeBtn.active {
+    background: #28a745 !important;
+    border-color: #28a745 !important;
+}
+
+#toggleVolumeBtn.inactive {
+    background: #6c757d !important;
+    border-color: #6c757d !important;
+}
+
+.chart-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 30px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    display: none;
+    z-index: 1000;
+    text-align: center;
+    font-size: 18px;
+    color: #666;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.chart-error {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 30px;
+    background: #f8d7da;
+    color: #721c24;
+    border: 2px solid #f5c6cb;
+    border-radius: 8px;
+    display: none;
+    z-index: 1000;
+    max-width: 80%;
+    text-align: center;
+    font-size: 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.no-chart-message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #666;
+    font-size: 18px;
+    z-index: 1000;
+}
+
+.data-status {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    font-size: 14px;
+    color: #666;
+    margin-top: 10px;
+}
+
+.status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #28a745;
+}
+
+.status-indicator.warning {
+    background: #ffc107;
+}
+
+.status-indicator.error {
+    background: #dc3545;
+}
+
+.instrument-info {
+    background: #e9ecef;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    display: none;
+}
+
+.instrument-info.show {
+    display: block;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.info-item {
+    background: white;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.info-label {
+    font-weight: bold;
+    color: #555;
+    font-size: 12px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.info-value {
+    font-size: 16px;
+    color: #333;
+}
+
+.fresh-data {
+    color: #28a745;
+    font-weight: 500;
+}
+.stale-data {
+    color: #ffc107;
+}
+.instrument-selector select option.stale-data {
+    background-color: rgba(255, 193, 7, 0.1);
+}
+.data-freshness-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+.fresh { background-color: #28a745; }
+.stale { background-color: #ffc107; }
+.very-stale { background-color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="charts-container">
+    <div class="charts-header">
+        <h1 class="charts-title">Price Charts</h1>
+        <div class="instrument-selector">
+            <label for="instrumentSelect">Select Contract:</label>
+            <select id="instrumentSelect">
+                <option value="">Choose an instrument... ({{ ohlc_instruments|length }} available)</option>
+                {% for instrument in ohlc_instruments %}
+                <option value="{{ instrument.instrument }}" 
+                        data-records="{{ instrument.total_records }}"
+                        data-timeframes="{{ instrument.timeframes|join(',') }}"
+                        data-earliest="{{ instrument.earliest_data }}"
+                        data-latest="{{ instrument.latest_data }}"
+                        data-fresh="{{ instrument.is_recent }}"
+                        class="{{ 'fresh-data' if instrument.is_recent else 'stale-data' }}">
+                    {{ instrument.instrument }} 
+                    ({{ '{:,}'.format(instrument.total_records) }} records, 
+                     {{ instrument.timeframes|length }} timeframes{% if not instrument.is_recent %}, {{ instrument.days_since_update }}d old{% endif %})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    {% if error_message %}
+    <div class="alert alert-danger" style="margin: 20px 0; padding: 15px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px;">
+        <h4 style="margin-top: 0;">⚠️ Error Loading Charts</h4>
+        <p>{{ error_message }}</p>
+        <button onclick="window.location.reload()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">🔄 Retry</button>
+    </div>
+    {% endif %}
+
+    {% if not ohlc_instruments and not error_message %}
+    <div class="no-data-message" style="text-align: center; padding: 40px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin: 20px 0;">
+        <h3>📊 No Chart Data Available</h3>
+        <p>No instruments with OHLC data were found.</p>
+        <p>
+            <a href="/data-monitoring" style="color: #007bff; text-decoration: none;">📈 Check data status</a> or 
+            <a href="/upload" style="color: #007bff; text-decoration: none;">📁 Import data</a>
+        </p>
+    </div>
+    {% endif %}
+
+    <div class="instrument-info" id="instrumentInfo">
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-label">Instrument</div>
+                <div class="info-value" id="infoInstrument">-</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Total Records</div>
+                <div class="info-value" id="infoRecords">-</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Available Timeframes</div>
+                <div class="info-value" id="infoTimeframes">-</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Data Range</div>
+                <div class="info-value" id="infoDateRange">-</div>
+            </div>
+        </div>
+        
+        {% if trade_instruments %}
+        <div class="data-status">
+            <span><strong>Trade Data Available:</strong></span>
+            {% for trade_inst in trade_instruments %}
+            <span>{{ trade_inst.instrument }} ({{ trade_inst.trade_count }} trades)</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="chart-container" id="chartContainer" style="display: none;">
+        <div class="chart-controls">
+            <label>
+                <strong>Timeframe:</strong>
+                <select id="timeframeSelect">
+                    <option value="1m">1 Minute</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="1h" selected>1 Hour</option>
+                    <option value="4h">4 Hours</option>
+                    <option value="1d">1 Day</option>
+                </select>
+            </label>
+
+            <label>
+                <strong>Period:</strong>
+                <select id="daysSelect">
+                    <option value="1">1 Day</option>
+                    <option value="3">3 Days</option>
+                    <option value="7">1 Week</option>
+                    <option value="30">1 Month</option>
+                    <option value="90">3 Months</option>
+                </select>
+            </label>
+
+            <button id="refreshDataBtn">Refresh Data</button>
+            <button id="updateDataBtn">Update from API</button>
+            <button id="toggleVolumeBtn" title="Toggle volume display">📊 Volume</button>
+            
+            <div class="data-status">
+                <div class="status-indicator" id="dataStatus"></div>
+                <span id="dataStatusText">Ready</span>
+            </div>
+        </div>
+
+        <div id="priceChart" 
+             data-chart 
+             data-instrument="" 
+             data-timeframe="1h" 
+             data-days="1">
+        </div>
+        
+        <div class="chart-loading" id="chartLoading">
+            <div>Loading chart data...</div>
+        </div>
+        
+        <div class="chart-error" id="chartError"></div>
+    </div>
+
+    <div class="no-chart-message" id="noChartMessage">
+        <h3>Select an instrument above to view its price chart</h3>
+        <p>Charts are available for instruments with OHLC (price) data.</p>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const instrumentSelect = document.getElementById('instrumentSelect');
+    const chartContainer = document.getElementById('chartContainer');
+    const noChartMessage = document.getElementById('noChartMessage');
+    const instrumentInfo = document.getElementById('instrumentInfo');
+    const priceChart = document.getElementById('priceChart');
+    const timeframeSelect = document.getElementById('timeframeSelect');
+    const daysSelect = document.getElementById('daysSelect');
+    const refreshBtn = document.getElementById('refreshDataBtn');
+    const updateBtn = document.getElementById('updateDataBtn');
+    const toggleVolumeBtn = document.getElementById('toggleVolumeBtn');
+    const statusIndicator = document.getElementById('dataStatus');
+    const statusText = document.getElementById('dataStatusText');
+    const chartLoading = document.getElementById('chartLoading');
+    const chartError = document.getElementById('chartError');
+    
+    let currentChart = null;
+    let currentInstrument = null;
+
+    function updateStatus(status, text) {
+        statusIndicator.className = `status-indicator ${status}`;
+        statusText.textContent = text;
+    }
+
+    function showError(message) {
+        chartError.textContent = message;
+        chartError.style.display = 'block';
+        chartLoading.style.display = 'none';
+    }
+
+    function hideError() {
+        chartError.style.display = 'none';
+    }
+
+    function showLoading() {
+        chartLoading.style.display = 'block';
+        hideError();
+    }
+
+    function hideLoading() {
+        chartLoading.style.display = 'none';
+    }
+
+    function formatTimestamp(timestamp) {
+        if (!timestamp) return 'Unknown';
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    }
+
+    function updateInstrumentInfo(option) {
+        const instrument = option.value;
+        const records = option.getAttribute('data-records');
+        const timeframes = option.getAttribute('data-timeframes');
+        const earliest = option.getAttribute('data-earliest');
+        const latest = option.getAttribute('data-latest');
+        const isFresh = option.getAttribute('data-fresh') === 'True';
+
+        document.getElementById('infoInstrument').textContent = instrument;
+        
+        // Format records with thousands separator and add freshness indicator
+        const recordsElement = document.getElementById('infoRecords');
+        recordsElement.innerHTML = '';
+        
+        // Add freshness indicator
+        const indicator = document.createElement('span');
+        indicator.className = `data-freshness-indicator ${isFresh ? 'fresh' : 'stale'}`;
+        indicator.title = isFresh ? 'Data is recent (updated within 7 days)' : 'Data may be outdated (older than 7 days)';
+        recordsElement.appendChild(indicator);
+        
+        // Add formatted record count
+        const recordCount = parseInt(records).toLocaleString();
+        recordsElement.appendChild(document.createTextNode(recordCount));
+        
+        // Display timeframes as clickable buttons
+        const timeframeElement = document.getElementById('infoTimeframes');
+        timeframeElement.innerHTML = '';
+        
+        const timeframeArray = timeframes ? timeframes.split(',') : [];
+        if (timeframeArray.length > 0) {
+            timeframeArray.forEach(tf => {
+                const button = document.createElement('button');
+                button.textContent = tf;
+                button.className = 'timeframe-quick-select';
+                button.style.cssText = `
+                    margin: 2px 4px 2px 0;
+                    padding: 4px 8px;
+                    font-size: 11px;
+                    background: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                `;
+                button.onmouseover = () => button.style.background = '#0056b3';
+                button.onmouseout = () => button.style.background = '#007bff';
+                button.onclick = () => {
+                    const timeframeSelect = document.getElementById('timeframeSelect');
+                    if (timeframeSelect) {
+                        timeframeSelect.value = tf;
+                        timeframeSelect.dispatchEvent(new Event('change'));
+                    }
+                };
+                timeframeElement.appendChild(button);
+            });
+            
+            // Add count indicator
+            const countSpan = document.createElement('span');
+            countSpan.textContent = ` (${timeframeArray.length} available)`;
+            countSpan.style.fontSize = '12px';
+            countSpan.style.color = '#666';
+            countSpan.style.marginLeft = '8px';
+            timeframeElement.appendChild(countSpan);
+        } else {
+            timeframeElement.textContent = 'None available';
+        }
+        
+        const dateRange = earliest && latest ? 
+            `${formatTimestamp(earliest)} to ${formatTimestamp(latest)}` : 
+            'No data available';
+        document.getElementById('infoDateRange').textContent = dateRange;
+        
+        // Add data health summary
+        let healthIndicator = '';
+        if (isFresh && timeframeArray.length >= 3 && parseInt(records) > 1000) {
+            healthIndicator = '🟢 Excellent data quality';
+        } else if (isFresh && timeframeArray.length >= 2) {
+            healthIndicator = '🟡 Good data quality';
+        } else if (!isFresh && timeframeArray.length >= 2) {
+            healthIndicator = '🟠 Data needs update';
+        } else {
+            healthIndicator = '🔴 Limited data available';
+        }
+        
+        // Add or update health indicator
+        let healthElement = instrumentInfo.querySelector('.data-health-summary');
+        if (!healthElement) {
+            healthElement = document.createElement('div');
+            healthElement.className = 'data-health-summary';
+            healthElement.style.cssText = `
+                margin-top: 12px;
+                padding: 8px;
+                background: rgba(0, 123, 255, 0.1);
+                border-left: 3px solid #007bff;
+                border-radius: 3px;
+                font-size: 12px;
+                font-weight: 500;
+            `;
+            instrumentInfo.appendChild(healthElement);
+        }
+        healthElement.textContent = healthIndicator;
+
+        instrumentInfo.classList.add('show');
+    }
+
+    function initChart(instrument) {
+        console.log(`Initializing chart for ${instrument}`);
+        
+        // Update chart data attributes
+        priceChart.setAttribute('data-instrument', instrument);
+        priceChart.setAttribute('data-timeframe', timeframeSelect.value);
+        priceChart.setAttribute('data-days', daysSelect.value);
+        
+        // Clear any existing chart
+        if (currentChart) {
+            try {
+                currentChart.destroy();
+            } catch (e) {
+                console.warn('Error destroying previous chart:', e);
+            }
+        }
+        
+        // Remove existing chart instance
+        if (priceChart.chartInstance) {
+            try {
+                priceChart.chartInstance.destroy();
+            } catch (e) {
+                console.warn('Error destroying chart instance:', e);
+            }
+            delete priceChart.chartInstance;
+        }
+
+        // Clear the chart container
+        priceChart.innerHTML = '';
+        
+        showLoading();
+        updateStatus('warning', 'Initializing chart...');
+        
+        // Initialize new chart after a brief delay
+        setTimeout(() => {
+            try {
+                // Trigger chart initialization
+                const event = new Event('DOMContentLoaded');
+                document.dispatchEvent(event);
+                
+                // Wait for chart to initialize
+                setTimeout(() => {
+                    if (priceChart.chartInstance) {
+                        currentChart = priceChart.chartInstance;
+                        
+                        // Initialize volume button state
+                        const volumeBtn = document.getElementById('toggleVolumeBtn');
+                        if (volumeBtn) {
+                            volumeBtn.className = currentChart.volumeVisible ? 'active' : 'inactive';
+                            volumeBtn.style.backgroundColor = currentChart.volumeVisible ? '#28a745' : '#6c757d';
+                            volumeBtn.style.color = 'white';
+                            volumeBtn.title = currentChart.volumeVisible ? 'Hide volume' : 'Show volume';
+                        }
+                        
+                        hideLoading();
+                        updateStatus('', 'Chart loaded');
+                        console.log('Chart initialized successfully');
+                    } else {
+                        hideLoading();
+                        showError('Failed to initialize chart');
+                        updateStatus('error', 'Chart initialization failed');
+                    }
+                }, 500);
+            } catch (error) {
+                console.error('Chart initialization error:', error);
+                hideLoading();
+                showError(`Chart error: ${error.message}`);
+                updateStatus('error', 'Chart error');
+            }
+        }, 100);
+    }
+
+    // Instrument selection handler
+    instrumentSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        
+        if (this.value) {
+            currentInstrument = this.value;
+            updateInstrumentInfo(selectedOption);
+            
+            // Show chart container and hide no-chart message
+            chartContainer.style.display = 'block';
+            noChartMessage.style.display = 'none';
+            
+            // Initialize chart for selected instrument
+            initChart(this.value);
+        } else {
+            // Hide chart container and show no-chart message
+            chartContainer.style.display = 'none';
+            noChartMessage.style.display = 'block';
+            instrumentInfo.classList.remove('show');
+            currentInstrument = null;
+            
+            if (currentChart) {
+                try {
+                    currentChart.destroy();
+                } catch (e) {
+                    console.warn('Error destroying chart:', e);
+                }
+                currentChart = null;
+            }
+        }
+    });
+
+    // Timeframe change handler
+    timeframeSelect.addEventListener('change', function() {
+        if (currentChart && currentInstrument) {
+            updateStatus('warning', 'Loading...');
+            currentChart.updateTimeframe(this.value);
+        }
+    });
+
+    // Days change handler
+    daysSelect.addEventListener('change', function() {
+        if (currentChart && currentInstrument) {
+            updateStatus('warning', 'Loading...');
+            currentChart.updateDays(parseInt(this.value));
+        }
+    });
+
+    // Refresh data handler
+    refreshBtn.addEventListener('click', function() {
+        if (currentChart && currentInstrument) {
+            updateStatus('warning', 'Refreshing...');
+            currentChart.loadData();
+        }
+    });
+
+    // Update data from API
+    updateBtn.addEventListener('click', async function() {
+        if (!currentInstrument) return;
+        
+        try {
+            updateStatus('warning', 'Updating from API...');
+            this.disabled = true;
+            
+            const response = await fetch(`/api/update-data/${currentInstrument}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                updateStatus('', `Updated: ${data.total_records} records`);
+                if (currentChart) {
+                    currentChart.loadData();
+                }
+            } else {
+                updateStatus('error', 'Update failed');
+            }
+        } catch (error) {
+            updateStatus('error', 'Update error');
+            console.error('Update error:', error);
+        } finally {
+            this.disabled = false;
+        }
+    });
+
+    // Volume toggle handler
+    toggleVolumeBtn.addEventListener('click', function() {
+        if (currentChart) {
+            // Toggle the volume display
+            const isVolumeVisible = currentChart.volumeVisible;
+            currentChart.toggleVolume(!isVolumeVisible);
+            
+            // Update button appearance to reflect state
+            this.className = !isVolumeVisible ? 'active' : 'inactive';
+            this.style.backgroundColor = !isVolumeVisible ? '#28a745' : '#6c757d';
+            this.style.color = 'white';
+            this.title = !isVolumeVisible ? 'Hide volume' : 'Show volume';
+        }
+    });
+
+    // Auto-select best instrument if available
+    function autoSelectBestInstrument() {
+        const select = document.getElementById('instrumentSelect');
+        if (select.value === '' && select.options.length > 1) {
+            // Find option with most records and recent data
+            let bestOption = null;
+            let maxScore = 0;
+            
+            for (let i = 1; i < select.options.length; i++) {
+                const option = select.options[i];
+                const records = parseInt(option.getAttribute('data-records')) || 0;
+                const isFresh = option.getAttribute('data-fresh') === 'True';
+                
+                // Score: record count + bonus for fresh data
+                const score = records + (isFresh ? 100000 : 0);
+                
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestOption = option;
+                }
+            }
+            
+            if (bestOption) {
+                console.log(`Auto-selecting best instrument: ${bestOption.value}`);
+                select.value = bestOption.value;
+                select.dispatchEvent(new Event('change'));
+            }
+        }
+    }
+    
+    // Initially show no-chart message
+    updateStatus('', 'Ready to load charts');
+    
+    // Set default timeframe to match data attribute
+    timeframeSelect.value = '1h';
+    
+    // Auto-select after a brief delay to let everything load
+    setTimeout(autoSelectBestInstrument, 1000);
+});
+</script>
+{% endblock %}

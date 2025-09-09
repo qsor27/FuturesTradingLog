@@ -14,7 +14,7 @@ from datetime import datetime
 # Add the project root to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 def test_profile_history_schema():
     """Test the database schema creation and initialization."""

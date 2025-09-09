@@ -6,8 +6,8 @@ Provides monitoring dashboard and alerts for OHLC data coverage
 from flask import Blueprint, render_template, jsonify, request
 from datetime import datetime, timedelta
 import logging
-from automated_data_sync import get_data_sync_status, force_data_sync
-from TradingLog_db import FuturesDB
+from scripts.automated_data_sync import get_data_sync_status, force_data_sync
+from scripts.TradingLog_db import FuturesDB
 
 data_monitoring_bp = Blueprint('data_monitoring', __name__)
 logger = logging.getLogger(__name__)

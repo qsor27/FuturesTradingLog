@@ -15,7 +15,7 @@ from typing import Dict, List, Any, Optional, Set
 from pathlib import Path
 import hashlib
 
-from redis_cache_service import get_cache_service
+from services.redis_cache_service import get_cache_service
 from config import config
 
 logger = logging.getLogger(__name__)

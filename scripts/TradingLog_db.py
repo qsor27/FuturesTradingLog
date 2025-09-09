@@ -9,6 +9,9 @@ import json
 # Get database logger
 db_logger = logging.getLogger('database')
 
+# Global flag to prevent repeated initialization
+_database_initialized = False
+
 class FuturesDB:
     def __init__(self, db_path: str = None):
         from config import config
@@ -87,11 +90,18 @@ class FuturesDB:
             return 'other'
     def __enter__(self):
         """Establish database connection when entering context"""
+        global _database_initialized
+        
         try:
-            db_logger.info(f"Connecting to database: {self.db_path}")
+            db_logger.debug(f"Connecting to database: {self.db_path}")
             self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
+            
+            # Skip heavy initialization if already done
+            if _database_initialized:
+                db_logger.debug("Database already initialized, skipping setup")
+                return self
             
             # Verify database structure
             self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'")
@@ -100,7 +110,7 @@ class FuturesDB:
             if not table_exists:
                 db_logger.info("Trades table does not exist, will be created")
             else:
-                db_logger.debug("Database connection established successfully")
+                db_logger.info("Database connection established, performing initial setup")
         except Exception as e:
             db_logger.error(f"Failed to connect to database: {e}")
             raise
@@ -323,6 +333,10 @@ class FuturesDB:
         self.cursor.execute("ANALYZE")
         self.conn.commit()
         
+        # Mark database as initialized to prevent repeated setup
+        _database_initialized = True
+        db_logger.info("Database initialization completed successfully")
+        
         return self
 
     def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None, 
@@ -371,6 +385,20 @@ class FuturesDB:
             else:
                 self.conn.rollback()
             self.conn.close()
+
+    def execute_query(self, query: str, params: tuple = None) -> List[tuple]:
+        """Execute a raw SQL query and return results"""
+        try:
+            if params:
+                result = self._execute_with_monitoring(query, params)
+            else:
+                result = self._execute_with_monitoring(query)
+            return result.fetchall()
+        except Exception as e:
+            db_logger.error(f"Error executing query: {e}")
+            db_logger.debug(f"Query: {query}")
+            db_logger.debug(f"Params: {params}")
+            return []
 
     def get_unique_accounts(self) -> List[str]:
         """Get a list of all unique account names in the database."""

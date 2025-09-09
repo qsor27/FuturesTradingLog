@@ -3,11 +3,11 @@ Position Routes - Handle position-based views and operations
 """
 
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for
-from enhanced_position_service import EnhancedPositionService as PositionService
-from TradingLog_db import FuturesDB
-from position_overlap_integration import rebuild_positions_with_overlap_prevention
-from position_overlap_prevention import PositionOverlapPrevention
-from position_overlap_analysis import PositionOverlapAnalyzer
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
+from scripts.TradingLog_db import FuturesDB
+from services.position_overlap_integration import rebuild_positions_with_overlap_prevention
+from services.position_overlap_prevention import PositionOverlapPrevention
+from services.position_overlap_analysis import PositionOverlapAnalyzer
 import logging
 import os
 import glob
@@ -43,15 +43,17 @@ def positions_dashboard():
     
     with PositionService() as pos_service:
         # Get positions
-        positions, total_count, total_pages = pos_service.get_positions(
+        result = pos_service.get_positions(
             page_size=page_size,
             page=page,
             account=account_filter,
             instrument=instrument_filter,
-            status=status_filter,
-            sort_by=sort_by,
-            sort_order=sort_order
+            status=status_filter
         )
+        
+        positions = result['positions']
+        total_count = result['total_count']
+        total_pages = result['total_pages']
         
         # Get statistics
         position_stats = pos_service.get_position_statistics(account=account_filter)
@@ -95,7 +97,10 @@ def positions_dashboard():
 def position_detail(position_id):
     """Position detail page showing all executions that make up the position"""
     with PositionService() as pos_service:
-        position = pos_service.get_position_by_id(position_id)
+        # Get all positions and find the one with matching ID
+        result = pos_service.get_positions(page_size=1000)  # Get enough to find the position
+        positions = result['positions']
+        position = next((p for p in positions if p['id'] == position_id), None)
     
     if not position:
         return render_template('error.html', 
@@ -103,42 +108,40 @@ def position_detail(position_id):
                              error_code=404), 404
     
     # Calculate additional metrics for the detail view
-    if position['executions']:
-        # Calculate execution timing analysis
-        executions = position['executions']
-        position['first_execution'] = min(ex['entry_time'] for ex in executions)
-        position['last_execution'] = max(ex['exit_time'] for ex in executions if ex['exit_time'])
+    # Use existing position data for timing analysis
+    position['first_execution'] = position['entry_time']
+    position['last_execution'] = position.get('exit_time')
+    
+    # Calculate position duration if closed
+    if position['position_status'] == 'closed' and position['exit_time']:
+        from datetime import datetime
+        try:
+            entry_dt = datetime.fromisoformat(position['entry_time'].replace('Z', '+00:00'))
+            exit_dt = datetime.fromisoformat(position['exit_time'].replace('Z', '+00:00'))
+            duration = exit_dt - entry_dt
+            position['duration_minutes'] = duration.total_seconds() / 60
+            position['duration_display'] = f"{duration.days}d {duration.seconds//3600}h {(duration.seconds%3600)//60}m"
+        except:
+            position['duration_minutes'] = 0
+            position['duration_display'] = "Unknown"
+    
+    # Calculate R:R ratio for closed positions
+    if position['position_status'] == 'closed':
+        total_pnl = position['total_dollars_pnl']
+        commission = position['total_commission']
         
-        # Calculate position duration if closed
-        if position['position_status'] == 'closed' and position['exit_time']:
-            from datetime import datetime
-            try:
-                entry_dt = datetime.fromisoformat(position['entry_time'].replace('Z', '+00:00'))
-                exit_dt = datetime.fromisoformat(position['exit_time'].replace('Z', '+00:00'))
-                duration = exit_dt - entry_dt
-                position['duration_minutes'] = duration.total_seconds() / 60
-                position['duration_display'] = f"{duration.days}d {duration.seconds//3600}h {(duration.seconds%3600)//60}m"
-            except:
-                position['duration_minutes'] = 0
-                position['duration_display'] = "Unknown"
-        
-        # Calculate R:R ratio for closed positions
-        if position['position_status'] == 'closed':
-            total_pnl = position['total_dollars_pnl']
-            commission = position['total_commission']
-            
-            if total_pnl > 0 and commission > 0:
-                # Winner: Reward / Risk
-                position['reward_risk_ratio'] = round(total_pnl / commission, 2)
-                position['rr_display'] = f"{position['reward_risk_ratio']}:1"
-            elif total_pnl < 0 and commission > 0:
-                # Loser: Risk / Reward  
-                risk_ratio = abs(total_pnl) / commission
-                position['reward_risk_ratio'] = round(1 / risk_ratio, 2) if risk_ratio > 0 else 0
-                position['rr_display'] = f"1:{round(risk_ratio, 2)}"
-            else:
-                position['reward_risk_ratio'] = 0
-                position['rr_display'] = "N/A"
+        if total_pnl > 0 and commission > 0:
+            # Winner: Reward / Risk
+            position['reward_risk_ratio'] = round(total_pnl / commission, 2)
+            position['rr_display'] = f"{position['reward_risk_ratio']}:1"
+        elif total_pnl < 0 and commission > 0:
+            # Loser: Risk / Reward  
+            risk_ratio = abs(total_pnl) / commission
+            position['reward_risk_ratio'] = round(1 / risk_ratio, 2) if risk_ratio > 0 else 0
+            position['rr_display'] = f"1:{round(risk_ratio, 2)}"
+        else:
+            position['reward_risk_ratio'] = 0
+            position['rr_display'] = "N/A"
     
     return render_template('positions/detail.html', position=position)
 
@@ -247,7 +250,7 @@ def api_position_executions(position_id):
 @positions_bp.route('/debug')
 def debug_positions():
     """Debug page to examine position building logic"""
-    from TradingLog_db import FuturesDB
+    from scripts.TradingLog_db import FuturesDB
     
     # Get recent trades for debugging
     with FuturesDB() as db:
@@ -275,7 +278,7 @@ def debug_positions():
 @positions_bp.route('/debug/<account>/<instrument>')
 def debug_account_instrument(account, instrument):
     """Debug specific account/instrument combination"""
-    from TradingLog_db import FuturesDB
+    from scripts.TradingLog_db import FuturesDB
     
     with FuturesDB() as db:
         # Get all trades for this account/instrument

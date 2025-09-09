@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 import time
 
 def test_database_performance():

@@ -12,7 +12,7 @@ def test_ondemand_fetch():
     print("=== Testing On-Demand Fetch Process ===")
     
     try:
-        from TradingLog_db import FuturesDB
+        from scripts.TradingLog_db import FuturesDB
         from services.ohlc_service import OHLCOnDemandService
         from utils.instrument_utils import get_root_symbol
         from config import SUPPORTED_TIMEFRAMES

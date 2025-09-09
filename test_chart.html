@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Chart - MNQ Candles</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #1a1a1a;
+            color: #e5e5e5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1a1a1a;
+            margin: 20px 0;
+        }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        .controls label {
+            margin-right: 15px;
+        }
+        .controls select, .controls button {
+            padding: 8px 12px;
+            margin: 5px;
+            background: #333;
+            color: #e5e5e5;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+        .controls button {
+            background: #007bff;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #0056b3;
+        }
+        .status {
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success { background: #155724; color: #d4edda; }
+        .error { background: #721c24; color: #f8d7da; }
+        .warning { background: #856404; color: #fff3cd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Test Chart - MNQ Candles</h1>
+        
+        <div class="controls">
+            <label>
+                Timeframe:
+                <select id="timeframeSelect">
+                    <option value="1h" selected>1 Hour</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="1d">1 Day</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="1m">1 Minute</option>
+                </select>
+            </label>
+            
+            <label>
+                Days:
+                <select id="daysSelect">
+                    <option value="1">1 Day</option>
+                    <option value="3" selected>3 Days</option>
+                    <option value="7">1 Week</option>
+                </select>
+            </label>
+            
+            <button id="loadDataBtn">Load Chart Data</button>
+            <button id="checkDataBtn">Check Data Status</button>
+            <button id="populateDataBtn">Populate Data</button>
+        </div>
+        
+        <div id="status" class="status">Ready to load chart data...</div>
+        
+        <div class="chart-container" id="chartContainer">
+            <div id="chart"></div>
+        </div>
+    </div>
+
+    <script>
+        class TestChart {
+            constructor() {
+                this.chart = null;
+                this.candlestickSeries = null;
+                this.instrument = 'MNQ';
+                
+                this.init();
+            }
+            
+            init() {
+                // Create chart
+                this.chart = LightweightCharts.createChart(document.getElementById('chart'), {
+                    width: 1160,
+                    height: 580,
+                    layout: {
+                        background: { color: '#1a1a1a' },
+                        textColor: '#e5e5e5',
+                    },
+                    grid: {
+                        vertLines: { color: '#333333' },
+                        horzLines: { color: '#333333' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                    },
+                    rightPriceScale: {
+                        borderColor: '#404040',
+                    },
+                    timeScale: {
+                        borderColor: '#404040',
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                });
+                
+                // Create candlestick series
+                this.candlestickSeries = this.chart.addCandlestickSeries({
+                    upColor: '#4CAF50',
+                    downColor: '#F44336',
+                    borderDownColor: '#F44336',
+                    borderUpColor: '#4CAF50',
+                    wickDownColor: '#F44336',
+                    wickUpColor: '#4CAF50',
+                });
+                
+                // Set up event listeners
+                document.getElementById('loadDataBtn').addEventListener('click', () => this.loadData());
+                document.getElementById('checkDataBtn').addEventListener('click', () => this.checkDataStatus());
+                document.getElementById('populateDataBtn').addEventListener('click', () => this.populateData());
+                
+                console.log('Test chart initialized');
+            }
+            
+            updateStatus(message, type = 'info') {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = message;
+                statusEl.className = `status ${type}`;
+                console.log(`[${type.toUpperCase()}] ${message}`);
+            }
+            
+            async loadData() {
+                try {
+                    const timeframe = document.getElementById('timeframeSelect').value;
+                    const days = document.getElementById('daysSelect').value;
+                    
+                    this.updateStatus(`Loading ${timeframe} data for ${days} days...`, 'info');
+                    
+                    // Try the cache-only endpoint first
+                    const url = `/api/chart-data/${this.instrument}?timeframe=${timeframe}&days=${days}`;
+                    console.log(`Fetching from: ${url}`);
+                    
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    console.log('Chart data response:', data);
+                    
+                    if (data.success && data.data && data.data.length > 0) {
+                        this.setChartData(data.data);
+                        this.updateStatus(`Loaded ${data.data.length} candles successfully!`, 'success');
+                    } else {
+                        this.updateStatus(`No data available: ${data.error || 'Unknown error'}`, 'warning');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                    this.updateStatus(`Error loading data: ${error.message}`, 'error');
+                }
+            }
+            
+            async checkDataStatus() {
+                try {
+                    this.updateStatus('Checking data status...', 'info');
+                    
+                    const response = await fetch(`/api/check-data-status/${this.instrument}`);
+                    const data = await response.json();
+                    
+                    console.log('Data status:', data);
+                    
+                    if (data.success) {
+                        const counts = Object.entries(data.timeframe_counts)
+                            .map(([tf, count]) => `${tf}: ${count}`)
+                            .join(', ');
+                        
+                        this.updateStatus(
+                            `Data status - Total: ${data.total_records} records (${counts}) - Best: ${data.best_timeframe}`, 
+                            data.has_sufficient_data ? 'success' : 'warning'
+                        );
+                    } else {
+                        this.updateStatus(`Error checking status: ${data.error}`, 'error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error checking status:', error);
+                    this.updateStatus(`Error checking status: ${error.message}`, 'error');
+                }
+            }
+            
+            async populateData() {
+                try {
+                    this.updateStatus('Populating data...', 'info');
+                    
+                    const response = await fetch(`/api/emergency-data-populate/${this.instrument}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    const data = await response.json();
+                    console.log('Population result:', data);
+                    
+                    if (data.success) {
+                        this.updateStatus(
+                            `Data populated! ${data.total_records} records added for timeframes: ${data.populated_timeframes.join(', ')}`, 
+                            'success'
+                        );
+                    } else {
+                        this.updateStatus(`Population failed: ${data.error || 'Unknown error'}`, 'error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error populating data:', error);
+                    this.updateStatus(`Error populating data: ${error.message}`, 'error');
+                }
+            }
+            
+            setChartData(data) {
+                console.log(`Setting chart data: ${data.length} records`);
+                console.log('Sample data:', data[0]);
+                
+                // Format data for TradingView
+                const chartData = data.map(item => ({
+                    time: item.time,
+                    open: parseFloat(item.open),
+                    high: parseFloat(item.high),
+                    low: parseFloat(item.low),
+                    close: parseFloat(item.close)
+                }));
+                
+                // Sort by time
+                chartData.sort((a, b) => a.time - b.time);
+                
+                console.log('Formatted chart data:', chartData.slice(0, 3));
+                
+                // Set data to chart
+                this.candlestickSeries.setData(chartData);
+                
+                // Fit content
+                this.chart.timeScale().fitContent();
+                
+                console.log('Chart data set successfully');
+            }
+        }
+        
+        // Initialize test chart when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing test chart...');
+            window.testChart = new TestChart();
+        });
+    </script>
+</body>
+</html>

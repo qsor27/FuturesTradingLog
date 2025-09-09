@@ -288,13 +288,19 @@ def aggregate_position_statistics(positions_data: List[Dict]) -> Dict[str, Any]:
         }
     
     total_positions = len(positions_data)
-    winning_positions = sum(1 for pos in positions_data if pos.get('net_pnl', 0) > 0)
-    losing_positions = sum(1 for pos in positions_data if pos.get('net_pnl', 0) < 0)
     
-    total_pnl = sum(pos.get('net_pnl', 0) for pos in positions_data)
+    # Helper function to safely get numeric values
+    def safe_get_pnl(pos):
+        pnl = pos.get('net_pnl', 0)
+        return pnl if pnl is not None else 0
     
-    wins = [pos['net_pnl'] for pos in positions_data if pos.get('net_pnl', 0) > 0]
-    losses = [pos['net_pnl'] for pos in positions_data if pos.get('net_pnl', 0) < 0]
+    winning_positions = sum(1 for pos in positions_data if safe_get_pnl(pos) > 0)
+    losing_positions = sum(1 for pos in positions_data if safe_get_pnl(pos) < 0)
+    
+    total_pnl = sum(safe_get_pnl(pos) for pos in positions_data)
+    
+    wins = [safe_get_pnl(pos) for pos in positions_data if safe_get_pnl(pos) > 0]
+    losses = [safe_get_pnl(pos) for pos in positions_data if safe_get_pnl(pos) < 0]
     
     return {
         'total_positions': total_positions,

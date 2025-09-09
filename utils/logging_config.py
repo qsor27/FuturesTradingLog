@@ -18,11 +18,9 @@ def setup_application_logging():
     - error.log: Error-only log for quick troubleshooting
     - file_watcher.log: File monitoring and import operations (created by file_watcher.py)
     - database.log: Database operations and performance
-    """
     
-    # Ensure logs directory exists
-    log_dir = config.data_dir / 'logs'
-    log_dir.mkdir(parents=True, exist_ok=True)
+    Falls back to console logging if file permissions fail.
+    """
     
     # Configure root logger
     root_logger = logging.getLogger()
@@ -39,60 +37,82 @@ def setup_application_logging():
         '%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # 1. Main application log file (all messages)
-    app_handler = logging.handlers.RotatingFileHandler(
-        log_dir / 'app.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    app_handler.setLevel(logging.INFO)
-    app_handler.setFormatter(detailed_formatter)
-    root_logger.addHandler(app_handler)
-    
-    # 2. Error-only log file (errors and above)
-    error_handler = logging.handlers.RotatingFileHandler(
-        log_dir / 'error.log',
-        maxBytes=5*1024*1024,   # 5MB
-        backupCount=3
-    )
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(detailed_formatter)
-    root_logger.addHandler(error_handler)
-    
-    # 3. Console output (for development)
-    if config.debug:
+    # Try to setup file logging, fallback to console if permissions fail
+    try:
+        # Ensure logs directory exists
+        log_dir = config.data_dir / 'logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 1. Main application log file (all messages)
+        app_handler = logging.handlers.RotatingFileHandler(
+            log_dir / 'app.log',
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5
+        )
+        app_handler.setLevel(logging.INFO)
+        app_handler.setFormatter(detailed_formatter)
+        root_logger.addHandler(app_handler)
+        
+        print(f"✓ Logging initialized successfully to {log_dir}")
+        
+        
+        # 2. Error-only log file (errors and above)
+        error_handler = logging.handlers.RotatingFileHandler(
+            log_dir / 'error.log',
+            maxBytes=5*1024*1024,   # 5MB
+            backupCount=3
+        )
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(detailed_formatter)
+        root_logger.addHandler(error_handler)
+        
+        # 4. Database logger (separate file for database operations)
+        db_logger = logging.getLogger('database')
+        db_handler = logging.handlers.RotatingFileHandler(
+            log_dir / 'database.log',
+            maxBytes=5*1024*1024,   # 5MB
+            backupCount=3
+        )
+        db_handler.setLevel(logging.INFO)
+        db_handler.setFormatter(detailed_formatter)
+        db_logger.addHandler(db_handler)
+        db_logger.propagate = False  # Don't send to root logger
+        
+    except (PermissionError, OSError) as e:
+        print(f"⚠ Warning: Cannot write to log files ({e}). Using console logging only.")
+        # Add console handler as fallback
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(simple_formatter)
         root_logger.addHandler(console_handler)
     
-    # 4. Database logger (separate file for database operations)
-    db_logger = logging.getLogger('database')
-    db_handler = logging.handlers.RotatingFileHandler(
-        log_dir / 'database.log',
-        maxBytes=5*1024*1024,   # 5MB
-        backupCount=3
-    )
-    db_handler.setLevel(logging.INFO)
-    db_handler.setFormatter(detailed_formatter)
-    db_logger.addHandler(db_handler)
-    db_logger.propagate = False  # Don't send to root logger
+    # 3. Always add console output for development/debugging
+    if config.debug or not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(simple_formatter)
+        root_logger.addHandler(console_handler)
     
-    # 5. Flask logger configuration
-    flask_logger = logging.getLogger('werkzeug')
-    flask_handler = logging.handlers.RotatingFileHandler(
-        log_dir / 'flask.log',
-        maxBytes=5*1024*1024,   # 5MB
-        backupCount=3
-    )
-    flask_handler.setLevel(logging.INFO)
-    flask_handler.setFormatter(simple_formatter)
-    flask_logger.addHandler(flask_handler)
+    # 5. Flask logger configuration (optional file logging)
+    try:
+        flask_logger = logging.getLogger('werkzeug')
+        flask_handler = logging.handlers.RotatingFileHandler(
+            config.data_dir / 'logs' / 'flask.log',
+            maxBytes=5*1024*1024,   # 5MB
+            backupCount=3
+        )
+        flask_handler.setLevel(logging.INFO)
+        flask_handler.setFormatter(simple_formatter)
+        flask_logger.addHandler(flask_handler)
+    except (PermissionError, OSError):
+        # Flask logger will use console output if file logging fails
+        pass
     
     # Log the logging setup
     logging.info("Application logging configured successfully")
-    logging.info(f"Log files location: {log_dir}")
-    logging.info("Available log files: app.log, error.log, database.log, flask.log, file_watcher.log")
+    if hasattr(config, 'data_dir'):
+        logging.info(f"Log files location: {config.data_dir / 'logs'}")
+        logging.info("Available log files: app.log, error.log, database.log, flask.log, file_watcher.log")
 
 def get_logger(name: str) -> logging.Logger:
     """

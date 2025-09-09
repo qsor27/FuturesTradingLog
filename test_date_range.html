@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Date Range Test - Chart Data Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #e5e5e5; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; background: #2a2a2a; border-radius: 8px; }
+        .results { padding: 10px; background: #333; border-radius: 4px; margin: 10px 0; font-family: monospace; }
+        button { padding: 8px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .error { background: #721c24; color: #f8d7da; }
+        .success { background: #155724; color: #d4edda; }
+        .warning { background: #856404; color: #fff3cd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Date Range Debug Test</h1>
+        
+        <div class="test-section">
+            <h3>1. Check Database Data Range</h3>
+            <button onclick="checkDatabaseRange()">Check DB Data Range</button>
+            <div id="dbResult" class="results"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>2. Test Current API Request</h3>
+            <button onclick="testCurrentAPI()">Test Current API (August 2025)</button>
+            <div id="currentAPIResult" class="results"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>3. Test API with June Date Range</h3>
+            <button onclick="testJuneAPI()">Test API (June 2025)</button>
+            <div id="juneAPIResult" class="results"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>4. Populate Current Data</h3>
+            <button onclick="populateCurrentData()">Populate Current August Data</button>
+            <div id="populateResult" class="results"></div>
+        </div>
+    </div>
+
+    <script>
+        function updateResult(elementId, message, type = 'info') {
+            const el = document.getElementById(elementId);
+            el.innerHTML = message;
+            el.className = `results ${type}`;
+        }
+
+        async function checkDatabaseRange() {
+            try {
+                updateResult('dbResult', 'Checking database data range...', 'info');
+                
+                // Call the data status API to see what we have
+                const response = await fetch('/api/check-data-status/MNQ');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const info = `
+                        <strong>Database Status:</strong><br>
+                        Total Records: ${data.total_records}<br>
+                        Timeframe Counts: ${JSON.stringify(data.timeframe_counts, null, 2)}<br>
+                        Best Timeframe: ${data.best_timeframe}<br>
+                        Has Sufficient Data: ${data.has_sufficient_data}
+                    `;
+                    updateResult('dbResult', info, 'success');
+                } else {
+                    updateResult('dbResult', `Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                updateResult('dbResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testCurrentAPI() {
+            try {
+                updateResult('currentAPIResult', 'Testing current API with August dates...', 'info');
+                
+                // Test current API request (will use current date range)
+                const response = await fetch('/api/chart-data/MNQ?timeframe=1h&days=3');
+                const data = await response.json();
+                
+                const info = `
+                    <strong>Current API Response:</strong><br>
+                    Success: ${data.success}<br>
+                    Data Count: ${data.count}<br>
+                    Has Data: ${data.has_data}<br>
+                    Date Range: ${data.metadata?.start_date} to ${data.metadata?.end_date}<br>
+                    Cache Hit: ${data.metadata?.cache_hit}<br>
+                    Data Source: ${data.metadata?.data_source}
+                `;
+                
+                updateResult('currentAPIResult', info, data.has_data ? 'success' : 'warning');
+            } catch (error) {
+                updateResult('currentAPIResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testJuneAPI() {
+            try {
+                updateResult('juneAPIResult', 'Testing API with June 2025 date range...', 'info');
+                
+                // Test with specific June dates (when we know data exists)
+                const startDate = '2025-06-10';
+                const endDate = '2025-06-17';
+                
+                const response = await fetch(`/api/chart-data/MNQ?timeframe=1h&start_date=${startDate}&end_date=${endDate}`);
+                const data = await response.json();
+                
+                const info = `
+                    <strong>June API Response:</strong><br>
+                    Success: ${data.success}<br>
+                    Data Count: ${data.count}<br>
+                    Has Data: ${data.has_data}<br>
+                    Sample Data: ${data.data && data.data.length > 0 ? JSON.stringify(data.data[0], null, 2) : 'No data'}
+                `;
+                
+                updateResult('juneAPIResult', info, data.has_data ? 'success' : 'warning');
+            } catch (error) {
+                updateResult('juneAPIResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function populateCurrentData() {
+            try {
+                updateResult('populateResult', 'Populating current August 2025 data...', 'info');
+                
+                const response = await fetch('/api/emergency-data-populate/MNQ', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                const info = `
+                    <strong>Population Result:</strong><br>
+                    Success: ${data.success}<br>
+                    Total Records: ${data.total_records}<br>
+                    Populated Timeframes: ${data.populated_timeframes?.join(', ') || 'None'}<br>
+                    ${data.error ? `Error: ${data.error}` : ''}
+                `;
+                
+                updateResult('populateResult', info, data.success ? 'success' : 'error');
+                
+                if (data.success) {
+                    // After successful population, test the current API again
+                    setTimeout(() => {
+                        testCurrentAPI();
+                    }, 1000);
+                }
+            } catch (error) {
+                updateResult('populateResult', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-check database range on page load
+        window.addEventListener('load', function() {
+            checkDatabaseRange();
+        });
+    </script>
+</body>
+</html>

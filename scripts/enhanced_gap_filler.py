@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 import logging
 import time
 from typing import List, Dict, Tuple, Optional
-from data_service import ohlc_service
-from TradingLog_db import FuturesDB
-from background_services import gap_filling_service
+from services.data_service import ohlc_service
+from scripts.TradingLog_db import FuturesDB
+from services.background_services import gap_filling_service
 
 class EnhancedGapFiller:
     """Enhanced gap filling engine with comprehensive coverage"""

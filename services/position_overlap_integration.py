@@ -5,8 +5,8 @@ Integrates validation with the enhanced position building algorithm
 
 import logging
 from typing import Dict, List, Any
-from position_service import PositionService
-from position_overlap_prevention import PositionOverlapPrevention
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
+from services.position_overlap_prevention import PositionOverlapPrevention
 
 logger = logging.getLogger(__name__)
 

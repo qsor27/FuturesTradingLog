@@ -10,11 +10,11 @@ import shutil
 from typing import List, Dict, Any
 
 from config import config
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 # Import ExecutionProcessing conditionally
 try:
-    from ExecutionProcessing import process_trades
+    from scripts.ExecutionProcessing import process_trades
     EXECUTION_PROCESSING_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: ExecutionProcessing not available: {e}")
@@ -182,7 +182,7 @@ class FileWatcher:
     def _rebuild_positions(self, db) -> Dict[str, int]:
         """Rebuild positions using the position service"""
         try:
-            from enhanced_position_service import EnhancedPositionService as PositionService
+            from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
             
             # Use position service to rebuild positions
             with PositionService() as position_service:

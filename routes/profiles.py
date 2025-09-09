@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional
 import tempfile
 import logging
 from werkzeug.utils import secure_filename
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 profiles_bp = Blueprint('profiles', __name__)
 logger = logging.getLogger(__name__)

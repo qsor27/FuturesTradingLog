@@ -13,8 +13,8 @@ from typing import List, Dict, Set
 import threading
 import json
 import os
-from data_service import ohlc_service
-from TradingLog_db import FuturesDB
+from services.data_service import ohlc_service
+from scripts.TradingLog_db import FuturesDB
 
 class AutomatedDataSyncer:
     """Automated system to keep OHLC data current for all trading instruments"""

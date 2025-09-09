@@ -20,7 +20,7 @@ except ImportError:
 
 # Import cache manager for invalidation
 try:
-    from cache_manager import get_cache_manager
+    from scripts.cache_manager import get_cache_manager
     CACHE_INVALIDATION_AVAILABLE = True
 except ImportError:
     CACHE_INVALIDATION_AVAILABLE = False

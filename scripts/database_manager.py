@@ -86,7 +86,7 @@ class DatabaseManager:
     def _apply_sqlite_optimizations(self):
         """Apply SQLite performance optimizations"""
         optimizations = [
-            "PRAGMA journal_mode = WAL",
+            "PRAGMA journal_mode = DELETE",  # Use DELETE mode instead of WAL for Docker compatibility
             "PRAGMA synchronous = normal", 
             "PRAGMA temp_store = memory",
             "PRAGMA mmap_size = 1073741824",  # 1GB

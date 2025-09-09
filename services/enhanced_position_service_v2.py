@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from decimal import Decimal
 import logging
 
-from position_algorithms import (
+from services.position_algorithms import (
     calculate_running_quantity,
     group_executions_by_position,
     calculate_position_pnl,
@@ -163,6 +163,10 @@ class EnhancedPositionServiceV2:
         
         stats['accounts_processed'] = len(set(key[0] for key in grouped_trades.keys()))
         stats['instruments_processed'] = len(set(key[1] for key in grouped_trades.keys()))
+        
+        # Add expected keys for backward compatibility with routes
+        stats['positions_created'] = stats['total_positions']
+        stats['trades_processed'] = len(all_trades)
         
         logger.info(f"Position rebuild completed: {stats}")
         return stats

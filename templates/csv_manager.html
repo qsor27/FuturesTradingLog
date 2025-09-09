@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="bg-white shadow rounded-lg p-6">
+        <div class="mb-6 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-900">CSV Import Manager</h1>
+            <div class="flex space-x-3">
+                <a href="{{ url_for('upload.upload_form') }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Upload New CSV
+                </a>
+                <a href="{{ url_for('positions.positions_dashboard') }}" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                    Back to Positions
+                </a>
+            </div>
+        </div>
+
+        <!-- Info Banner -->
+        <div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-blue-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-blue-800">Supported File Types</h3>
+                    <div class="mt-1 text-sm text-blue-600">
+                        <p><strong>NinjaTrader Executions:</strong> Raw export files from NinjaTrader (will be automatically processed)</p>
+                        <p><strong>Processed TradeLog:</strong> Already processed CSV files with positions and P&L data</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-blue-600" id="totalFiles">{{ csv_files|length }}</div>
+                <div class="text-sm text-blue-800">Total CSV Files</div>
+            </div>
+            <div class="bg-green-50 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-green-600" id="selectedCount">0</div>
+                <div class="text-sm text-green-800">Selected Files</div>
+            </div>
+            <div class="bg-purple-50 p-4 rounded-lg">
+                <div class="text-2xl font-bold text-purple-600" id="totalSize">
+                    {{ "%.2f"|format((csv_files|sum(attribute='size'))/1024/1024) }} MB
+                </div>
+                <div class="text-sm text-purple-800">Total Size</div>
+            </div>
+        </div>
+
+        <!-- File Selection Controls -->
+        <div class="mb-4 flex flex-wrap gap-2 items-center justify-between">
+            <div class="flex gap-2">
+                <button id="selectAllBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded text-sm">
+                    Select All
+                </button>
+                <button id="selectNoneBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded text-sm">
+                    Select None
+                </button>
+                <button id="selectRecentBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded text-sm">
+                    Select Recent (Last 7 Days)
+                </button>
+            </div>
+            <div class="flex gap-2">
+                <button id="importSelectedBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50" disabled>
+                    Import Selected Files
+                </button>
+            </div>
+        </div>
+
+        <!-- Progress Bar (Hidden by default) -->
+        <div id="progressContainer" class="mb-4 hidden">
+            <div class="bg-gray-200 rounded-full h-4">
+                <div id="progressBar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div id="progressText" class="text-sm text-gray-600 mt-1">Processing...</div>
+        </div>
+
+        <!-- Results Container (Hidden by default) -->
+        <div id="resultsContainer" class="mb-4 hidden">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h3 class="text-lg font-semibold mb-3">Import Results</h3>
+                <div id="resultsSummary" class="mb-3"></div>
+                <div id="resultsDetails" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- CSV Files Table -->
+        {% if csv_files %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white border border-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <input type="checkbox" id="selectAllCheckbox" class="rounded">
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Filename
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Size
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Modified
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for file in csv_files %}
+                    <tr class="hover:bg-gray-50" data-filename="{{ file.filename }}">
+                        <td class="px-4 py-4">
+                            <input type="checkbox" name="fileCheckbox" value="{{ file.filename }}" class="rounded file-checkbox">
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ file.filename }}</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm text-gray-500">{{ "%.2f"|format(file.size/1024) }} KB</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm text-gray-500">{{ file.modified }}</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm import-single-btn" 
+                                    data-filename="{{ file.filename }}">
+                                Import
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-8">
+            <div class="text-gray-500 text-lg">No CSV files found in {{ data_dir }}</div>
+            <p class="text-gray-400 mt-2">Upload some CSV files to get started</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// Global variables
+let selectedFiles = new Set();
+let isImporting = false;
+
+// DOM elements
+const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+const selectedCountElement = document.getElementById('selectedCount');
+const importSelectedBtn = document.getElementById('importSelectedBtn');
+const progressContainer = document.getElementById('progressContainer');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+const resultsContainer = document.getElementById('resultsContainer');
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    initializeEventListeners();
+    updateSelectedCount();
+});
+
+function initializeEventListeners() {
+    // Select all checkbox
+    selectAllCheckbox.addEventListener('change', function() {
+        const isChecked = this.checked;
+        fileCheckboxes.forEach(checkbox => {
+            checkbox.checked = isChecked;
+            updateFileSelection(checkbox.value, isChecked);
+        });
+        updateSelectedCount();
+    });
+
+    // Individual file checkboxes
+    fileCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            updateFileSelection(this.value, this.checked);
+            updateSelectedCount();
+            updateSelectAllCheckbox();
+        });
+    });
+
+    // Control buttons
+    document.getElementById('selectAllBtn').addEventListener('click', () => selectFiles('all'));
+    document.getElementById('selectNoneBtn').addEventListener('click', () => selectFiles('none'));
+    document.getElementById('selectRecentBtn').addEventListener('click', () => selectFiles('recent'));
+    
+    // Import buttons
+    importSelectedBtn.addEventListener('click', importSelectedFiles);
+    
+    // Single file import buttons
+    document.querySelectorAll('.import-single-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const filename = this.dataset.filename;
+            importFiles([filename]);
+        });
+    });
+}
+
+function updateFileSelection(filename, isSelected) {
+    if (isSelected) {
+        selectedFiles.add(filename);
+    } else {
+        selectedFiles.delete(filename);
+    }
+}
+
+function updateSelectedCount() {
+    selectedCountElement.textContent = selectedFiles.size;
+    importSelectedBtn.disabled = selectedFiles.size === 0 || isImporting;
+}
+
+function updateSelectAllCheckbox() {
+    const checkedCount = document.querySelectorAll('.file-checkbox:checked').length;
+    const totalCount = fileCheckboxes.length;
+    
+    if (checkedCount === 0) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = false;
+    } else if (checkedCount === totalCount) {
+        selectAllCheckbox.indeterminate = false;
+        selectAllCheckbox.checked = true;
+    } else {
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+function selectFiles(type) {
+    selectedFiles.clear();
+    
+    fileCheckboxes.forEach(checkbox => {
+        let shouldSelect = false;
+        
+        switch(type) {
+            case 'all':
+                shouldSelect = true;
+                break;
+            case 'none':
+                shouldSelect = false;
+                break;
+            case 'recent':
+                // Select files modified in the last 7 days
+                const row = checkbox.closest('tr');
+                const modifiedText = row.querySelector('td:nth-child(4) .text-sm').textContent;
+                const modifiedDate = new Date(modifiedText);
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                shouldSelect = modifiedDate > sevenDaysAgo;
+                break;
+        }
+        
+        checkbox.checked = shouldSelect;
+        if (shouldSelect) {
+            selectedFiles.add(checkbox.value);
+        }
+    });
+    
+    updateSelectedCount();
+    updateSelectAllCheckbox();
+}
+
+function importSelectedFiles() {
+    if (selectedFiles.size === 0) {
+        alert('Please select at least one file to import');
+        return;
+    }
+    
+    importFiles(Array.from(selectedFiles));
+}
+
+function importFiles(filenames) {
+    if (isImporting) {
+        alert('Import already in progress');
+        return;
+    }
+    
+    isImporting = true;
+    
+    // Show progress
+    progressContainer.classList.remove('hidden');
+    resultsContainer.classList.add('hidden');
+    progressBar.style.width = '0%';
+    progressText.textContent = `Importing ${filenames.length} file(s)...`;
+    
+    // Disable controls
+    importSelectedBtn.disabled = true;
+    document.querySelectorAll('.import-single-btn').forEach(btn => btn.disabled = true);
+    
+    // Start import
+    fetch('{{ url_for("main.batch_import_csv") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            selected_files: filenames
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        progressBar.style.width = '100%';
+        
+        if (data.success) {
+            displayResults(data.results, data.summary);
+        } else {
+            alert('Import failed: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Import error:', error);
+        alert('Import error: ' + error.message);
+    })
+    .finally(() => {
+        isImporting = false;
+        progressContainer.classList.add('hidden');
+        
+        // Re-enable controls
+        updateSelectedCount();
+        document.querySelectorAll('.import-single-btn').forEach(btn => btn.disabled = false);
+    });
+}
+
+function displayResults(results, summary) {
+    const summaryElement = document.getElementById('resultsSummary');
+    const detailsElement = document.getElementById('resultsDetails');
+    
+    // Show summary
+    summaryElement.innerHTML = `
+        <div class="flex gap-4 text-sm">
+            <span class="text-green-600 font-semibold">✓ ${summary.successful} successful</span>
+            <span class="text-red-600 font-semibold">✗ ${summary.failed} failed</span>
+            <span class="text-gray-600">Total: ${summary.total_files}</span>
+        </div>
+    `;
+    
+    // Show details
+    detailsElement.innerHTML = results.map(result => `
+        <div class="flex items-center justify-between p-2 border rounded ${result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}">
+            <div class="flex items-center">
+                <span class="${result.success ? 'text-green-500' : 'text-red-500'} mr-2">
+                    ${result.success ? '✓' : '✗'}
+                </span>
+                <span class="font-medium">${result.filename}</span>
+            </div>
+            <span class="text-sm ${result.success ? 'text-green-700' : 'text-red-700'}">
+                ${result.message}
+            </span>
+        </div>
+    `).join('');
+    
+    resultsContainer.classList.remove('hidden');
+    
+    // Clear selection if all were successful
+    if (summary.failed === 0) {
+        selectedFiles.clear();
+        fileCheckboxes.forEach(checkbox => checkbox.checked = false);
+        updateSelectedCount();
+        updateSelectAllCheckbox();
+    }
+}
+</script>
+
+<style>
+.file-checkbox:checked + label {
+    background-color: #3B82F6;
+}
+
+.spinner {
+    border: 3px solid #f3f3f3;
+    border-radius: 50%;
+    border-top: 3px solid #3498db;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
+{% endblock %}

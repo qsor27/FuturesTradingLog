@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 from data_service import ohlc_service
 from datetime import datetime, timedelta
 import json

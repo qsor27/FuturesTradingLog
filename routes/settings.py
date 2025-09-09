@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, flash, redirect,
 import json
 import os
 from config import config
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 settings_bp = Blueprint('settings', __name__)
 

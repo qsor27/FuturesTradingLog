@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Chart Test</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #e5e5e5; }
+        .chart-container { width: 100%; height: 400px; border: 1px solid #333; margin: 20px 0; }
+        .controls { margin: 20px 0; padding: 15px; background: #2a2a2a; border-radius: 8px; }
+        button { padding: 8px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .status { padding: 10px; background: #2a2a2a; border-radius: 4px; margin: 10px 0; }
+        .success { background: #155724; color: #d4edda; }
+        .error { background: #721c24; color: #f8d7da; }
+    </style>
+</head>
+<body>
+    <h1>Simple Chart Test - MNQ</h1>
+    
+    <div class="controls">
+        <button onclick="testDirectAPI()">Test Direct API (Known Dates)</button>
+        <button onclick="testCurrentAPI()">Test Current API</button>
+        <button onclick="loadChartData()">Load Chart</button>
+    </div>
+    
+    <div id="status" class="status">Ready...</div>
+    
+    <div class="chart-container" id="chartContainer"></div>
+
+    <script>
+        let chart = null;
+        let candlestickSeries = null;
+        
+        // Initialize chart
+        function initChart() {
+            chart = LightweightCharts.createChart(document.getElementById('chartContainer'), {
+                width: 800,
+                height: 400,
+                layout: {
+                    background: { color: '#1a1a1a' },
+                    textColor: '#e5e5e5',
+                },
+                grid: {
+                    vertLines: { color: '#333333' },
+                    horzLines: { color: '#333333' },
+                },
+                timeScale: {
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+            });
+            
+            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#4CAF50',
+                downColor: '#F44336',
+                borderDownColor: '#F44336',
+                borderUpColor: '#4CAF50',
+                wickDownColor: '#F44336',
+                wickUpColor: '#4CAF50',
+            });
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+        
+        async function testDirectAPI() {
+            try {
+                updateStatus('Testing direct database query...', 'info');
+                
+                // Use direct database access to get data
+                const response = await fetch('/api/chart-data/MNQ?timeframe=1h&start_date=2025-08-12&end_date=2025-08-15');
+                const data = await response.json();
+                
+                updateStatus(`Direct API: ${data.count} records, dates: ${data.metadata.start_date} to ${data.metadata.end_date}`, data.count > 0 ? 'success' : 'error');
+                console.log('Direct API response:', data);
+                
+                if (data.count > 0) {
+                    setChartData(data.data);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testCurrentAPI() {
+            try {
+                updateStatus('Testing current API...', 'info');
+                
+                const response = await fetch('/api/chart-data/MNQ?timeframe=1h&days=3');
+                const data = await response.json();
+                
+                updateStatus(`Current API: ${data.count} records, dates: ${data.metadata.start_date} to ${data.metadata.end_date}`, data.count > 0 ? 'success' : 'error');
+                console.log('Current API response:', data);
+                
+                if (data.count > 0) {
+                    setChartData(data.data);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function loadChartData() {
+            try {
+                updateStatus('Loading chart with sample data...', 'info');
+                
+                // Create sample data for testing
+                const sampleData = [
+                    { time: 1723564800, open: 19000, high: 19100, low: 18950, close: 19050 },
+                    { time: 1723568400, open: 19050, high: 19150, low: 19000, close: 19120 },
+                    { time: 1723572000, open: 19120, high: 19200, low: 19080, close: 19180 },
+                    { time: 1723575600, open: 19180, high: 19250, low: 19150, close: 19200 },
+                    { time: 1723579200, open: 19200, high: 19280, low: 19170, close: 19240 }
+                ];
+                
+                setChartData(sampleData);
+                updateStatus('Sample chart data loaded successfully!', 'success');
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        function setChartData(data) {
+            if (!candlestickSeries) {
+                updateStatus('Chart not initialized', 'error');
+                return;
+            }
+            
+            console.log(`Setting chart data: ${data.length} records`);
+            console.log('Sample data:', data[0]);
+            
+            // Format data for TradingView
+            const chartData = data.map(item => ({
+                time: item.time,
+                open: parseFloat(item.open),
+                high: parseFloat(item.high),
+                low: parseFloat(item.low),
+                close: parseFloat(item.close)
+            }));
+            
+            // Sort by time
+            chartData.sort((a, b) => a.time - b.time);
+            
+            // Set data to chart
+            candlestickSeries.setData(chartData);
+            
+            // Fit content
+            chart.timeScale().fitContent();
+            
+            console.log('Chart data set successfully');
+        }
+        
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            initChart();
+            updateStatus('Chart initialized. Try loading data.', 'success');
+        });
+    </script>
+</body>
+</html>

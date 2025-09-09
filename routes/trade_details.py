@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify
-from TradingLog_db import FuturesDB
+from scripts.TradingLog_db import FuturesDB
 
 trade_details_bp = Blueprint('trade_details', __name__)
 

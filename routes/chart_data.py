@@ -1,13 +1,16 @@
 """
 Chart Data Routes
 Handles OHLC data requests for interactive charts
+NOW USING CACHE-ONLY APPROACH - NO API CALLS DURING PAGE LOADS
 """
 from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime, timedelta
 import logging
-from data_service import ohlc_service
-from TradingLog_db import FuturesDB
-from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER
+from services.data_service import ohlc_service
+from services.cache_only_chart_service import cache_only_chart_service
+from services.background_data_manager import background_data_manager
+from scripts.TradingLog_db import FuturesDB
+from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER, PAGE_LOAD_CONFIG
 from utils.instrument_utils import get_root_symbol
 from services.ohlc_service import OHLCOnDemandService
 
@@ -50,45 +53,269 @@ def estimate_candle_count(duration_days: int, timeframe: str) -> int:
 
 @chart_data_bp.route('/api/chart-data/<instrument>')
 def get_chart_data(instrument):
-    """API endpoint for chart OHLC data"""
+    """
+    API endpoint for chart OHLC data - CACHE-ONLY MODE
+    This endpoint NEVER triggers Yahoo Finance API calls
+    """
     try:
         # Get parameters
         timeframe = request.args.get('timeframe', '1m')
         days = int(request.args.get('days', 1))
         
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        # Allow explicit start_date and end_date parameters
+        start_date_param = request.args.get('start_date')
+        end_date_param = request.args.get('end_date')
         
-        # Get chart data with automatic gap filling
-        data = ohlc_service.get_chart_data(instrument, timeframe, start_date, end_date)
+        if start_date_param and end_date_param:
+            # Use provided date range
+            start_date = datetime.fromisoformat(start_date_param)
+            end_date = datetime.fromisoformat(end_date_param)
+        else:
+            # Check if we have data for this instrument and use available range if recent data doesn't exist
+            with FuturesDB() as db:
+                db.cursor.execute(
+                    'SELECT MIN(timestamp), MAX(timestamp) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                    (instrument, timeframe)
+                )
+                result = db.cursor.fetchone()
+                
+                if result[0] and result[1]:
+                    # We have data - check if it's recent (within last 7 days)
+                    available_start = datetime.fromtimestamp(result[0])
+                    available_end = datetime.fromtimestamp(result[1])
+                    now = datetime.now()
+                    
+                    # If latest data is more than 1 day old, use available range instead of "now"
+                    if (now - available_end).days > 1:
+                        logger.info(f"Using available data range for {instrument} ({available_start} to {available_end}) instead of current dates")
+                        end_date = available_end
+                        start_date = max(available_start, available_end - timedelta(days=days))
+                    else:
+                        # Recent data available, use normal date calculation
+                        end_date = datetime.now()
+                        start_date = end_date - timedelta(days=days)
+                else:
+                    # No data available, use current date range (will return empty)
+                    end_date = datetime.now()
+                    start_date = end_date - timedelta(days=days)
         
-        # Format for TradingView Lightweight Charts
-        chart_data = []
-        for record in data:
-            chart_data.append({
-                'time': record['timestamp'],
-                'open': record['open_price'],
-                'high': record['high_price'], 
-                'low': record['low_price'],
-                'close': record['close_price'],
-                'volume': record['volume'] or 0
+        # Use cache-only chart service (NEVER triggers API calls)
+        if PAGE_LOAD_CONFIG['cache_only_mode']:
+            response = cache_only_chart_service.get_chart_data(
+                instrument, timeframe, start_date, end_date
+            )
+            
+            # Add cache status headers for debugging
+            if response.get('cache_status'):
+                response_headers = {}
+                cache_status = response['cache_status']
+                response_headers['X-Cache-Status'] = 'fresh' if cache_status.get('is_fresh') else 'stale'
+                response_headers['X-Data-Source'] = response['metadata'].get('data_source', 'unknown')
+                response_headers['X-Processing-Time'] = str(response['metadata'].get('processing_time_ms', 0))
+                
+                return jsonify(response), 200, response_headers
+            
+            return jsonify(response)
+        
+        # Fallback to direct database query (legacy mode)
+        else:
+            logger.warning("Using legacy database mode - cache_only_mode is disabled")
+            
+            chart_data = []
+            
+            with FuturesDB() as db:
+                query = '''
+                    SELECT timestamp, open_price, high_price, low_price, close_price, volume
+                    FROM ohlc_data 
+                    WHERE instrument = ? AND timeframe = ? 
+                    AND timestamp >= ? AND timestamp <= ?
+                    ORDER BY timestamp
+                '''
+                
+                db.cursor.execute(query, (instrument, timeframe, start_date, end_date))
+                results = db.cursor.fetchall()
+                
+                # Format for TradingView Lightweight Charts
+                for row in results:
+                    # Convert datetime to timestamp for TradingView
+                    timestamp = row[0]
+                    if isinstance(timestamp, str):
+                        timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    
+                    chart_data.append({
+                        'time': int(timestamp.timestamp()),
+                        'open': float(row[1]),
+                        'high': float(row[2]), 
+                        'low': float(row[3]),
+                        'close': float(row[4]),
+                        'volume': int(row[5] or 0)
+                    })
+            
+            return jsonify({
+                'success': True,
+                'data': chart_data,
+                'instrument': instrument,
+                'timeframe': timeframe,
+                'count': len(chart_data),
+                'has_data': len(chart_data) > 0,
+                'cache_status': {'mode': 'legacy', 'cache_only_mode': False}
             })
-        
-        return jsonify({
-            'success': True,
-            'data': chart_data,
-            'instrument': instrument,
-            'timeframe': timeframe,
-            'count': len(chart_data),
-            'has_data': len(chart_data) > 0
-        })
         
     except Exception as e:
         logger.error(f"Error getting chart data: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'data': [],
+            'cache_status': {'error': True}
+        }), 500
+
+
+@chart_data_bp.route('/api/chart-data-simple/<instrument>')
+def get_simple_chart_data(instrument):
+    """
+    Simplified chart data API endpoint - Single, reliable data fetch with clear error handling
+    NO fallback logic, NO resolution adaptation, NO emergency data fetching
+    """
+    print(f"SIMPLE ROUTE ENTERED: {instrument}")
+    try:
+        # Get basic parameters
+        timeframe = request.args.get('timeframe', '1h')
+        days = int(request.args.get('days', 7))
+        
+        logger.info(f"ROUTE CALLED: Simple chart data request: {instrument}, {timeframe}, {days} days")
+        print(f"ROUTE CALLED: Simple chart data request: {instrument}, {timeframe}, {days} days")
+        
+        # Calculate date range - support custom start_date and end_date parameters
+        start_date_param = request.args.get('start_date')
+        end_date_param = request.args.get('end_date')
+        
+        if start_date_param and end_date_param:
+            # Use provided date range
+            start_date = datetime.fromisoformat(start_date_param)
+            end_date = datetime.fromisoformat(end_date_param)
+            logger.info(f"Using custom date range: {start_date} to {end_date}")
+        else:
+            # Use default date calculation
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+        
+        # Get available timeframes first for error suggestions
+        available_timeframes = []
+        with FuturesDB() as db:
+            for tf in ['1m', '5m', '15m', '1h', '4h', '1d']:
+                db.cursor.execute(
+                    'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                    (instrument, tf)
+                )
+                count = db.cursor.fetchone()[0]
+                if count > 0:
+                    available_timeframes.append(tf)
+        
+        # Use cache-only chart service for data retrieval
+        if PAGE_LOAD_CONFIG['cache_only_mode']:
+            logger.info(f"Using cache_only_chart_service for {instrument} {timeframe} from {start_date} to {end_date}")
+            response = cache_only_chart_service.get_chart_data(
+                instrument, timeframe, start_date, end_date
+            )
+            logger.info(f"cache_only_chart_service returned: success={response.get('success')}, count={response.get('count')}")
+            print(f"DEBUG: cache_only_chart_service response keys: {list(response.keys())}")
+            print(f"DEBUG: response success: {response.get('success')}")
+            print(f"DEBUG: response data: {len(response.get('data', [])) if response.get('data') else 0} records")
+        else:
+            # Fallback to direct database query
+            chart_data = []
+            with FuturesDB() as db:
+                query = '''
+                    SELECT timestamp, open_price, high_price, low_price, close_price, volume
+                    FROM ohlc_data 
+                    WHERE instrument = ? AND timeframe = ? 
+                    AND timestamp >= ? AND timestamp <= ?
+                    ORDER BY timestamp
+                '''
+                
+                db.cursor.execute(query, (instrument, timeframe, 
+                                         int(start_date.timestamp()), 
+                                         int(end_date.timestamp())))
+                results = db.cursor.fetchall()
+                
+                for row in results:
+                    timestamp = row[0]
+                    if isinstance(timestamp, str):
+                        timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        timestamp = int(timestamp.timestamp())
+                    elif not isinstance(timestamp, int):
+                        timestamp = int(timestamp)
+                    
+                    chart_data.append({
+                        'time': timestamp,
+                        'open': float(row[1]),
+                        'high': float(row[2]), 
+                        'low': float(row[3]),
+                        'close': float(row[4]),
+                        'volume': int(row[5] or 0)
+                    })
+            
+            response = {
+                'success': True,
+                'data': chart_data,
+                'instrument': instrument,
+                'timeframe': timeframe,
+                'days': days,
+                'count': len(chart_data)
+            }
+        
+        # Check if we have data
+        if not response.get('success') or not response.get('data') or len(response.get('data', [])) == 0:
+            return jsonify({
+                'success': False,
+                'instrument': instrument,
+                'timeframe': timeframe,
+                'days': days,
+                'count': 0,
+                'data': None,
+                'error': f'No data available for {instrument} with {timeframe} timeframe',
+                'message': f'Try a different timeframe. Data may be available for: {available_timeframes}' if available_timeframes else 'No data available for this instrument',
+                'available_timeframes': available_timeframes,
+                'last_updated': None
+            })
+        
+        # Success response
+        return jsonify({
+            'success': True,
+            'instrument': instrument,
+            'timeframe': timeframe,
+            'days': days,
+            'count': len(response['data']),
+            'data': response['data'],
+            'error': None,
+            'message': f'Successfully loaded {len(response["data"])} candles',
+            'available_timeframes': available_timeframes,
+            'last_updated': datetime.now().isoformat()
+        })
+        
+    except ValueError as ve:
+        logger.error(f"Invalid parameters for simple chart data: {ve}")
+        return jsonify({
+            'success': False,
+            'error': f'Invalid parameters: {str(ve)}',
+            'instrument': instrument,
+            'timeframe': request.args.get('timeframe', '1h'),
+            'days': request.args.get('days', 7),
+            'count': 0,
+            'data': None
+        }), 400
+        
+    except Exception as e:
+        logger.error(f"Error getting simple chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(e)}',
+            'instrument': instrument,
+            'timeframe': request.args.get('timeframe', '1h'),
+            'days': request.args.get('days', 7),
+            'count': 0,
+            'data': None
         }), 500
 
 
@@ -120,12 +347,38 @@ def get_adaptive_chart_data(instrument):
         if estimated_candles > 50000:
             logger.warning(f"Large dataset requested: {estimated_candles:,} candles")
         
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
+        # Check if we have data for this instrument and use available range if recent data doesn't exist
+        with FuturesDB() as db:
+            db.cursor.execute(
+                'SELECT MIN(timestamp), MAX(timestamp) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                (instrument, optimal_timeframe)
+            )
+            result = db.cursor.fetchone()
+            
+            if result[0] and result[1]:
+                # We have data - check if it's recent (within last 7 days)
+                available_start = datetime.fromtimestamp(result[0])
+                available_end = datetime.fromtimestamp(result[1])
+                now = datetime.now()
+                
+                # If latest data is more than 1 day old, use available range instead of "now"
+                if (now - available_end).days > 1:
+                    logger.info(f"Using available data range for {instrument} ({available_start} to {available_end}) instead of current dates")
+                    end_date = available_end
+                    start_date = max(available_start, available_end - timedelta(days=days))
+                else:
+                    # Recent data available, use normal date calculation
+                    end_date = datetime.now()
+                    start_date = end_date - timedelta(days=days)
+            else:
+                # No data available, use current date range (will return empty)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=days)
         
         # Get chart data with automatic gap filling
+        logger.info(f"Calling ohlc_service.get_chart_data with dates: {start_date} to {end_date}")
         data = ohlc_service.get_chart_data(instrument, optimal_timeframe, start_date, end_date)
+        logger.info(f"ohlc_service returned {len(data)} records")
         
         # Format for TradingView Lightweight Charts
         chart_data = []
@@ -138,6 +391,7 @@ def get_adaptive_chart_data(instrument):
                 'close': record['close_price'],
                 'volume': record['volume'] or 0
             })
+        logger.info(f"Formatted {len(chart_data)} records for TradingView")
         
         response_data = {
             'success': True,
@@ -161,6 +415,37 @@ def get_adaptive_chart_data(instrument):
             'error': str(e)
         }), 500
 
+
+@chart_data_bp.route('/api/debug-ohlc-service/<instrument>')
+def debug_ohlc_service(instrument):
+    """Debug route to test ohlc_service directly"""
+    try:
+        from datetime import datetime
+        
+        # Use the exact same parameters as the failing adaptive route
+        start_date = datetime(2025, 6, 16, 23, 20, 51)
+        end_date = datetime(2025, 6, 17, 23, 20, 51)
+        timeframe = '1h'
+        
+        logger.info(f"DEBUG: Testing ohlc_service.get_chart_data('{instrument}', '{timeframe}', {start_date}, {end_date})")
+        
+        data = ohlc_service.get_chart_data(instrument, timeframe, start_date, end_date)
+        
+        logger.info(f"DEBUG: ohlc_service returned {len(data)} records")
+        
+        return jsonify({
+            'success': True,
+            'instrument': instrument,
+            'timeframe': timeframe,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'count': len(data),
+            'data': data[:5] if data else []  # Return first 5 records for debugging
+        })
+        
+    except Exception as e:
+        logger.error(f"DEBUG: Error in debug route: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @chart_data_bp.route('/api/trade-markers/<int:trade_id>')
 def get_trade_markers(trade_id):
@@ -726,6 +1011,174 @@ def emergency_gap_fill_api():
         
     except Exception as e:
         logger.error(f"Error in emergency gap fill API: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/emergency-data-populate/<instrument>', methods=['POST'])
+def emergency_data_populate(instrument):
+    """Emergency endpoint to populate missing OHLC data for chart display"""
+    try:
+        from scripts.emergency_data_fix import run_emergency_fix
+        
+        logger.info(f"Emergency data population requested for {instrument}")
+        
+        # Run the emergency data fix
+        results = run_emergency_fix(instrument)
+        
+        if results['success']:
+            return jsonify({
+                'success': True,
+                'message': f'Emergency data population completed for {instrument}',
+                'populated_timeframes': results['populated_timeframes'],
+                'total_records': results['total_records'],
+                'errors': results.get('errors', [])
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Emergency data population failed for {instrument}',
+                'errors': results.get('errors', [])
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Emergency data population failed for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/check-data-status/<instrument>')
+def check_data_status(instrument):
+    """Check current OHLC data status for an instrument"""
+    try:
+        with FuturesDB() as db:
+            timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+            status = {}
+            total_records = 0
+            
+            for timeframe in timeframes:
+                db.cursor.execute(
+                    "SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ?",
+                    (instrument, timeframe)
+                )
+                count = db.cursor.fetchone()[0]
+                status[timeframe] = count
+                total_records += count
+            
+            # Determine if data is sufficient for chart display
+            has_sufficient_data = any(count > 50 for count in status.values())
+            best_timeframe = max(status, key=status.get) if status else None
+            
+            return jsonify({
+                'success': True,
+                'instrument': instrument,
+                'timeframe_counts': status,
+                'total_records': total_records,
+                'has_sufficient_data': has_sufficient_data,
+                'best_timeframe': best_timeframe if status[best_timeframe] > 0 else None,
+                'needs_population': not has_sufficient_data
+            })
+            
+    except Exception as e:
+        logger.error(f"Error checking data status for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# =============================================================================
+# NEW BACKGROUND DATA MANAGER MONITORING ENDPOINTS
+# =============================================================================
+
+@chart_data_bp.route('/api/background-data/status')
+def get_background_data_status():
+    """Get background data manager status and performance metrics"""
+    try:
+        metrics = background_data_manager.get_performance_metrics()
+        cache_health = cache_only_chart_service.get_cache_health_status()
+        
+        return jsonify({
+            'success': True,
+            'background_data_manager': metrics,
+            'cache_health': cache_health,
+            'system_status': {
+                'cache_only_mode': PAGE_LOAD_CONFIG['cache_only_mode'],
+                'background_processing_enabled': BACKGROUND_DATA_CONFIG['enabled'],
+                'priority_instruments': BACKGROUND_DATA_CONFIG['priority_instruments'],
+                'update_intervals': {
+                    'priority': BACKGROUND_DATA_CONFIG['priority_update_interval'],
+                    'full': BACKGROUND_DATA_CONFIG['full_update_interval']
+                }
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting background data status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/background-data/instrument/<instrument>')
+def get_instrument_data_status(instrument):
+    """Get detailed data status for a specific instrument"""
+    try:
+        instrument_status = cache_only_chart_service.get_instrument_status(instrument)
+        
+        return jsonify({
+            'success': True,
+            'instrument_status': instrument_status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting instrument status for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/background-data/force-update/<instrument>', methods=['POST'])
+def force_update_instrument_data(instrument):
+    """Force immediate background update for specific instrument"""
+    try:
+        data = request.get_json() or {}
+        timeframes = data.get('timeframes')  # Optional, defaults to all timeframes
+        
+        logger.info(f"Force update requested for {instrument}: {timeframes}")
+        
+        # Trigger force update via background data manager
+        result = background_data_manager.force_update_instrument(instrument, timeframes)
+        
+        return jsonify({
+            'success': result.get('success', False),
+            'instrument': instrument,
+            'result': result,
+            'message': f"Force update completed for {instrument}"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in force update for {instrument}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@chart_data_bp.route('/api/background-data/cache-health')
+def get_cache_health_details():
+    """Get detailed cache health and performance information"""
+    try:
+        health_status = cache_only_chart_service.get_cache_health_status()
+        
+        return jsonify({
+            'success': True,
+            'cache_health': health_status
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting cache health details: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

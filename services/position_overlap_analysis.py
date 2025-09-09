@@ -6,8 +6,8 @@ Analyzes the position building algorithm for potential overlap issues
 import sqlite3
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
-from position_service import PositionService
-from TradingLog_db import FuturesDB
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
+from scripts.TradingLog_db import FuturesDB
 
 
 class PositionOverlapAnalyzer:
