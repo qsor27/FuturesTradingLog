@@ -259,11 +259,16 @@ class StandardizedStatisticsCalculator:
                     trades = period_data['trades']
                     stats = StandardizedStatisticsCalculator.calculate_basic_statistics(trades)
                     
-                    # Add period information
+                    # Add period information and template compatibility fields
                     stats.update({
                         'period': period_data['period'],
                         'period_display': period_data['period_display'],
-                        'instruments_traded': list(set(trade.get('instrument') for trade in trades if trade.get('instrument')))
+                        'instruments_traded': list(set(trade.get('instrument') for trade in trades if trade.get('instrument'))),
+                        # Template compatibility fields
+                        'valid_trades': stats['total_trades'] - stats['zero_pnl_trades'],  # Non-zero trades
+                        'valid_trade_percentage': (stats['total_trades'] - stats['zero_pnl_trades']) / stats['total_trades'] * 100 if stats['total_trades'] > 0 else 0.0,
+                        'total_points_all_trades': 0.0,  # Would need instrument point values to calculate this
+                        'net_profit': stats['total_pnl']
                     })
                     
                     period_stats.append(stats)

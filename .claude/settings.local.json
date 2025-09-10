@@ -70,7 +70,8 @@
       "Read(//c/Users/qsoren/.agent-os/instructions/core/**)",
       "Bash(sed:*)",
       "Bash(gh pr create:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "additionalDirectories": [
