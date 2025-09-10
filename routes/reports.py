@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
 from scripts.TradingLog_db import FuturesDB
+from services.statistics_calculation_service import DashboardStatisticsIntegration
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -11,8 +12,8 @@ def reports_dashboard():
     """Main reports dashboard with overview cards and filters"""
     try:
         with FuturesDB() as db:
-            # Get basic overview stats
-            overview_stats = db.get_overview_statistics()
+            # Get basic overview stats using standardized calculations
+            overview_stats = DashboardStatisticsIntegration.get_overview_statistics_standardized()
             
             # Get available accounts for filtering
             accounts = db.get_unique_accounts()
@@ -199,7 +200,7 @@ def api_summary_stats():
         end_date = request.args.get('end_date')
         
         with FuturesDB() as db:
-            stats = db.get_summary_statistics(
+            stats = DashboardStatisticsIntegration.get_summary_statistics_standardized(
                 account=account,
                 instrument=instrument,
                 start_date=start_date,
