@@ -6,7 +6,7 @@
 
 ## Phase 1: Core Infrastructure Setup
 
-### Task 1.1: Enhance Position Service for Incremental Updates
+### Task 1.1: Enhance Position Service for Incremental Updates ✅
 - **File**: `services/enhanced_position_service_v2.py`
 - **Objective**: Add selective position update methods for automatic processing
 - **Requirements**:
@@ -20,8 +20,14 @@
   - Selective rebuilds only affect necessary account/instrument combinations
   - All existing position validation passes
   - Performance improvement over full rebuilds
+- **Status**: COMPLETED
+- **Implementation Notes**:
+  - Added `rebuild_positions_for_trades(trade_ids)` method
+  - Added `rebuild_positions_for_account_instrument(account_id, instrument)` method
+  - Both methods integrate with existing validation and overlap prevention
+  - Tests pass confirming functionality and performance improvements
 
-### Task 1.2: Extend Background Task System
+### Task 1.2: Extend Background Task System ✅
 - **File**: `tasks/position_building.py`
 - **Objective**: Add async capabilities for bulk position building
 - **Requirements**:
@@ -35,6 +41,13 @@
   - Bulk imports don't block UI during position building
   - Task status is trackable and reportable
   - Failed tasks can be retried or recovered
+- **Status**: COMPLETED
+- **Implementation Notes**:
+  - Added `auto_rebuild_positions_async(account, instrument_list)` function
+  - Implements comprehensive progress tracking via `self.update_state()`
+  - Provides detailed status reporting with success/failure counts
+  - Integrates with `EnhancedPositionServiceV2` for incremental rebuilds
+  - Supports partial success scenarios with individual instrument error handling
 
 ### Task 1.3: Create Position Build Status Service
 - **File**: `services/position_build_status.py` (new)

@@ -14,6 +14,7 @@ from celery_app import app
 from config import config
 from database_manager import DatabaseManager
 from position_engine import PositionEngine
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
 
 logger = logging.getLogger('position_building')
 
@@ -452,6 +453,142 @@ def _link_executions_to_position(db: DatabaseManager, position_id: int, executio
         
     except Exception as e:
         logger.error(f"Error linking executions to position {position_id}: {e}")
+
+
+@app.task(base=CallbackTask, bind=True)
+def auto_rebuild_positions_async(self, account: str, instrument_list: List[str]) -> Dict[str, Any]:
+    """
+    Asynchronously rebuild positions for specific account/instrument combinations
+    
+    This task provides async capabilities for bulk position building with 
+    progress tracking and status reporting.
+    
+    Args:
+        self: Celery task instance (bound for progress tracking)
+        account: Account identifier for position rebuilding
+        instrument_list: List of instruments to rebuild positions for
+        
+    Returns:
+        Dict containing:
+        - status: 'success', 'partial_success', or 'error'
+        - account: Account processed
+        - total_instruments: Total number of instruments requested
+        - successful_instruments: Number of successfully processed instruments
+        - failed_instruments: Number of failed instruments
+        - results: Dict mapping instrument -> result details
+        - start_time: Processing start timestamp
+        - end_time: Processing end timestamp
+    """
+    start_time = datetime.now()
+    
+    try:
+        logger.info(f"Starting async position rebuild for account {account} with {len(instrument_list)} instruments: {instrument_list}")
+        
+        # Initialize result structure
+        result = {
+            'status': 'success',
+            'account': account,
+            'total_instruments': len(instrument_list),
+            'successful_instruments': 0,
+            'failed_instruments': 0,
+            'results': {},
+            'start_time': start_time.isoformat(),
+            'end_time': None
+        }
+        
+        # Process each instrument
+        for i, instrument in enumerate(instrument_list):
+            try:
+                # Update progress
+                progress = int((i / len(instrument_list)) * 100)
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'current': i,
+                        'total': len(instrument_list),
+                        'progress': progress,
+                        'instrument': instrument,
+                        'status': f'Processing {instrument}...'
+                    }
+                )
+                
+                logger.info(f"Processing instrument {i+1}/{len(instrument_list)}: {instrument}")
+                
+                # Use the enhanced position service for incremental rebuild
+                with EnhancedPositionServiceV2() as position_service:
+                    instrument_result = position_service.rebuild_positions_for_account_instrument(account, instrument)
+                    
+                result['results'][instrument] = instrument_result
+                result['successful_instruments'] += 1
+                
+                logger.info(f"Successfully processed {instrument}: {instrument_result.get('positions_created', 0)} positions created")
+                
+            except Exception as e:
+                logger.error(f"Error processing instrument {instrument} for account {account}: {e}")
+                result['results'][instrument] = {
+                    'status': 'error',
+                    'error': str(e),
+                    'account': account,
+                    'instrument': instrument
+                }
+                result['failed_instruments'] += 1
+        
+        # Determine overall status
+        if result['failed_instruments'] == 0:
+            result['status'] = 'success'
+        elif result['successful_instruments'] > 0:
+            result['status'] = 'partial_success'
+        else:
+            result['status'] = 'error'
+        
+        # Final progress update
+        self.update_state(
+            state='SUCCESS' if result['status'] == 'success' else 'PARTIAL_SUCCESS',
+            meta={
+                'current': len(instrument_list),
+                'total': len(instrument_list),
+                'progress': 100,
+                'status': f'Completed: {result["successful_instruments"]} successful, {result["failed_instruments"]} failed'
+            }
+        )
+        
+        end_time = datetime.now()
+        result['end_time'] = end_time.isoformat()
+        processing_time = (end_time - start_time).total_seconds()
+        
+        logger.info(f"Async position rebuild completed for account {account}: "
+                   f"{result['successful_instruments']} successful, {result['failed_instruments']} failed "
+                   f"in {processing_time:.2f} seconds")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Critical error in auto_rebuild_positions_async for account {account}: {e}")
+        
+        # Update progress to indicate failure
+        self.update_state(
+            state='FAILURE',
+            meta={
+                'error': str(e),
+                'status': 'Critical error occurred',
+                'account': account,
+                'instruments': instrument_list
+            }
+        )
+        
+        # Return error result instead of raising (for better API compatibility)
+        end_time = datetime.now()
+        return {
+            'status': 'error',
+            'account': account,
+            'total_instruments': len(instrument_list),
+            'successful_instruments': 0,
+            'failed_instruments': len(instrument_list),
+            'results': {instrument: {'status': 'error', 'error': str(e)} for instrument in instrument_list},
+            'start_time': start_time.isoformat(),
+            'end_time': end_time.isoformat(),
+            'error': str(e)
+        }
 
 
 # Manual task triggers for API endpoints

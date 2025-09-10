@@ -126,7 +126,7 @@ class EnhancedPositionServiceV2:
         # Get all trades grouped by account and instrument
         self.cursor.execute("""
             SELECT * FROM trades 
-            WHERE soft_deleted = 0 
+            WHERE deleted = 0 OR deleted IS NULL 
             ORDER BY account, instrument, entry_time
         """)
         
@@ -398,6 +398,150 @@ class EnhancedPositionServiceV2:
         })
         
         return stats
+
+    def rebuild_positions_for_trades(self, trade_ids: List[int]) -> Dict[str, Any]:
+        """
+        Rebuild positions affected by specific trades using incremental updates
+        
+        Args:
+            trade_ids: List of trade IDs that have been added/modified
+            
+        Returns:
+            Dictionary with rebuild statistics and affected account/instrument combinations
+        """
+        if not trade_ids:
+            return {'positions_affected': 0, 'accounts_processed': [], 'instruments_processed': [], 'validation_errors': []}
+        
+        logger.info(f"Starting incremental rebuild for {len(trade_ids)} trades")
+        
+        # Get affected trades and determine account/instrument combinations
+        affected_combinations = self._analyze_trade_impact(trade_ids)
+        
+        if not affected_combinations:
+            logger.warning(f"No valid trades found for IDs: {trade_ids}")
+            return {'positions_affected': 0, 'accounts_processed': [], 'instruments_processed': [], 'validation_errors': []}
+        
+        # Rebuild positions for each affected combination
+        stats = {
+            'positions_affected': 0,
+            'accounts_processed': [],
+            'instruments_processed': [],
+            'validation_errors': []
+        }
+        
+        for account, instrument in affected_combinations:
+            try:
+                result = self.rebuild_positions_for_account_instrument(account, instrument)
+                stats['positions_affected'] += result['positions_created']
+                stats['validation_errors'].extend(result['validation_errors'])
+                
+                if account not in stats['accounts_processed']:
+                    stats['accounts_processed'].append(account)
+                if instrument not in stats['instruments_processed']:
+                    stats['instruments_processed'].append(instrument)
+                    
+            except Exception as e:
+                error_msg = f"Failed to rebuild positions for {account}/{instrument}: {str(e)}"
+                logger.error(error_msg)
+                stats['validation_errors'].append(error_msg)
+        
+        logger.info(f"Incremental rebuild completed: {stats['positions_affected']} positions affected")
+        return stats
+
+    def rebuild_positions_for_account_instrument(self, account: str, instrument: str) -> Dict[str, Any]:
+        """
+        Rebuild positions for a specific account/instrument combination
+        
+        Args:
+            account: Account identifier
+            instrument: Instrument identifier
+            
+        Returns:
+            Dictionary with rebuild statistics for this combination
+        """
+        logger.info(f"Rebuilding positions for {account}/{instrument}")
+        
+        # Remove existing positions for this account/instrument
+        self._clear_positions_for_account_instrument(account, instrument)
+        
+        # Get all trades for this account/instrument
+        self.cursor.execute("""
+            SELECT * FROM trades 
+            WHERE account = ? AND instrument = ? AND (deleted = 0 OR deleted IS NULL)
+            ORDER BY entry_time
+        """, (account, instrument))
+        
+        trades = [dict(row) for row in self.cursor.fetchall()]
+        
+        if not trades:
+            logger.warning(f"No trades found for {account}/{instrument}")
+            return {'positions_created': 0, 'validation_errors': []}
+        
+        # Process trades using existing algorithm
+        result = self._process_trades_for_instrument(trades, account, instrument)
+        
+        logger.info(f"Rebuilt {result['positions_created']} positions for {account}/{instrument}")
+        return result
+
+    def _analyze_trade_impact(self, trade_ids: List[int]) -> List[Tuple[str, str]]:
+        """
+        Analyze which account/instrument combinations are affected by the given trades
+        
+        Args:
+            trade_ids: List of trade IDs to analyze
+            
+        Returns:
+            List of (account, instrument) tuples that need position rebuilds
+        """
+        if not trade_ids:
+            return []
+        
+        # Get account/instrument combinations for the given trade IDs
+        placeholders = ','.join('?' * len(trade_ids))
+        self.cursor.execute(f"""
+            SELECT DISTINCT account, instrument 
+            FROM trades 
+            WHERE id IN ({placeholders}) AND (deleted = 0 OR deleted IS NULL)
+        """, trade_ids)
+        
+        combinations = [(row['account'], row['instrument']) for row in self.cursor.fetchall()]
+        logger.debug(f"Trade impact analysis: {len(combinations)} account/instrument combinations affected")
+        
+        return combinations
+
+    def _clear_positions_for_account_instrument(self, account: str, instrument: str):
+        """
+        Clear existing positions and position_executions for a specific account/instrument
+        
+        Args:
+            account: Account identifier
+            instrument: Instrument identifier
+        """
+        logger.debug(f"Clearing existing positions for {account}/{instrument}")
+        
+        # Get position IDs for this account/instrument
+        self.cursor.execute("""
+            SELECT id FROM positions 
+            WHERE account = ? AND instrument = ?
+        """, (account, instrument))
+        
+        position_ids = [row['id'] for row in self.cursor.fetchall()]
+        
+        if position_ids:
+            # Remove position executions first (foreign key constraint)
+            placeholders = ','.join('?' * len(position_ids))
+            self.cursor.execute(f"""
+                DELETE FROM position_executions 
+                WHERE position_id IN ({placeholders})
+            """, position_ids)
+            
+            # Remove positions
+            self.cursor.execute("""
+                DELETE FROM positions 
+                WHERE account = ? AND instrument = ?
+            """, (account, instrument))
+            
+            logger.debug(f"Cleared {len(position_ids)} positions for {account}/{instrument}")
 
 
 def test_enhanced_service():
