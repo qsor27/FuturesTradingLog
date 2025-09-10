@@ -69,7 +69,8 @@
       "Read(//c/Users/qsoren/.agent-os/instructions/core/**)",
       "Bash(export:*)",
       "Bash(gh pr create:*)",
-      "Bash(netstat:*)"
+      "Bash(netstat:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "additionalDirectories": [
