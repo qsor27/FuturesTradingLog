@@ -21,6 +21,7 @@ from routes.data_monitoring import data_monitoring_bp
 from routes.profiles import profiles_bp
 from routes.tasks import bp as tasks_bp
 from routes.cache_management import cache_bp
+from routes.performance import performance_bp
 from scripts.TradingLog_db import FuturesDB
 from services.background_services import start_background_services, stop_background_services, get_services_status
 from services.background_data_manager import background_data_manager
@@ -186,6 +187,7 @@ app.register_blueprint(data_monitoring_bp)  # Data monitoring routes
 app.register_blueprint(profiles_bp)  # Profile management routes
 app.register_blueprint(tasks_bp)  # Task management routes
 app.register_blueprint(cache_bp)  # Cache management routes
+app.register_blueprint(performance_bp)  # Performance API routes
 
 # Template filters for symbol handling
 @app.template_filter('base_symbol')
