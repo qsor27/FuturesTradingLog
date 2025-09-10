@@ -8,7 +8,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from symbol_service import symbol_service
+from services.symbol_service import symbol_service
 
 def test_symbol_mappings():
     """Test the new symbol mapping service"""
@@ -90,7 +90,7 @@ def test_backward_compatibility():
     """Test that old functions still work"""
     print("\n=== TESTING BACKWARD COMPATIBILITY ===")
     
-    from symbol_service import get_base_symbol, get_yfinance_symbol, normalize_instrument
+    from services.symbol_service import get_base_symbol, get_yfinance_symbol, normalize_instrument
     
     test_instrument = "MNQ SEP25"
     

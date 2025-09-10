@@ -5,7 +5,7 @@ Simple test to verify the cache invalidation works correctly.
 """
 
 import logging
-from cache_manager import get_cache_manager, CacheKeyManager
+from scripts.cache_manager import get_cache_manager, CacheKeyManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

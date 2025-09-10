@@ -65,7 +65,10 @@
       "Bash(docker ps:*)",
       "mcp__browser__browser_close",
       "mcp__browser__browser_form_input_fill",
-      "mcp__browser__browser_scroll"
+      "mcp__browser__browser_scroll",
+      "Bash(git commit:*)",
+      "Read(//c/Users/qsoren/.agent-os/instructions/core/**)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "additionalDirectories": [

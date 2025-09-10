@@ -3,8 +3,8 @@ Test script for position overlap prevention system
 Demonstrates validation and prevention capabilities
 """
 
-from enhanced_position_service import EnhancedPositionService
-from position_overlap_prevention import PositionOverlapPrevention
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as EnhancedPositionService
+from services.position_overlap_prevention import PositionOverlapPrevention
 from datetime import datetime, timedelta
 from typing import List, Dict
 import json

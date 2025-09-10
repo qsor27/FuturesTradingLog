@@ -8,7 +8,7 @@ import pytest
 from typing import List, Dict, Any
 from datetime import datetime
 
-from position_engine import PositionEngine, Position, Execution, ExecutionAction, PositionSide
+from services.position_engine import PositionEngine, Position, Execution, ExecutionAction, PositionSide
 
 
 class TestPositionEngine:

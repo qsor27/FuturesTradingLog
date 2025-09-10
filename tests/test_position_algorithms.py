@@ -7,7 +7,7 @@ Unit tests for the refactored position algorithm functions.
 import unittest
 from datetime import datetime
 from decimal import Decimal
-from position_algorithms import (
+from services.position_algorithms import (
     calculate_running_quantity,
     group_executions_by_position,
     calculate_position_pnl,

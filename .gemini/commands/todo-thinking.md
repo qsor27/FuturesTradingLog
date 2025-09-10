@@ -1,0 +1,1 @@
+here is a review of our code and process, please create subagents that deep-think on each topic on if each is the best course of action. Ask me questions on best methods to proceed.
