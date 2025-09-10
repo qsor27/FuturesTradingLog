@@ -66,8 +66,8 @@
 
 ## Phase 2: Trade Processing Integration
 
-### Task 2.1: Enhance Upload Route with Auto Position Building
-- **File**: `routes/upload.py`
+### Task 2.1: Enhance Upload Route with Auto Position Building ✅
+- **File**: `routes/main.py`
 - **Objective**: Integrate automatic position building into CSV upload workflow
 - **Requirements**:
   - Add `auto_build_positions` parameter (default: true)
@@ -80,9 +80,16 @@
   - CSV uploads automatically trigger position building
   - Upload success independent of position building status
   - Clear API response with task tracking information
+- **Status**: COMPLETED
+- **Implementation Notes**:
+  - Enhanced `/upload` and `/process-nt-executions` routes with auto position building
+  - Added `auto_build_positions` parameter (default: true) to control behavior
+  - Integrated with `auto_rebuild_positions_async` task for bulk operations
+  - Returns task IDs in response for tracking position building progress
+  - Preserves all existing validation and error handling
 
-### Task 2.2: Enhance Individual Trade Routes
-- **File**: `routes/trades.py`
+### Task 2.2: Enhance Individual Trade Routes ✅
+- **Files**: `routes/trades.py`, `routes/trade_details.py`, `routes/trade_links.py`
 - **Objective**: Add immediate position updates for single trade operations
 - **Requirements**:
   - Enhance POST `/trades` with automatic position updates
@@ -95,6 +102,15 @@
   - Individual trade changes immediately update positions
   - API maintains backward compatibility
   - Validation errors properly handled and reported
+- **Status**: COMPLETED
+- **Implementation Notes**:
+  - Enhanced `update_notes` function in `routes/trades.py` with position updates
+  - Enhanced `update_trade` function in `routes/trade_details.py` with position updates
+  - Enhanced `update_group` function in `routes/trade_links.py` with position updates
+  - Enhanced `delete_trades` functions in both `routes/main.py` and `routes/trades.py`
+  - All functions use `EnhancedPositionServiceV2` for synchronous position updates
+  - Added `auto_update_positions` parameter (default: true) for control
+  - Comprehensive error handling and logging for position update failures
 
 ### Task 2.3: File Processing Integration
 - **File**: `tasks/file_processing.py`

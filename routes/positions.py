@@ -14,6 +14,9 @@ import glob
 import json
 from datetime import datetime
 
+# Import the chart execution extensions
+import scripts.TradingLog_db_extension
+
 positions_bp = Blueprint('positions', __name__)
 logger = logging.getLogger('positions')
 
@@ -244,6 +247,45 @@ def api_position_executions(position_id):
         return jsonify({
             'success': False,
             'message': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/<int:position_id>/executions-chart')
+def api_position_executions_chart(position_id):
+    """API endpoint to get execution data formatted for chart arrow display"""
+    try:
+        # Get query parameters
+        timeframe = request.args.get('timeframe', '1h')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Validate timeframe
+        valid_timeframes = ['1m', '5m', '1h']
+        if timeframe not in valid_timeframes:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid timeframe. Must be one of: {valid_timeframes}'
+            }), 400
+        
+        with FuturesDB() as db:
+            chart_data = db.get_position_executions_for_chart_cached(position_id, timeframe, start_date, end_date)
+        
+        if not chart_data:
+            return jsonify({
+                'success': False,
+                'error': 'Position not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            **chart_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting position execution chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 

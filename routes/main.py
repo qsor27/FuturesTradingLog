@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, send_from_directory
 from scripts.TradingLog_db import FuturesDB
 from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
+from tasks.position_building import auto_rebuild_positions_async
 import os
 import time
 import shutil
@@ -97,38 +98,141 @@ def delete_trades():
         if not trade_ids:
             return jsonify({'success': False, 'message': 'No trades selected'})
         
+        # Get auto_update_positions parameter (default: true)
+        auto_update_positions = data.get('auto_update_positions', True)
+        
+        # Get affected positions before deletion
+        affected_positions = set()
+        if auto_update_positions:
+            with FuturesDB() as db:
+                for trade_id in trade_ids:
+                    trade = db.get_trade_by_id(trade_id)
+                    if trade:
+                        account = trade.get('account')
+                        instrument = trade.get('instrument')
+                        if account and instrument:
+                            affected_positions.add((account, instrument))
+        
         with FuturesDB() as db:
             success = db.delete_trades(trade_ids)
         
-        return jsonify({'success': success})
+        response_data = {
+            'success': success,
+            'auto_update_positions': auto_update_positions
+        }
+        
+        # Trigger automatic position updates if enabled and deletion was successful
+        if success and auto_update_positions and affected_positions:
+            try:
+                from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
+                position_updates = {}
+                
+                with EnhancedPositionServiceV2() as position_service:
+                    for account, instrument in affected_positions:
+                        result = position_service.rebuild_positions_for_account_instrument(account, instrument)
+                        position_updates[f"{account}/{instrument}"] = result
+                        
+                        logger.info(f"Triggered position update after deletion: {account}/{instrument}")
+                
+                response_data['position_updates'] = position_updates
+                
+            except Exception as pos_error:
+                logger.error(f"Error triggering position updates after deletion: {pos_error}")
+                response_data['position_update_warning'] = f"Position updates failed: {str(pos_error)}"
+        
+        return jsonify(response_data)
+        
     except Exception as e:
-        print(f"Error in delete_trades: {e}")
+        logger.error(f"Error in delete_trades: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @main_bp.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
-        return 'No file uploaded', 400
+        return jsonify({'success': False, 'message': 'No file uploaded'}), 400
     
     file = request.files['file']
     if file.filename == '':
-        return 'No file selected', 400
+        return jsonify({'success': False, 'message': 'No file selected'}), 400
+    
+    # Get auto_build_positions parameter (default: true)
+    auto_build_positions = request.form.get('auto_build_positions', 'true').lower() == 'true'
     
     if file and file.filename.endswith('.csv'):
         temp_path = 'temp_trades.csv'
         file.save(temp_path)
         
-        with FuturesDB() as db:
-            success = db.import_csv(temp_path)
-        
-        os.remove(temp_path)
-        
-        if success:
-            return 'File successfully imported', 200
-        else:
-            return 'Error importing file', 500
+        try:
+            with FuturesDB() as db:
+                success = db.import_csv(temp_path)
+            
+            os.remove(temp_path)
+            
+            if success:
+                response_data = {
+                    'success': True,
+                    'message': 'File successfully imported',
+                    'auto_build_positions': auto_build_positions
+                }
+                
+                # Trigger automatic position building if enabled
+                if auto_build_positions:
+                    try:
+                        # Get distinct accounts from the database to determine which accounts need rebuilding
+                        with FuturesDB() as db:
+                            # Get recently imported accounts (trades from last hour as a proxy)
+                            accounts_query = """
+                                SELECT DISTINCT account FROM trades 
+                                WHERE created_at >= datetime('now', '-1 hour')
+                                ORDER BY account
+                            """
+                            accounts_result = db.execute_query(accounts_query)
+                            if accounts_result:
+                                accounts = [row['account'] for row in accounts_result]
+                                
+                                # Get distinct instruments for these accounts
+                                if accounts:
+                                    placeholders = ','.join('?' for _ in accounts)
+                                    instruments_query = f"""
+                                        SELECT DISTINCT instrument FROM trades 
+                                        WHERE account IN ({placeholders})
+                                        AND created_at >= datetime('now', '-1 hour')
+                                        ORDER BY instrument
+                                    """
+                                    instruments_result = db.execute_query(instruments_query, accounts)
+                                    if instruments_result:
+                                        instruments = [row['instrument'] for row in instruments_result]
+                                        
+                                        # Trigger async position building for each account
+                                        task_ids = []
+                                        for account in accounts:
+                                            task = auto_rebuild_positions_async.delay(account, instruments)
+                                            task_ids.append({
+                                                'account': account,
+                                                'task_id': task.id,
+                                                'instruments': instruments
+                                            })
+                                        
+                                        response_data['position_build_tasks'] = task_ids
+                                        response_data['message'] += f' - Position building started for {len(accounts)} accounts'
+                                        
+                                        logger.info(f"Triggered automatic position building for accounts: {accounts}")
+                        
+                    except Exception as pos_error:
+                        logger.error(f"Error triggering automatic position building: {pos_error}")
+                        response_data['position_build_warning'] = f"Position building failed to start: {str(pos_error)}"
+                
+                return jsonify(response_data), 200
+            else:
+                return jsonify({'success': False, 'message': 'Error importing file'}), 500
+                
+        except Exception as e:
+            logger.error(f"Error in upload_file: {e}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify({'success': False, 'message': f'Import failed: {str(e)}'}), 500
     
-    return 'Invalid file type', 400
+    return jsonify({'success': False, 'message': 'Invalid file type'}), 400
 
 def safe_move_file(src, dst, max_attempts=5, delay=1):
     """Move a file with retry mechanism"""
@@ -158,6 +262,9 @@ def process_nt_executions():
     """Process NinjaTrader execution exports"""
     temp_dir = "temp_processing"
     os.makedirs(temp_dir, exist_ok=True)
+    
+    # Get auto_build_positions parameter (default: true)
+    auto_build_positions = request.form.get('auto_build_positions', 'true').lower() == 'true'
     
     try:
         if 'file' not in request.files:
@@ -240,7 +347,60 @@ def process_nt_executions():
                 print(f"Cleanup warning: {cleanup_error}")
                 
             if success:
-                return jsonify({'success': True, 'message': 'NT Executions processed successfully'})
+                response_data = {
+                    'success': True,
+                    'message': 'NT Executions processed successfully',
+                    'auto_build_positions': auto_build_positions
+                }
+                
+                # Trigger automatic position building if enabled
+                if auto_build_positions:
+                    try:
+                        # Get distinct accounts from the database to determine which accounts need rebuilding
+                        with FuturesDB() as db:
+                            # Get recently imported accounts (trades from last hour as a proxy)
+                            accounts_query = """
+                                SELECT DISTINCT account FROM trades 
+                                WHERE created_at >= datetime('now', '-1 hour')
+                                ORDER BY account
+                            """
+                            accounts_result = db.execute_query(accounts_query)
+                            if accounts_result:
+                                accounts = [row['account'] for row in accounts_result]
+                                
+                                # Get distinct instruments for these accounts
+                                if accounts:
+                                    placeholders = ','.join('?' for _ in accounts)
+                                    instruments_query = f"""
+                                        SELECT DISTINCT instrument FROM trades 
+                                        WHERE account IN ({placeholders})
+                                        AND created_at >= datetime('now', '-1 hour')
+                                        ORDER BY instrument
+                                    """
+                                    instruments_result = db.execute_query(instruments_query, accounts)
+                                    if instruments_result:
+                                        instruments = [row['instrument'] for row in instruments_result]
+                                        
+                                        # Trigger async position building for each account
+                                        task_ids = []
+                                        for account in accounts:
+                                            task = auto_rebuild_positions_async.delay(account, instruments)
+                                            task_ids.append({
+                                                'account': account,
+                                                'task_id': task.id,
+                                                'instruments': instruments
+                                            })
+                                        
+                                        response_data['position_build_tasks'] = task_ids
+                                        response_data['message'] += f' - Position building started for {len(accounts)} accounts'
+                                        
+                                        logger.info(f"Triggered automatic position building for accounts: {accounts}")
+                        
+                    except Exception as pos_error:
+                        logger.error(f"Error triggering automatic position building: {pos_error}")
+                        response_data['position_build_warning'] = f"Position building failed to start: {str(pos_error)}"
+                
+                return jsonify(response_data)
             else:
                 return jsonify({'success': False, 'message': 'Error processing NT executions'})
             

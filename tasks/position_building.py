@@ -12,8 +12,8 @@ from typing import Dict, List, Any, Optional
 from celery import Task
 from celery_app import app
 from config import config
-from database_manager import DatabaseManager
-from position_engine import PositionEngine
+from scripts.database_manager import DatabaseManager
+from services.position_engine import PositionEngine
 from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
 
 logger = logging.getLogger('position_building')

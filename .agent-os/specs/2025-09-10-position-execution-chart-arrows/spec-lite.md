@@ -1,0 +1,3 @@
+# Spec Summary (Lite)
+
+Enhance the positions page to display execution arrows on OHLC charts that visually indicate the exact time and price of each trade execution within a position. This feature will provide traders with precise visual context of their entry and exit points relative to market movement, improving trade analysis and decision-making capabilities. Interactive arrows will show execution details on hover and link to the execution breakdown table for comprehensive position analysis.

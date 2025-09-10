@@ -1,5 +1,9 @@
 from flask import Blueprint, render_template, request, jsonify
 from scripts.TradingLog_db import FuturesDB
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
+import logging
+
+logger = logging.getLogger(__name__)
 
 trades_bp = Blueprint('trades', __name__)
 
@@ -81,10 +85,53 @@ def delete_trades():
     if not trade_ids:
         return jsonify({'success': False, 'error': 'No trade IDs provided'})
     
-    with FuturesDB() as db:
-        success = db.delete_trades(trade_ids)
+    # Get auto_update_positions parameter (default: true)
+    auto_update_positions = data.get('auto_update_positions', True)
     
-    return jsonify({'success': success})
+    try:
+        # Get affected positions before deletion
+        affected_positions = set()
+        if auto_update_positions:
+            with FuturesDB() as db:
+                for trade_id in trade_ids:
+                    trade = db.get_trade_by_id(trade_id)
+                    if trade:
+                        account = trade.get('account')
+                        instrument = trade.get('instrument')
+                        if account and instrument:
+                            affected_positions.add((account, instrument))
+        
+        with FuturesDB() as db:
+            success = db.delete_trades(trade_ids)
+        
+        response_data = {
+            'success': success,
+            'auto_update_positions': auto_update_positions
+        }
+        
+        # Trigger automatic position updates if enabled and deletion was successful
+        if success and auto_update_positions and affected_positions:
+            try:
+                position_updates = {}
+                
+                with EnhancedPositionServiceV2() as position_service:
+                    for account, instrument in affected_positions:
+                        result = position_service.rebuild_positions_for_account_instrument(account, instrument)
+                        position_updates[f"{account}/{instrument}"] = result
+                        
+                        logger.info(f"Triggered position update after deletion: {account}/{instrument}")
+                
+                response_data['position_updates'] = position_updates
+                
+            except Exception as pos_error:
+                logger.error(f"Error triggering position updates after deletion: {pos_error}")
+                response_data['position_update_warning'] = f"Position updates failed: {str(pos_error)}"
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in delete_trades: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @trades_bp.route('/update-notes/<int:trade_id>', methods=['POST'])
 def update_notes(trade_id):
@@ -94,11 +141,46 @@ def update_notes(trade_id):
     validated = data.get('validated', False)
     reviewed = data.get('reviewed', False)
     
-    with FuturesDB() as db:
-        success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes,
-                                         confirmed_valid=validated, reviewed=reviewed)
+    # Get auto_update_positions parameter (default: true)
+    auto_update_positions = data.get('auto_update_positions', True)
     
-    return jsonify({'success': success})
+    try:
+        with FuturesDB() as db:
+            success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes,
+                                             confirmed_valid=validated, reviewed=reviewed)
+        
+        response_data = {
+            'success': success,
+            'auto_update_positions': auto_update_positions
+        }
+        
+        # Trigger automatic position updates if enabled and update was successful
+        if success and auto_update_positions:
+            try:
+                # Get trade details to determine affected account/instrument
+                with FuturesDB() as db:
+                    trade = db.get_trade_by_id(trade_id)
+                    if trade:
+                        account = trade.get('account')
+                        instrument = trade.get('instrument')
+                        
+                        if account and instrument:
+                            # Trigger synchronous position update for single trade
+                            with EnhancedPositionServiceV2() as position_service:
+                                result = position_service.rebuild_positions_for_account_instrument(account, instrument)
+                                response_data['position_update'] = result
+                                
+                                logger.info(f"Triggered position update for trade {trade_id}: {account}/{instrument}")
+                        
+            except Exception as pos_error:
+                logger.error(f"Error triggering position update for trade {trade_id}: {pos_error}")
+                response_data['position_update_warning'] = f"Position update failed: {str(pos_error)}"
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in update_notes for trade {trade_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 @trades_bp.context_processor
 def utility_processor():

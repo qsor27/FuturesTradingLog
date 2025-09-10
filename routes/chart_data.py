@@ -6,6 +6,7 @@ NOW USING CACHE-ONLY APPROACH - NO API CALLS DURING PAGE LOADS
 from flask import Blueprint, request, jsonify, render_template
 from datetime import datetime, timedelta
 import logging
+from typing import List, Dict, Any
 from services.data_service import ohlc_service
 from services.cache_only_chart_service import cache_only_chart_service
 from services.background_data_manager import background_data_manager
@@ -13,6 +14,9 @@ from scripts.TradingLog_db import FuturesDB
 from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER, PAGE_LOAD_CONFIG
 from utils.instrument_utils import get_root_symbol
 from services.ohlc_service import OHLCOnDemandService
+
+# Import the chart execution extensions
+import scripts.TradingLog_db_extension
 
 chart_data_bp = Blueprint('chart_data', __name__)
 logger = logging.getLogger(__name__)
@@ -51,6 +55,51 @@ def estimate_candle_count(duration_days: int, timeframe: str) -> int:
     
     return int(total_minutes * market_factor / candle_minutes)
 
+
+def get_execution_overlay_for_chart(position_id: int, timeframe: str, instrument: str) -> List[Dict[str, Any]]:
+    """
+    Get execution overlay data for chart display from position executions.
+    
+    Args:
+        position_id: Position identifier
+        timeframe: Chart timeframe for timestamp alignment  
+        instrument: Trading instrument (for validation)
+        
+    Returns:
+        List of execution arrow data for chart overlay
+    """
+    try:
+        with FuturesDB() as db:
+            chart_data = db.get_position_executions_for_chart(position_id, timeframe)
+            
+        if not chart_data or not chart_data.get('executions'):
+            return []
+        
+        # Convert to simplified arrow format for chart overlay
+        arrows = []
+        for execution in chart_data['executions']:
+            arrow_data = {
+                'timestamp': execution['timestamp_ms'],
+                'price': execution['price'],
+                'arrow_type': execution['execution_type'],
+                'side': execution['side'],
+                'tooltip_data': {
+                    'quantity': execution['quantity'],
+                    'pnl_dollars': execution['pnl_dollars'],
+                    'execution_id': execution['id'],
+                    'commission': execution['commission'],
+                    'position_quantity': execution['position_quantity']
+                }
+            }
+            arrows.append(arrow_data)
+        
+        return arrows
+        
+    except Exception as e:
+        logger.error(f"Error getting execution overlay for position {position_id}: {e}")
+        return []
+
+
 @chart_data_bp.route('/api/chart-data/<instrument>')
 def get_chart_data(instrument):
     """
@@ -61,6 +110,7 @@ def get_chart_data(instrument):
         # Get parameters
         timeframe = request.args.get('timeframe', '1m')
         days = int(request.args.get('days', 1))
+        position_id = request.args.get('position_id')  # Optional position ID for execution overlays
         
         # Allow explicit start_date and end_date parameters
         start_date_param = request.args.get('start_date')
@@ -104,6 +154,14 @@ def get_chart_data(instrument):
             response = cache_only_chart_service.get_chart_data(
                 instrument, timeframe, start_date, end_date
             )
+            
+            # Add execution overlay if position_id is provided
+            if position_id and response.get('success'):
+                try:
+                    response['executions'] = get_execution_overlay_for_chart(int(position_id), timeframe, instrument)
+                except Exception as e:
+                    logger.warning(f"Failed to add execution overlay for position {position_id}: {e}")
+                    response['executions'] = []
             
             # Add cache status headers for debugging
             if response.get('cache_status'):
@@ -151,7 +209,7 @@ def get_chart_data(instrument):
                         'volume': int(row[5] or 0)
                     })
             
-            return jsonify({
+            response = {
                 'success': True,
                 'data': chart_data,
                 'instrument': instrument,
@@ -159,7 +217,17 @@ def get_chart_data(instrument):
                 'count': len(chart_data),
                 'has_data': len(chart_data) > 0,
                 'cache_status': {'mode': 'legacy', 'cache_only_mode': False}
-            })
+            }
+            
+            # Add execution overlay if position_id is provided
+            if position_id:
+                try:
+                    response['executions'] = get_execution_overlay_for_chart(int(position_id), timeframe, instrument)
+                except Exception as e:
+                    logger.warning(f"Failed to add execution overlay for position {position_id}: {e}")
+                    response['executions'] = []
+            
+            return jsonify(response)
         
     except Exception as e:
         logger.error(f"Error getting chart data: {e}")
