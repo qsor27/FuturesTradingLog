@@ -1,7 +1,7 @@
 # Product Roadmap
 
-> Last Updated: 2025-08-17
-> Version: 1.0.0
+> Last Updated: 2025-09-10
+> Version: 1.1.0
 > Status: Active Development
 
 ## Phase 0: Already Completed ✅
@@ -34,6 +34,49 @@
 - ✅ **Error Handling** - Robust exception management and recovery
 - ✅ **Logging System** - Structured logging with rotation and monitoring
 - ✅ **Documentation** - Complete project documentation and setup guides
+
+## Current Development Specs (2025-09)
+
+**Status:** Active Implementation
+**Goal:** Enhance platform reliability, accuracy, and external integration capabilities
+
+### ✅ Trader Performance API (COMPLETED)
+**Spec:** `2025-09-09-trader-performance-api`
+**Status:** ✅ **COMPLETED** - Branch: `trader-performance-api`, Ready for review
+- REST API endpoints for real-time trader performance monitoring
+- `/api/performance/daily` and `/api/performance/weekly` endpoints 
+- Position-based P&L calculations with win/loss trade categorization
+- Redis caching with 30-60 second TTL for high-frequency polling
+- Container network support (0.0.0.0 binding) for external monitoring systems
+- Comprehensive test suite with 100% coverage (18 test cases)
+- Health check endpoint for system monitoring
+
+### 🔄 Dashboard Statistics Accuracy Fix
+**Spec:** `2025-09-09-dashboard-statistics-accuracy`
+**Status:** Pending Implementation
+- Fix accuracy issues in dashboard and statistics calculations
+- Implement comprehensive testing for calculation methods
+- Resolve inconsistent calculation logic across dashboard components
+- Standardize P&L, win rate, and trade count calculations
+- Extensive test coverage and validation before deployment
+
+### 🔄 Auto Trade Position Transform
+**Spec:** `2025-09-09-auto-trade-position-transform`
+**Status:** Pending Implementation
+- Automatic transformation of trades into positions
+- Eliminate manual rebuild requirements using existing position-building infrastructure
+- Immediate position availability when trades are imported or modified
+- Background task system integration with current validation algorithms
+- Real-time position updates for seamless workflow
+
+### 🔄 Yahoo Finance Data Reliability Enhancement
+**Spec:** `2025-08-17-yahoo-data-reliability`
+**Status:** Pending Implementation
+- Replace fixed 2.5s rate limiting with adaptive strategies
+- Implement circuit breaker patterns and enhanced retry mechanisms
+- Add comprehensive data quality validation and symbol mapping improvements
+- Maintain existing 15-50ms chart performance with Redis caching
+- Detailed monitoring and logging for proactive issue detection
 
 ## Phase 1: Core Stabilization (4-6 weeks)
 
@@ -124,6 +167,7 @@
 - Risk assessment algorithms
 
 **API Development**
+- ✅ **Performance API** - Real-time trading performance endpoints (COMPLETED)
 - RESTful API for external integrations
 - Webhook support for real-time notifications
 - Third-party platform integrations

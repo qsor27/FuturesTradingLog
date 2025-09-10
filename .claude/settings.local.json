@@ -68,7 +68,9 @@
       "mcp__browser__browser_scroll",
       "Bash(git commit:*)",
       "Read(//c/Users/qsoren/.agent-os/instructions/core/**)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(gh pr create:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "additionalDirectories": [
