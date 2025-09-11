@@ -2155,6 +2155,28 @@ class PriceChart {
         this.priceLines = [];
         this.container = null;
     }
+    
+    /**
+     * Load execution arrows from API data
+     * Public method to be called from external scripts
+     * @param {Array} executions - Array of execution data from API
+     */
+    loadExecutionArrows(executions) {
+        try {
+            if (!executions || !Array.isArray(executions)) {
+                console.warn('loadExecutionArrows: Invalid executions data provided');
+                return;
+            }
+            
+            console.log(`🎯 Loading ${executions.length} execution arrows into chart`);
+            
+            // Use the existing addExecutionArrows method
+            this.addExecutionArrows(executions);
+            
+        } catch (error) {
+            console.error('❌ Error loading execution arrows:', error);
+        }
+    }
 }
 
 // Chart factory function

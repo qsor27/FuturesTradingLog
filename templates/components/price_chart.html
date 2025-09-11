@@ -194,5 +194,45 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(`Error checking timeframes for ${instrument}:`, error);
         }
     });
+    
+    // Load execution arrows for charts with trade-id
+    document.querySelectorAll('[data-chart][data-trade-id]').forEach(async (container) => {
+        const tradeId = container.dataset.tradeId;
+        if (!tradeId) return;
+        
+        // Wait for chart to be initialized
+        const waitForChart = () => {
+            return new Promise((resolve) => {
+                const checkChart = () => {
+                    if (container.chartInstance && container.chartInstance.loadExecutionArrows) {
+                        resolve();
+                    } else {
+                        setTimeout(checkChart, 100);
+                    }
+                };
+                checkChart();
+            });
+        };
+        
+        try {
+            await waitForChart();
+            
+            // Fetch execution data for this position
+            const response = await fetch(`/api/executions/${encodeURIComponent(tradeId)}`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.executions) {
+                    console.log(`🎯 Loading ${data.executions.length} execution arrows for position ${tradeId}`);
+                    
+                    // Load execution arrows into the chart
+                    container.chartInstance.loadExecutionArrows(data.executions);
+                } else {
+                    console.warn(`⚠️ No execution data found for position ${tradeId}`);
+                }
+            }
+        } catch (error) {
+            console.error(`❌ Error loading execution arrows for position ${tradeId}:`, error);
+        }
+    });
 });
 </script>

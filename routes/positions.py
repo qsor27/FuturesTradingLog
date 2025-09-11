@@ -104,11 +104,19 @@ def position_detail(position_id):
         result = pos_service.get_positions(page_size=1000)  # Get enough to find the position
         positions = result['positions']
         position = next((p for p in positions if p['id'] == position_id), None)
-    
-    if not position:
-        return render_template('error.html', 
-                             error_message="Position not found",
-                             error_code=404), 404
+        
+        if not position:
+            return render_template('error.html', 
+                                 error_message="Position not found",
+                                 error_code=404), 404
+        
+        # Get the executions that make up this position
+        executions = pos_service.get_position_executions(position_id)
+        position['executions'] = executions
+        
+        # Debug logging
+        logger.info(f"Position {position_id} details: execution_count={position.get('execution_count')}, actual_executions={len(executions)}")
+        logger.info(f"Executions found: {[{'id': e.get('id'), 'side': e.get('side_of_market'), 'qty': e.get('quantity')} for e in executions[:5]]}")  # First 5 only
     
     # Calculate additional metrics for the detail view
     # Use existing position data for timing analysis

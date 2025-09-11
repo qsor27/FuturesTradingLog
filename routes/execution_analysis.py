@@ -184,3 +184,78 @@ def api_hold_time_data():
     except Exception as e:
         logger.error(f"Error getting hold time data: {e}")
         return jsonify({'error': str(e)}), 500
+
+@execution_analysis_bp.route('/api/executions/<int:position_id>')
+def get_position_executions(position_id):
+    """API endpoint for position execution arrow data"""
+    try:
+        # Use PositionService to get position data (same as position detail page)
+        from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
+        
+        with PositionService() as pos_service:
+            # Get all positions and find the one with matching ID
+            result = pos_service.get_positions(page_size=1000)  # Get enough to find the position
+            positions = result['positions']
+            position = next((p for p in positions if p['id'] == position_id), None)
+            
+            if not position:
+                return jsonify({
+                    'success': False,
+                    'error': 'Position not found',
+                    'position_id': position_id,
+                    'executions': []
+                }), 404
+            
+            # Transform position data for chart arrow rendering
+            arrow_data = []
+            
+            # Create entry arrow
+            if position.get('entry_time') and position.get('average_entry_price'):
+                arrow_data.append({
+                    'execution_id': f"{position_id}_entry",
+                    'position_id': position_id,
+                    'timestamp': position['entry_time'],
+                    'price': float(position['average_entry_price']),
+                    'quantity': int(position.get('total_quantity', 0)),
+                    'side': 'Buy' if 'Long' in position.get('position_type', '') else 'Sell',
+                    'type': 'entry',
+                    'commission': float(position.get('total_commission', 0)) / 2,  # Split commission between entry/exit
+                    'pnl': 0.0  # Entry always has 0 P&L
+                })
+            
+            # Create exit arrow (if position is closed)
+            if position.get('position_status') == 'closed' and position.get('exit_time') and position.get('average_exit_price'):
+                arrow_data.append({
+                    'execution_id': f"{position_id}_exit",
+                    'position_id': position_id,
+                    'timestamp': position['exit_time'],
+                    'price': float(position['average_exit_price']),
+                    'quantity': -int(position.get('total_quantity', 0)),  # Negative for exit
+                    'side': 'Sell' if 'Long' in position.get('position_type', '') else 'Buy',
+                    'type': 'exit',
+                    'commission': float(position.get('total_commission', 0)) / 2,  # Split commission
+                    'pnl': float(position.get('total_dollars_pnl', 0))
+                })
+            
+            return jsonify({
+                'success': True,
+                'position_id': position_id,
+                'executions': arrow_data,
+                'count': len(arrow_data),
+                'position_summary': {
+                    'instrument': position.get('instrument'),
+                    'position_type': position.get('position_type'),
+                    'quantity': position.get('total_quantity'),
+                    'net_pnl': position.get('total_dollars_pnl'),
+                    'position_status': position.get('position_status')
+                }
+            })
+            
+    except Exception as e:
+        logger.error(f"Error getting position executions {position_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'position_id': position_id,
+            'executions': []
+        }), 500

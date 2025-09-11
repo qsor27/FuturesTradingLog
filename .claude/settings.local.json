@@ -73,7 +73,12 @@
       "Bash(git commit:*)",
       "Bash(bundle exec rspec:*)",
       "Bash(set PYTHONPATH=%cd%)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(taskkill:*)",
+      "Bash(timeout:*)",
+      "Bash(docker:*)",
+      "Read(//c/Containers/FuturesTradingLog/data/**)",
+      "Bash(tasklist)"
     ],
     "deny": [],
     "additionalDirectories": [

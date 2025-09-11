@@ -300,6 +300,7 @@
         {% set chart_timeframe = '1h' %}
         {% set chart_days = 7 %}
         {% set chart_height = '400px' %}
+        {% set chart_trade_id = position.id %}
         {% include 'components/price_chart.html' %}
     </div>
 
@@ -332,7 +333,7 @@
                     <tr>
                         <td>{{ execution.execution_order }}</td>
                         <td>
-                            {% if execution.entry_time and not execution.exit_time %}
+                            {% if execution.entry_time %}
                                 {{ execution.entry_time }}
                             {% else %}
                                 -

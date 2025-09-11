@@ -28,8 +28,8 @@ class QuantityFlow:
             self.action_type = 'START'
         elif running_quantity == 0:
             self.action_type = 'CLOSE'
-        elif (previous_quantity > 0 and execution['side_of_market'] == 'Sell') or \
-             (previous_quantity < 0 and execution['side_of_market'] == 'Buy'):
+        elif (previous_quantity > 0 and execution['side_of_market'] in ['Sell', 'SellShort']) or \
+             (previous_quantity < 0 and execution['side_of_market'] in ['Buy', 'BuyToCover']):
             self.action_type = 'REDUCE'
         else:
             self.action_type = 'ADD'
@@ -56,9 +56,9 @@ def calculate_running_quantity(executions: List[Dict]) -> List[QuantityFlow]:
         side = execution['side_of_market']
         quantity = execution['quantity']
         
-        if side == 'Buy':
+        if side in ['Buy', 'BuyToCover']:
             signed_change = quantity
-        elif side == 'Sell':
+        elif side in ['Sell', 'SellShort']:
             signed_change = -quantity
         else:
             logger.warning(f"Unknown side_of_market: {side} in execution {execution.get('id', 'unknown')}")
@@ -97,13 +97,18 @@ def group_executions_by_position(quantity_flows: List[QuantityFlow]) -> List[Lis
         current_position.append(flow)
         
         # Check if position is closed (running quantity returns to 0)
-        if flow.running_quantity == 0 and len(current_position) > 1:
+        if flow.running_quantity == 0 and len(current_position) > 0:
             positions.append(current_position)
             current_position = []
     
     # Add any remaining open position
-    if current_position and current_position[0].running_quantity != 0:
-        positions.append(current_position)
+    if current_position:
+        # Check if the position is actually open (last flow has non-zero quantity)
+        if current_position[-1].running_quantity != 0:
+            positions.append(current_position)
+        else:
+            # Position ended flat but wasn't caught by the main loop - add as closed
+            positions.append(current_position)
     
     return positions
 
@@ -131,18 +136,18 @@ def calculate_position_pnl(position_flows: List[QuantityFlow], multiplier: Decim
     
     # Determine position direction from first flow
     first_flow = position_flows[0]
-    is_long_position = first_flow.execution['side_of_market'] == 'Buy'
+    is_long_position = first_flow.execution['side_of_market'] in ['Buy', 'BuyToCover']
     
     for flow in position_flows:
         if is_long_position:
-            # For long positions: Buy = entry, Sell = exit
-            if flow.execution['side_of_market'] == 'Buy':
+            # For long positions: Buy/BuyToCover = entry, Sell/SellShort = exit
+            if flow.execution['side_of_market'] in ['Buy', 'BuyToCover']:
                 entry_flows.append(flow)
             else:
                 exit_flows.append(flow)
         else:
-            # For short positions: Sell = entry, Buy = exit
-            if flow.execution['side_of_market'] == 'Sell':
+            # For short positions: Sell/SellShort = entry, Buy/BuyToCover = exit
+            if flow.execution['side_of_market'] in ['Sell', 'SellShort']:
                 entry_flows.append(flow)
             else:
                 exit_flows.append(flow)
@@ -180,7 +185,7 @@ def calculate_position_pnl(position_flows: List[QuantityFlow], multiplier: Decim
     
     # Determine position direction from first entry
     first_entry = entry_flows[0]
-    is_long = first_entry.execution['side_of_market'] == 'Buy'
+    is_long = first_entry.execution['side_of_market'] in ['Buy', 'BuyToCover']
     
     # Calculate points P&L
     if is_long:

@@ -543,6 +543,84 @@ class EnhancedPositionServiceV2:
             
             logger.debug(f"Cleared {len(position_ids)} positions for {account}/{instrument}")
 
+    def get_position_executions(self, position_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all executions that make up a specific position
+        
+        Args:
+            position_id: The position ID to get executions for
+            
+        Returns:
+            List of execution dictionaries with trade details
+        """
+        self.cursor.execute("""
+            SELECT 
+                t.*,
+                pe.execution_order,
+                t.side_of_market,
+                t.quantity,
+                t.entry_price,
+                t.exit_price,
+                t.entry_time,
+                t.exit_time,
+                t.points_gain_loss,
+                t.dollars_gain_loss,
+                t.commission,
+                t.entry_execution_id
+            FROM position_executions pe
+            JOIN trades t ON pe.trade_id = t.id
+            WHERE pe.position_id = ?
+            ORDER BY pe.execution_order, t.entry_time
+        """, (position_id,))
+        
+        executions = [dict(row) for row in self.cursor.fetchall()]
+        
+        logger.debug(f"Found {len(executions)} executions for position {position_id}")
+        return executions
+
+    def delete_positions(self, position_ids: List[int]) -> int:
+        """
+        Delete positions and their associated position_executions records
+        
+        Args:
+            position_ids: List of position IDs to delete
+            
+        Returns:
+            Number of positions actually deleted
+        """
+        if not position_ids:
+            return 0
+        
+        deleted_count = 0
+        
+        try:
+            # Delete in correct order due to foreign key constraints
+            placeholders = ','.join('?' * len(position_ids))
+            
+            # First delete position_executions records
+            self.cursor.execute(f"""
+                DELETE FROM position_executions 
+                WHERE position_id IN ({placeholders})
+            """, position_ids)
+            
+            deleted_executions = self.cursor.rowcount
+            logger.debug(f"Deleted {deleted_executions} position execution records")
+            
+            # Then delete positions
+            self.cursor.execute(f"""
+                DELETE FROM positions 
+                WHERE id IN ({placeholders})
+            """, position_ids)
+            
+            deleted_count = self.cursor.rowcount
+            logger.info(f"Successfully deleted {deleted_count} positions and {deleted_executions} associated execution records")
+            
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Error deleting positions {position_ids}: {e}")
+            raise
+
 
 def test_enhanced_service():
     """Test function for the enhanced service"""
