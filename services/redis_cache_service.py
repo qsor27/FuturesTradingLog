@@ -164,8 +164,8 @@ class RedisCacheService:
             return {'status': 'redis_unavailable'}
         
         try:
-            # Get current time
             current_time = datetime.now()
+            # Get current time
             cutoff_time = current_time - timedelta(days=14)  # 2 weeks ago
             
             stats = {
@@ -344,6 +344,51 @@ class RedisCacheService:
                 'redis_connected': False,
                 'error': str(e)
             }
+
+    def is_data_fresh(self, instrument: str, timeframe: str, max_age_minutes: int = 5) -> bool:
+        """Check if data for instrument/timeframe combination is fresh (recently cached)"""
+        if not self.redis_client:
+            return False
+        
+        try:
+            metadata = self.get_instrument_metadata(instrument)
+            if not metadata:
+                return False
+            
+            last_access = metadata.get("last_access")
+            if not last_access:
+                return False
+            
+            # Parse the last access time
+            last_access_dt = datetime.fromisoformat(last_access)
+            age_minutes = (datetime.now() - last_access_dt).total_seconds() / 60
+            
+            # Consider data fresh if accessed within max_age_minutes
+            is_fresh = age_minutes <= max_age_minutes
+            cache_logger.debug(f"Data freshness check for {instrument} {timeframe}: {is_fresh} (age: {age_minutes:.1f}m)")
+            
+            return is_fresh
+            
+        except Exception as e:
+            cache_logger.error(f"Error checking data freshness for {instrument} {timeframe}: {e}")
+            return False
+
+    def get_last_update_time(self, instrument: str, timeframe: str) -> Optional[datetime]:
+        """Get the last update time for a specific instrument/timeframe"""
+        try:
+            metadata = self.get_instrument_metadata(instrument)
+            if not metadata:
+                return None
+            
+            last_access = metadata.get("last_access")
+            if not last_access:
+                return None
+            
+            return datetime.fromisoformat(last_access)
+            
+        except Exception as e:
+            cache_logger.error(f"Error getting last update time for {instrument} {timeframe}: {e}")
+            return None
 
 
 # Global cache service instance

@@ -6,7 +6,7 @@ import time
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
 import pandas as pd
-from data_service import OHLCDataService
+from services.data_service import OHLCDataService
 
 class TestOHLCDataService:
     """Test OHLC data service operations"""

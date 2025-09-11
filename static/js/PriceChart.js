@@ -19,6 +19,9 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
+        this.executionArrows = []; // Store execution arrow markers
+        this.arrowTooltip = null; // Tooltip element for execution arrows
+        this.currentTimeframe = options.timeframe || '1h'; // Track current timeframe for arrow positioning
         this.priceLines = []; // Store active price lines for position entry prices
         this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
         this.ohlcDisplayEl = null; // OHLC overlay element
@@ -867,6 +870,547 @@ class PriceChart {
         this.candlestickSeries.setMarkers([]);
     }
     
+    /**
+     * Add execution arrow markers to the chart
+     * @param {Array} executions - Array of execution objects with timestamp, price, quantity, side, type
+     */
+    addExecutionArrows(executions) {
+        if (!Array.isArray(executions) || executions.length === 0) {
+            console.warn('No executions provided for arrow rendering');
+            return;
+        }
+        
+        console.log(`🏹 Adding ${executions.length} execution arrows to chart`);
+        
+        // Clear existing execution arrows
+        this.clearExecutionArrows();
+        
+        // Process executions into arrow markers
+        const arrowMarkers = executions
+            .filter(execution => this.isValidExecution(execution))
+            .map(execution => this.createExecutionArrowMarker(execution))
+            .filter(marker => marker !== null);
+        
+        console.log(`✅ Created ${arrowMarkers.length} valid arrow markers`);
+        
+        // Store arrow markers
+        this.executionArrows = arrowMarkers;
+        
+        // Combine with existing markers and update chart
+        this.updateChartMarkers();
+        
+        // Setup interactive features
+        this.setupArrowInteractions();
+        
+        console.log(`🎯 Execution arrows successfully added to chart`);
+    }
+    
+    /**
+     * Create an arrow marker from execution data
+     * @param {Object} execution - Execution object
+     * @returns {Object} Arrow marker object for TradingView
+     */
+    createExecutionArrowMarker(execution) {
+        try {
+            // Convert timestamp to Unix timestamp for TradingView
+            const timestamp = this.alignExecutionTimestamp(execution.timestamp, this.currentTimeframe);
+            
+            // Determine arrow properties based on execution type and side
+            const arrowProps = this.getArrowProperties(execution);
+            
+            // Create marker object
+            const marker = {
+                time: timestamp,
+                position: arrowProps.position,
+                color: arrowProps.color,
+                shape: arrowProps.shape,
+                text: this.formatArrowText(execution),
+                id: `execution_${execution.execution_id}`,
+                size: this.calculateArrowSize(),
+                execution: execution // Store execution data for interactions
+            };
+            
+            console.log(`📍 Created arrow marker:`, marker);
+            return marker;
+            
+        } catch (error) {
+            console.error('❌ Error creating execution arrow marker:', error, execution);
+            return null;
+        }
+    }
+    
+    /**
+     * Validate execution data for arrow rendering
+     * @param {Object} execution - Execution object to validate
+     * @returns {boolean} True if execution is valid
+     */
+    isValidExecution(execution) {
+        if (!execution) return false;
+        
+        const required = ['execution_id', 'timestamp', 'price', 'quantity', 'side', 'type'];
+        const missing = required.filter(field => !execution.hasOwnProperty(field) || execution[field] === null);
+        
+        if (missing.length > 0) {
+            console.warn(`Invalid execution - missing fields: ${missing.join(', ')}`, execution);
+            return false;
+        }
+        
+        if (typeof execution.price !== 'number' || isNaN(execution.price)) {
+            console.warn('Invalid execution - price must be a number', execution);
+            return false;
+        }
+        
+        if (!['Buy', 'Sell'].includes(execution.side)) {
+            console.warn('Invalid execution - side must be Buy or Sell', execution);
+            return false;
+        }
+        
+        if (!['entry', 'exit'].includes(execution.type)) {
+            console.warn('Invalid execution - type must be entry or exit', execution);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Align execution timestamp to chart timeframe boundaries
+     * @param {string} timestamp - ISO timestamp string
+     * @param {string} timeframe - Chart timeframe (1m, 5m, 1h, etc.)
+     * @returns {number} Aligned Unix timestamp
+     */
+    alignExecutionTimestamp(timestamp, timeframe) {
+        const date = new Date(timestamp);
+        let alignedDate = new Date(date);
+        
+        // Align to timeframe boundaries for better arrow positioning
+        switch (timeframe) {
+            case '1m':
+                alignedDate.setSeconds(0, 0);
+                break;
+            case '5m':
+                const minutes5 = Math.floor(date.getMinutes() / 5) * 5;
+                alignedDate.setMinutes(minutes5, 0, 0);
+                break;
+            case '15m':
+                const minutes15 = Math.floor(date.getMinutes() / 15) * 15;
+                alignedDate.setMinutes(minutes15, 0, 0);
+                break;
+            case '1h':
+                alignedDate.setMinutes(0, 0, 0);
+                break;
+            case '4h':
+                const hours4 = Math.floor(date.getHours() / 4) * 4;
+                alignedDate.setHours(hours4, 0, 0, 0);
+                break;
+            case '1d':
+                alignedDate.setHours(0, 0, 0, 0);
+                break;
+            default:
+                // Default to exact timestamp for unknown timeframes
+                break;
+        }
+        
+        return Math.floor(alignedDate.getTime() / 1000); // Convert to Unix timestamp
+    }
+    
+    /**
+     * Determine arrow visual properties based on execution
+     * @param {Object} execution - Execution object
+     * @returns {Object} Arrow properties (position, color, shape)
+     */
+    getArrowProperties(execution) {
+        const isBuy = execution.side === 'Buy';
+        const isEntry = execution.type === 'entry';
+        
+        let position, color, shape;
+        
+        // Determine position and shape based on side and type
+        if (isBuy) {
+            position = 'belowBar';
+            shape = 'arrowUp';
+            color = '#4CAF50'; // Green for buy
+        } else {
+            position = 'aboveBar';
+            shape = 'arrowDown';
+            color = '#F44336'; // Red for sell
+        }
+        
+        return { position, color, shape };
+    }
+    
+    /**
+     * Format arrow text display
+     * @param {Object} execution - Execution object
+     * @returns {string} Formatted text for arrow
+     */
+    formatArrowText(execution) {
+        const type = execution.type.toUpperCase();
+        const quantity = Math.abs(execution.quantity);
+        const price = execution.price.toFixed(2);
+        
+        return `${type}: ${quantity}@${price}`;
+    }
+    
+    /**
+     * Calculate responsive arrow size based on chart dimensions
+     * @returns {number} Arrow size multiplier
+     */
+    calculateArrowSize() {
+        if (!this.container) return 1;
+        
+        const width = this.container.clientWidth;
+        
+        // Responsive sizing
+        if (width < 600) {
+            return 0.8; // Smaller arrows for small screens
+        } else if (width < 1000) {
+            return 1.0; // Default size for medium screens
+        } else {
+            return 1.2; // Larger arrows for large screens
+        }
+    }
+    
+    /**
+     * Clear all execution arrow markers
+     */
+    clearExecutionArrows() {
+        this.executionArrows = [];
+        this.updateChartMarkers();
+        this.clearArrowTooltip();
+        console.log('🧹 Cleared all execution arrows');
+    }
+    
+    /**
+     * Update chart with all markers (existing + execution arrows)
+     */
+    updateChartMarkers() {
+        if (!this.candlestickSeries) return;
+        
+        const allMarkers = [...this.markers, ...this.executionArrows];
+        this.candlestickSeries.setMarkers(allMarkers);
+        console.log(`📊 Updated chart with ${allMarkers.length} total markers`);
+    }
+    
+    /**
+     * Refresh execution arrows for timeframe changes
+     */
+    refreshExecutionArrows() {
+        if (this.executionArrows.length === 0) return;
+        
+        console.log('🔄 Refreshing execution arrows for timeframe change');
+        
+        // Extract original execution data and re-process
+        const executions = this.executionArrows.map(arrow => arrow.execution);
+        this.addExecutionArrows(executions);
+    }
+    
+    /**
+     * Setup interactive features for execution arrows
+     */
+    setupArrowInteractions() {
+        if (!this.chart) return;
+        
+        // Setup click handler for arrow-to-table linking
+        this.chart.subscribeClick((param) => {
+            this.handleArrowClick(param);
+        });
+        
+        // Setup crosshair move handler for arrow tooltips
+        this.chart.subscribeCrosshairMove((param) => {
+            this.handleArrowHover(param);
+        });
+        
+        console.log('🎮 Arrow interactions setup complete');
+    }
+    
+    /**
+     * Handle arrow click events for table row linking
+     * @param {Object} param - TradingView click parameter
+     */
+    handleArrowClick(param) {
+        if (!param.point || !param.time) return;
+        
+        // Find clicked arrow marker within tolerance
+        const tolerance = 60; // 1 minute tolerance
+        const clickedArrow = this.executionArrows.find(arrow => 
+            Math.abs(arrow.time - param.time) < tolerance
+        );
+        
+        if (clickedArrow) {
+            console.log('🎯 Arrow clicked:', clickedArrow);
+            this.highlightTableRow(clickedArrow.execution);
+            this.highlightArrowTemporarily(clickedArrow);
+        }
+    }
+    
+    /**
+     * Handle arrow hover events for tooltip display
+     * @param {Object} param - TradingView crosshair parameter
+     */
+    handleArrowHover(param) {
+        if (!param.point || !param.time) {
+            this.hideArrowTooltip();
+            return;
+        }
+        
+        // Find arrow marker near crosshair
+        const tolerance = 60; // 1 minute tolerance
+        const hoveredArrow = this.executionArrows.find(arrow => 
+            Math.abs(arrow.time - param.time) < tolerance
+        );
+        
+        if (hoveredArrow) {
+            this.showArrowTooltip(hoveredArrow, param.point);
+        } else {
+            this.hideArrowTooltip();
+        }
+    }
+    
+    /**
+     * Show tooltip for execution arrow
+     * @param {Object} arrow - Arrow marker object
+     * @param {Object} point - Mouse point coordinates
+     */
+    showArrowTooltip(arrow, point) {
+        if (!arrow.execution) return;
+        
+        // Create tooltip if it doesn't exist
+        if (!this.arrowTooltip) {
+            this.createArrowTooltip();
+        }
+        
+        const execution = arrow.execution;
+        const tooltipContent = this.formatTooltipContent(execution);
+        
+        // Update tooltip content
+        this.arrowTooltip.innerHTML = tooltipContent;
+        
+        // Position tooltip to avoid chart obstruction
+        const tooltipPos = this.calculateTooltipPosition(point);
+        this.arrowTooltip.style.left = `${tooltipPos.x}px`;
+        this.arrowTooltip.style.top = `${tooltipPos.y}px`;
+        
+        // Show tooltip with animation
+        this.arrowTooltip.style.display = 'block';
+        this.arrowTooltip.style.opacity = '1';
+        
+        console.log('💬 Showing arrow tooltip for execution:', execution.execution_id);
+    }
+    
+    /**
+     * Hide arrow tooltip
+     */
+    hideArrowTooltip() {
+        if (this.arrowTooltip) {
+            this.arrowTooltip.style.opacity = '0';
+            setTimeout(() => {
+                if (this.arrowTooltip) {
+                    this.arrowTooltip.style.display = 'none';
+                }
+            }, 200);
+        }
+    }
+    
+    /**
+     * Create tooltip element for execution arrows
+     */
+    createArrowTooltip() {
+        this.arrowTooltip = document.createElement('div');
+        this.arrowTooltip.className = 'execution-arrow-tooltip';
+        
+        // Apply mobile-responsive styles
+        const isMobile = window.innerWidth < 768;
+        const maxWidth = isMobile ? Math.min(300, window.innerWidth * 0.8) : 320;
+        
+        this.arrowTooltip.style.cssText = `
+            position: absolute;
+            z-index: 2000;
+            background: rgba(43, 43, 43, 0.95);
+            color: #e5e5e5;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            display: none;
+            opacity: 0;
+            max-width: ${maxWidth}px;
+            word-wrap: break-word;
+        `;
+        
+        this.container.appendChild(this.arrowTooltip);
+        console.log('💬 Arrow tooltip element created');
+    }
+    
+    /**
+     * Format tooltip content for execution
+     * @param {Object} execution - Execution object
+     * @returns {string} HTML content for tooltip
+     */
+    formatTooltipContent(execution) {
+        const time = new Date(execution.timestamp).toLocaleString();
+        const price = `$${execution.price.toFixed(2)}`;
+        const quantity = `${Math.abs(execution.quantity)} contracts`;
+        const commission = execution.commission ? `$${execution.commission.toFixed(2)}` : 'N/A';
+        const pnl = execution.pnl ? `$${execution.pnl.toFixed(2)}` : '$0.00';
+        const pnlColor = execution.pnl >= 0 ? '#4CAF50' : '#F44336';
+        
+        return `
+            <div style="margin-bottom: 8px; font-weight: bold; color: #ffd700; border-bottom: 1px solid #555; padding-bottom: 4px;">
+                ${execution.type.toUpperCase()} EXECUTION
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #b0b0b0;">Time:</span> <span style="color: #e5e5e5;">${time}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #b0b0b0;">Price:</span> <span style="color: #e5e5e5;">${price}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #b0b0b0;">Quantity:</span> <span style="color: #e5e5e5;">${quantity}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #b0b0b0;">Side:</span> <span style="color: ${execution.side === 'Buy' ? '#4CAF50' : '#F44336'};">${execution.side}</span>
+            </div>
+            <div style="margin-bottom: 4px;">
+                <span style="color: #b0b0b0;">Commission:</span> <span style="color: #e5e5e5;">${commission}</span>
+            </div>
+            <div>
+                <span style="color: #b0b0b0;">P&L:</span> <span style="color: ${pnlColor};">${pnl}</span>
+            </div>
+        `;
+    }
+    
+    /**
+     * Calculate tooltip position to avoid chart obstruction
+     * @param {Object} point - Mouse point coordinates
+     * @returns {Object} Calculated position {x, y}
+     */
+    calculateTooltipPosition(point) {
+        if (!this.arrowTooltip || !this.container) {
+            return { x: point.x, y: point.y };
+        }
+        
+        const containerRect = this.container.getBoundingClientRect();
+        const tooltipWidth = 320; // Estimated tooltip width
+        const tooltipHeight = 160; // Estimated tooltip height
+        const margin = 10;
+        
+        let x = point.x + margin;
+        let y = point.y - tooltipHeight - margin;
+        
+        // Adjust X position if tooltip would go off right edge
+        if (x + tooltipWidth > containerRect.width) {
+            x = point.x - tooltipWidth - margin;
+        }
+        
+        // Adjust Y position if tooltip would go off top edge
+        if (y < 0) {
+            y = point.y + margin;
+        }
+        
+        // Ensure tooltip stays within chart bounds
+        x = Math.max(margin, Math.min(x, containerRect.width - tooltipWidth - margin));
+        y = Math.max(margin, Math.min(y, containerRect.height - tooltipHeight - margin));
+        
+        return { x, y };
+    }
+    
+    /**
+     * Clear arrow tooltip element
+     */
+    clearArrowTooltip() {
+        if (this.arrowTooltip && this.arrowTooltip.parentNode) {
+            this.arrowTooltip.parentNode.removeChild(this.arrowTooltip);
+            this.arrowTooltip = null;
+        }
+    }
+    
+    /**
+     * Highlight table row corresponding to execution
+     * @param {Object} execution - Execution object
+     */
+    highlightTableRow(execution) {
+        // Dispatch custom event for table synchronization
+        const event = new CustomEvent('executionArrowClick', {
+            detail: { 
+                execution: execution,
+                action: 'highlight_table_row',
+                scroll_to_row: true,
+                highlight_duration: 2000
+            }
+        });
+        document.dispatchEvent(event);
+        
+        console.log('📋 Dispatched table row highlight event for execution:', execution.execution_id);
+    }
+    
+    /**
+     * Temporarily highlight an arrow marker
+     * @param {Object} arrow - Arrow marker object
+     */
+    highlightArrowTemporarily(arrow) {
+        if (!arrow) return;
+        
+        // Create temporary highlight marker
+        const highlightMarker = {
+            ...arrow,
+            color: '#FFD700', // Gold highlight
+            size: arrow.size * 1.5 // Larger size for highlight
+        };
+        
+        // Replace arrow temporarily
+        const arrowIndex = this.executionArrows.findIndex(a => a.id === arrow.id);
+        if (arrowIndex !== -1) {
+            const originalArrow = { ...this.executionArrows[arrowIndex] };
+            this.executionArrows[arrowIndex] = highlightMarker;
+            this.updateChartMarkers();
+            
+            // Reset after 2 seconds
+            setTimeout(() => {
+                if (arrowIndex < this.executionArrows.length) {
+                    this.executionArrows[arrowIndex] = originalArrow;
+                    this.updateChartMarkers();
+                }
+            }, 2000);
+        }
+        
+        console.log('✨ Temporarily highlighted arrow:', arrow.id);
+    }
+    
+    /**
+     * Handle external table row interactions (bi-directional)
+     * @param {Object} execution - Execution object to highlight
+     */
+    highlightArrowFromTable(execution) {
+        const arrow = this.executionArrows.find(a => 
+            a.execution && a.execution.execution_id === execution.execution_id
+        );
+        
+        if (arrow) {
+            this.highlightArrowTemporarily(arrow);
+            
+            // Scroll chart to show the arrow if it's outside visible range
+            if (this.chart && this.chart.timeScale) {
+                const visibleRange = this.chart.timeScale().getVisibleRange();
+                if (visibleRange && (arrow.time < visibleRange.from || arrow.time > visibleRange.to)) {
+                    // Center the arrow in the visible range
+                    const rangeSize = visibleRange.to - visibleRange.from;
+                    const newFrom = arrow.time - rangeSize / 2;
+                    const newTo = arrow.time + rangeSize / 2;
+                    
+                    this.chart.timeScale().setVisibleRange({ from: newFrom, to: newTo });
+                    console.log('📍 Scrolled chart to show highlighted arrow');
+                }
+            }
+        }
+    }
+    
     updateTimeframe(timeframe) {
         if (this.state === 'loading') {
             console.warn('Chart is loading, ignoring timeframe change');
@@ -875,8 +1419,14 @@ class PriceChart {
         
         console.log(`Updating timeframe from ${this.options.timeframe} to ${timeframe}`);
         this.options.timeframe = timeframe;
+        this.currentTimeframe = timeframe;
         this.updateTimeframeSelect(timeframe);
         this.loadData();
+        
+        // Refresh execution arrows for new timeframe if they exist
+        if (this.executionArrows.length > 0) {
+            this.refreshExecutionArrows();
+        }
     }
     
     updateDays(days) {
@@ -1556,6 +2106,9 @@ class PriceChart {
         // Clear position price lines before destroying chart
         this.clearPositionLines();
         
+        // Clear execution arrows and tooltips
+        this.clearExecutionArrows();
+        
         // Clear any error messages
         this.clearErrors();
         
@@ -1598,6 +2151,7 @@ class PriceChart {
         this.candlestickSeries = null;
         this.volumeSeries = null;
         this.markers = [];
+        this.executionArrows = [];
         this.priceLines = [];
         this.container = null;
     }

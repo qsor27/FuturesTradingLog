@@ -70,7 +70,10 @@
       "Bash(export:*)",
       "Bash(gh pr create:*)",
       "Bash(netstat:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(bundle exec rspec:*)",
+      "Bash(set PYTHONPATH=%cd%)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "additionalDirectories": [

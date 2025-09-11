@@ -53,7 +53,7 @@ def setup_application_logging():
         app_handler.setFormatter(detailed_formatter)
         root_logger.addHandler(app_handler)
         
-        print(f"✓ Logging initialized successfully to {log_dir}")
+        print(f"[OK] Logging initialized successfully to {log_dir}")
         
         
         # 2. Error-only log file (errors and above)
