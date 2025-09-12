@@ -148,6 +148,8 @@ def delete_trades():
 
 @main_bp.route('/upload', methods=['POST'])
 def upload_file():
+    """DEPRECATED: Legacy file upload. Use unified CSV import system instead."""
+    logger.warning("DEPRECATED: /upload called. Use unified CSV import system instead.")
     if 'file' not in request.files:
         return jsonify({'success': False, 'message': 'No file uploaded'}), 400
     
@@ -259,7 +261,8 @@ def safe_move_file(src, dst, max_attempts=5, delay=1):
 
 @main_bp.route('/process-nt-executions', methods=['POST'])
 def process_nt_executions():
-    """Process NinjaTrader execution exports"""
+    """DEPRECATED: Process NinjaTrader execution exports. Use unified CSV import system instead."""
+    logger.warning("DEPRECATED: /process-nt-executions called. Use unified CSV import system instead.")
     temp_dir = "temp_processing"
     os.makedirs(temp_dir, exist_ok=True)
     
@@ -424,7 +427,8 @@ def process_nt_executions():
 
 @main_bp.route('/csv-manager')
 def csv_manager():
-    """CSV Management interface for batch import operations"""
+    """DEPRECATED: Legacy CSV Management interface for batch import operations. Use /unified-csv-manager instead."""
+    logger.warning("DEPRECATED: /csv-manager called. Use /unified-csv-manager with unified import system instead.")
     from config import config
     
     # Get list of CSV files in data directory and archive subdirectory
@@ -468,6 +472,11 @@ def csv_manager():
         csv_files = []
     
     return render_template('csv_manager.html', csv_files=csv_files, data_dir=data_dir)
+
+@main_bp.route('/unified-csv-manager')
+def unified_csv_manager():
+    """Unified CSV Management interface using the new unified import system"""
+    return render_template('unified_csv_manager.html')
 
 def detect_csv_format(file_path):
     """Detect if CSV is NinjaTrader format or processed TradeLog format"""
@@ -538,7 +547,8 @@ def process_ninjatrade_file(file_path):
 
 @main_bp.route('/batch-import-csv', methods=['POST'])
 def batch_import_csv():
-    """Import multiple CSV files in batch"""
+    """DEPRECATED: Import multiple CSV files in batch. Use /api/csv/process-new-files instead."""
+    logger.warning("DEPRECATED: /batch-import-csv called. Use /api/csv/process-new-files instead.")
     try:
         data = request.get_json()
         selected_files = data.get('selected_files', [])

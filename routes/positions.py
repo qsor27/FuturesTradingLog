@@ -411,7 +411,8 @@ def delete_positions():
 
 @positions_bp.route('/list-csv-files')
 def list_csv_files():
-    """List available CSV files for re-import"""
+    """DEPRECATED: List available CSV files for re-import. Use /api/csv/available-files instead."""
+    logger.warning("DEPRECATED: /positions/list-csv-files called. Use /api/csv/available-files instead.")
     try:
         from config import config
         data_dir = config.data_dir
@@ -440,7 +441,8 @@ def list_csv_files():
 
 @positions_bp.route('/reimport-csv', methods=['POST'])
 def reimport_csv():
-    """Re-import trades from a selected CSV file"""
+    """DEPRECATED: Re-import trades from a selected CSV file. Use /api/csv/reprocess instead."""
+    logger.warning("DEPRECATED: /positions/reimport-csv called. Use /api/csv/reprocess instead.")
     try:
         data = request.get_json()
         

@@ -1,0 +1,476 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="bg-white shadow rounded-lg p-6">
+        <div class="mb-6 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-900">Unified CSV Import Manager</h1>
+            <div class="flex space-x-3">
+                <button id="refreshBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Refresh Status
+                </button>
+                <button id="processNewBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Process New Files
+                </button>
+                <a href="{{ url_for('positions.positions_dashboard') }}" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                    Back to Positions
+                </a>
+            </div>
+        </div>
+
+        <!-- Status Section -->
+        <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 class="text-lg font-semibold text-blue-800 mb-3">Import Service Status</h3>
+                <div id="importServiceStatus" class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-sm text-blue-700">Processed Files:</span>
+                        <span class="text-sm font-medium text-blue-900" id="processedFilesCount">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-sm text-blue-700">Data Directory:</span>
+                        <span class="text-sm font-medium text-blue-900" id="dataDirectory">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-sm text-blue-700">Last Check:</span>
+                        <span class="text-sm font-medium text-blue-900" id="lastCheck">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h3 class="text-lg font-semibold text-green-800 mb-3">File Watcher Status</h3>
+                <div id="fileWatcherStatus" class="space-y-2">
+                    <div class="flex justify-between">
+                        <span class="text-sm text-green-700">Status:</span>
+                        <span class="text-sm font-medium" id="watcherStatus">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-sm text-green-700">Check Interval:</span>
+                        <span class="text-sm font-medium text-green-900" id="checkInterval">-</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-green-700">Controls:</span>
+                        <div class="space-x-2">
+                            <button id="startWatcherBtn" class="bg-green-500 hover:bg-green-600 text-white text-xs px-2 py-1 rounded">
+                                Start
+                            </button>
+                            <button id="stopWatcherBtn" class="bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded">
+                                Stop
+                            </button>
+                            <button id="forceCheckBtn" class="bg-orange-500 hover:bg-orange-600 text-white text-xs px-2 py-1 rounded">
+                                Force Check
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress/Results Section -->
+        <div id="progressContainer" class="mb-6 hidden">
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <h3 class="text-lg font-semibold text-yellow-800 mb-3">Processing...</h3>
+                <div class="bg-yellow-200 rounded-full h-4">
+                    <div id="progressBar" class="bg-yellow-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div id="progressText" class="text-sm text-yellow-700 mt-2">Processing files...</div>
+            </div>
+        </div>
+
+        <div id="resultsContainer" class="mb-6 hidden">
+            <div class="border border-gray-200 rounded-lg p-4">
+                <h3 class="text-lg font-semibold text-gray-800 mb-3">Processing Results</h3>
+                <div id="resultsContent"></div>
+            </div>
+        </div>
+
+        <!-- Available Files Section -->
+        <div class="mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-900">Available CSV Files</h2>
+                <div class="flex gap-2">
+                    <button id="refreshFilesBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded text-sm">
+                        Refresh Files
+                    </button>
+                    <button id="resetProcessedBtn" class="bg-orange-500 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded text-sm">
+                        Reset Processed
+                    </button>
+                </div>
+            </div>
+
+            <div id="filesContainer">
+                <div class="text-center py-8">
+                    <div class="text-gray-500 text-lg">Loading files...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+class UnifiedCSVManager {
+    constructor() {
+        this.isProcessing = false;
+        this.files = [];
+        this.init();
+    }
+
+    init() {
+        this.bindEvents();
+        this.refreshStatus();
+        this.loadFiles();
+    }
+
+    bindEvents() {
+        document.getElementById('refreshBtn').addEventListener('click', () => this.refreshStatus());
+        document.getElementById('processNewBtn').addEventListener('click', () => this.processNewFiles());
+        document.getElementById('refreshFilesBtn').addEventListener('click', () => this.loadFiles());
+        document.getElementById('resetProcessedBtn').addEventListener('click', () => this.resetProcessedFiles());
+        
+        // File watcher controls
+        document.getElementById('startWatcherBtn').addEventListener('click', () => this.startFileWatcher());
+        document.getElementById('stopWatcherBtn').addEventListener('click', () => this.stopFileWatcher());
+        document.getElementById('forceCheckBtn').addEventListener('click', () => this.forceFileCheck());
+    }
+
+    async refreshStatus() {
+        try {
+            const response = await fetch('/api/csv/status');
+            const data = await response.json();
+            
+            if (data.success) {
+                this.updateStatusDisplay(data);
+            } else {
+                this.showError('Failed to load status: ' + data.error);
+            }
+        } catch (error) {
+            this.showError('Error loading status: ' + error.message);
+        }
+    }
+
+    updateStatusDisplay(data) {
+        // Update import service status
+        document.getElementById('processedFilesCount').textContent = data.import_service.total_processed_files || 0;
+        document.getElementById('dataDirectory').textContent = data.data_directory || '-';
+        document.getElementById('lastCheck').textContent = data.import_service.last_check ? 
+            new Date(data.import_service.last_check).toLocaleString() : '-';
+
+        // Update file watcher status
+        const isRunning = data.file_watcher.is_running;
+        const statusElement = document.getElementById('watcherStatus');
+        statusElement.textContent = isRunning ? 'Running' : 'Stopped';
+        statusElement.className = isRunning ? 'text-sm font-medium text-green-600' : 'text-sm font-medium text-red-600';
+        
+        document.getElementById('checkInterval').textContent = data.file_watcher.check_interval + 's';
+    }
+
+    async loadFiles() {
+        try {
+            const response = await fetch('/api/csv/available-files');
+            const data = await response.json();
+            
+            if (data.success) {
+                this.files = data.files;
+                this.renderFilesTable(data.files);
+            } else {
+                this.showError('Failed to load files: ' + data.error);
+            }
+        } catch (error) {
+            this.showError('Error loading files: ' + error.message);
+        }
+    }
+
+    renderFilesTable(files) {
+        const container = document.getElementById('filesContainer');
+        
+        if (files.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="text-gray-500 text-lg">No CSV files found</div>
+                    <p class="text-gray-400 mt-2">Upload some CSV files to get started</p>
+                </div>
+            `;
+            return;
+        }
+
+        const tableHTML = `
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Filename</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Modified</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${files.map(file => this.renderFileRow(file)).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        container.innerHTML = tableHTML;
+        this.bindFileActions();
+    }
+
+    renderFileRow(file) {
+        const sizeKB = (file.size / 1024).toFixed(2);
+        const modifiedDate = new Date(file.modified * 1000).toLocaleString();
+        const statusClass = file.is_processed ? 'text-green-600' : 'text-blue-600';
+        const statusText = file.is_processed ? 'Processed' : 'New';
+        const locationClass = file.location === 'archive' ? 'text-gray-500' : 'text-blue-600';
+
+        return `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-4">
+                    <div class="text-sm font-medium text-gray-900">${file.filename}</div>
+                </td>
+                <td class="px-4 py-4">
+                    <div class="text-sm text-gray-500">${sizeKB} KB</div>
+                </td>
+                <td class="px-4 py-4">
+                    <div class="text-sm text-gray-500">${modifiedDate}</div>
+                </td>
+                <td class="px-4 py-4">
+                    <div class="text-sm font-medium ${statusClass}">${statusText}</div>
+                </td>
+                <td class="px-4 py-4">
+                    <div class="text-sm ${locationClass}">${file.location}</div>
+                </td>
+                <td class="px-4 py-4">
+                    <button class="reprocess-btn bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-sm"
+                            data-path="${file.path}">
+                        Reprocess
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+
+    bindFileActions() {
+        document.querySelectorAll('.reprocess-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filePath = e.target.dataset.path;
+                this.reprocessFile(filePath);
+            });
+        });
+    }
+
+    async processNewFiles() {
+        if (this.isProcessing) return;
+
+        this.isProcessing = true;
+        this.showProgress('Processing new files...');
+
+        try {
+            const response = await fetch('/api/csv/process-new-files', {
+                method: 'POST'
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showResults({
+                    success: true,
+                    message: `Successfully processed ${data.files_processed} files, imported ${data.trades_imported} trades, created ${data.positions_created} positions.`,
+                    details: data
+                });
+            } else {
+                this.showResults({
+                    success: false,
+                    message: 'Processing failed: ' + data.error,
+                    details: data
+                });
+            }
+        } catch (error) {
+            this.showResults({
+                success: false,
+                message: 'Processing error: ' + error.message
+            });
+        } finally {
+            this.isProcessing = false;
+            this.hideProgress();
+            this.refreshStatus();
+            this.loadFiles();
+        }
+    }
+
+    async reprocessFile(filePath) {
+        if (this.isProcessing) return;
+
+        this.isProcessing = true;
+        this.showProgress(`Reprocessing ${filePath.split('/').pop()}...`);
+
+        try {
+            const response = await fetch('/api/csv/reprocess', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ file_path: filePath })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showResults({
+                    success: true,
+                    message: `Successfully reprocessed file. Imported ${data.trades_imported} trades, created ${data.positions_created} positions.`,
+                    details: data
+                });
+            } else {
+                this.showResults({
+                    success: false,
+                    message: 'Reprocessing failed: ' + data.error,
+                    details: data
+                });
+            }
+        } catch (error) {
+            this.showResults({
+                success: false,
+                message: 'Reprocessing error: ' + error.message
+            });
+        } finally {
+            this.isProcessing = false;
+            this.hideProgress();
+            this.refreshStatus();
+            this.loadFiles();
+        }
+    }
+
+    async startFileWatcher() {
+        try {
+            const response = await fetch('/api/csv/file-watcher/start', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess(data.message);
+                this.refreshStatus();
+            } else {
+                this.showError(data.error);
+            }
+        } catch (error) {
+            this.showError('Error starting file watcher: ' + error.message);
+        }
+    }
+
+    async stopFileWatcher() {
+        try {
+            const response = await fetch('/api/csv/file-watcher/stop', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess(data.message);
+                this.refreshStatus();
+            } else {
+                this.showError(data.error);
+            }
+        } catch (error) {
+            this.showError('Error stopping file watcher: ' + error.message);
+        }
+    }
+
+    async forceFileCheck() {
+        try {
+            const response = await fetch('/api/csv/force-file-check', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess('File check completed');
+                this.refreshStatus();
+                this.loadFiles();
+            } else {
+                this.showError(data.error);
+            }
+        } catch (error) {
+            this.showError('Error forcing file check: ' + error.message);
+        }
+    }
+
+    async resetProcessedFiles() {
+        if (!confirm('Are you sure you want to reset the processed files list? This will allow all files to be reprocessed.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/csv/reset-processed-files', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showSuccess(data.message);
+                this.loadFiles();
+            } else {
+                this.showError(data.error);
+            }
+        } catch (error) {
+            this.showError('Error resetting processed files: ' + error.message);
+        }
+    }
+
+    showProgress(message) {
+        const container = document.getElementById('progressContainer');
+        const text = document.getElementById('progressText');
+        const bar = document.getElementById('progressBar');
+        
+        text.textContent = message;
+        bar.style.width = '0%';
+        container.classList.remove('hidden');
+        
+        // Simulate progress
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 10;
+            bar.style.width = Math.min(progress, 90) + '%';
+            if (progress >= 90) clearInterval(interval);
+        }, 100);
+        
+        this.progressInterval = interval;
+    }
+
+    hideProgress() {
+        const container = document.getElementById('progressContainer');
+        const bar = document.getElementById('progressBar');
+        
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+        }
+        
+        bar.style.width = '100%';
+        setTimeout(() => container.classList.add('hidden'), 500);
+    }
+
+    showResults(result) {
+        const container = document.getElementById('resultsContainer');
+        const content = document.getElementById('resultsContent');
+        
+        const bgClass = result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200';
+        const textClass = result.success ? 'text-green-800' : 'text-red-800';
+        
+        content.innerHTML = `
+            <div class="border rounded-lg p-4 ${bgClass}">
+                <div class="${textClass} font-medium">${result.message}</div>
+                ${result.details ? `<pre class="mt-2 text-sm ${textClass.replace('800', '700')}">${JSON.stringify(result.details, null, 2)}</pre>` : ''}
+            </div>
+        `;
+        
+        container.classList.remove('hidden');
+    }
+
+    showError(message) {
+        this.showResults({ success: false, message: message });
+    }
+
+    showSuccess(message) {
+        this.showResults({ success: true, message: message });
+    }
+}
+
+// Initialize the manager when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new UnifiedCSVManager();
+});
+</script>
+{% endblock %}
