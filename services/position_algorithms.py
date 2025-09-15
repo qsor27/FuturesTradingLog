@@ -28,8 +28,8 @@ class QuantityFlow:
             self.action_type = 'START'
         elif running_quantity == 0:
             self.action_type = 'CLOSE'
-        elif (previous_quantity > 0 and execution['side_of_market'] in ['Sell', 'SellShort']) or \
-             (previous_quantity < 0 and execution['side_of_market'] in ['Buy', 'BuyToCover']):
+        elif (previous_quantity > 0 and execution['side_of_market'] in ['Sell', 'SellShort', 'Short']) or \
+             (previous_quantity < 0 and execution['side_of_market'] in ['Buy', 'BuyToCover', 'Long']):
             self.action_type = 'REDUCE'
         else:
             self.action_type = 'ADD'
@@ -56,9 +56,9 @@ def calculate_running_quantity(executions: List[Dict]) -> List[QuantityFlow]:
         side = execution['side_of_market']
         quantity = execution['quantity']
         
-        if side in ['Buy', 'BuyToCover']:
+        if side in ['Buy', 'BuyToCover', 'Long']:
             signed_change = quantity
-        elif side in ['Sell', 'SellShort']:
+        elif side in ['Sell', 'SellShort', 'Short']:
             signed_change = -quantity
         else:
             logger.warning(f"Unknown side_of_market: {side} in execution {execution.get('id', 'unknown')}")

@@ -126,7 +126,6 @@ class EnhancedPositionServiceV2:
         # Get all trades grouped by account and instrument
         self.cursor.execute("""
             SELECT * FROM trades 
-            WHERE deleted = 0 OR deleted IS NULL 
             ORDER BY account, instrument, entry_time
         """)
         
@@ -178,74 +177,100 @@ class EnhancedPositionServiceV2:
         
         logger.debug(f"Processing {len(trades)} trades for {account}/{instrument}")
         
-        # Convert trades to execution format expected by algorithms
-        executions = []
-        for trade in trades:
-            executions.append({
-                'id': trade['id'],
-                'instrument': trade['instrument'],
-                'account': trade['account'],
-                'side_of_market': trade['side_of_market'],
-                'quantity': trade['quantity'],
-                'entry_price': trade['entry_price'],
-                'exit_price': trade['exit_price'],
-                'entry_time': datetime.fromisoformat(trade['entry_time']) if isinstance(trade['entry_time'], str) else trade['entry_time'],
-                'commission': trade.get('commission', 0)
-            })
-        
-        # Calculate quantity flows
-        quantity_flows = calculate_running_quantity(executions)
-        
-        # Validate boundaries
-        validation_errors = validate_position_boundaries(quantity_flows)
-        if validation_errors:
-            logger.warning(f"Validation errors for {account}/{instrument}: {validation_errors}")
-        
-        # Group into positions
-        position_groups = group_executions_by_position(quantity_flows)
-        
+        # Since each trade record represents a complete round-trip position,
+        # directly create position records from trade data
         positions_created = 0
-        for position_flows in position_groups:
+        validation_errors = []
+        
+        for trade in trades:
             try:
-                # Calculate P&L if position is closed
-                if position_flows[-1].running_quantity == 0:
-                    # Get instrument multiplier
-                    multiplier = self._get_instrument_multiplier(instrument)
-                    pnl_data = calculate_position_pnl(position_flows, Decimal(str(multiplier)))
-                else:
-                    pnl_data = {'error': 'Position is still open'}
-                
-                # Create position summary
-                summary = create_position_summary(position_flows, pnl_data)
-                
-                # Save position to database
-                position_id = self._save_enhanced_position(summary, position_flows)
+                logger.info(f"DEBUG: Processing trade {trade['id']}: {trade.get('entry_price')} -> {trade.get('exit_price')}")
+                position_id = self._create_position_from_trade(trade)
                 if position_id:
                     positions_created += 1
-                    
+                    logger.info(f"Created position {position_id} from trade {trade['id']}")
+                else:
+                    logger.warning(f"No position ID returned for trade {trade['id']}")
             except Exception as e:
-                logger.error(f"Failed to create position from flows: {e}")
-                validation_errors.append(f"Position creation failed: {str(e)}")
+                error_msg = f"Failed to create position from trade {trade['id']}: {str(e)}"
+                logger.error(error_msg)
+                validation_errors.append(error_msg)
         
         return {
             'positions_created': positions_created,
             'validation_errors': validation_errors
         }
     
-    def _get_instrument_multiplier(self, instrument: str) -> float:
-        """Get instrument multiplier for P&L calculations"""
-        # Load from config or use default
-        try:
-            from config import config
-            import json
-            with open(config.instrument_config, 'r') as f:
-                multipliers = json.load(f)
-            return float(multipliers.get(instrument, 1.0))
-        except Exception as e:
-            logger.warning(f"Could not load multiplier for {instrument}: {e}")
-            return 1.0
+    def _create_position_from_trade(self, trade: Dict) -> Optional[int]:
+        """Create a position record directly from a trade record"""
+        
+        logger.info(f"DEBUG: _create_position_from_trade called for trade {trade['id']}")
+        logger.info(f"DEBUG: exit_price={trade.get('exit_price')}, exit_time={trade.get('exit_time')}")
+        
+        # Only create positions for completed trades (have exit data)
+        if not trade.get('exit_price') or not trade.get('exit_time'):
+            logger.warning(f"Skipping incomplete trade {trade['id']} - no exit data: exit_price={trade.get('exit_price')}, exit_time={trade.get('exit_time')}")
+            return None
+        
+        # Convert entry/exit times to proper format
+        entry_time = trade['entry_time']
+        exit_time = trade['exit_time']
+        
+        if isinstance(entry_time, str):
+            entry_time = datetime.fromisoformat(entry_time)
+        if isinstance(exit_time, str):
+            exit_time = datetime.fromisoformat(exit_time)
+        
+        # Calculate P&L using existing trade data
+        points_pnl = trade.get('points_gain_loss', 0)
+        dollars_pnl = trade.get('dollars_gain_loss', 0)
+        
+        # If P&L not calculated, calculate it
+        if points_pnl is None:
+            if trade['side_of_market'] == 'Long':
+                points_pnl = trade['exit_price'] - trade['entry_price']
+            else:  # Short
+                points_pnl = trade['entry_price'] - trade['exit_price']
+        
+        if dollars_pnl is None:
+            dollars_pnl = points_pnl * trade['quantity']
+        
+        # Insert position record
+        self.cursor.execute("""
+            INSERT INTO positions (
+                instrument, account, position_type, entry_time, exit_time,
+                total_quantity, average_entry_price, average_exit_price,
+                total_points_pnl, total_dollars_pnl, total_commission,
+                position_status, execution_count, max_quantity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            trade['instrument'],
+            trade['account'],
+            trade['side_of_market'],  # 'Long' or 'Short'
+            entry_time,
+            exit_time,
+            trade['quantity'],
+            trade['entry_price'],
+            trade['exit_price'],
+            points_pnl,
+            dollars_pnl,
+            trade.get('commission', 0),
+            'closed',
+            1,  # Single trade = 1 execution
+            trade['quantity']  # Max quantity is same as total for single trades
+        ))
+        
+        position_id = self.cursor.lastrowid
+        
+        # Create position_execution mapping
+        self.cursor.execute("""
+            INSERT INTO position_executions (position_id, trade_id, execution_order)
+            VALUES (?, ?, ?)
+        """, (position_id, trade['id'], 1))
+        
+        return position_id
     
-    def _save_enhanced_position(self, summary: Dict, flows: List) -> Optional[int]:
+    def get_positions(self, account: Optional[str] = None, instrument: Optional[str] = None) -> List[Dict]:
         """Save position using enhanced summary data"""
         try:
             if 'error' in summary:
