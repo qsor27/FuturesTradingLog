@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, jsonify
 from datetime import datetime, timedelta
 from scripts.TradingLog_db import FuturesDB
+from services.statistics_calculation_service import DashboardStatisticsIntegration
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -10,10 +11,20 @@ reports_bp = Blueprint('reports', __name__)
 def reports_dashboard():
     """Main reports dashboard with overview cards and filters"""
     try:
-        with FuturesDB() as db:
-            # Get basic overview stats
-            overview_stats = db.get_overview_statistics()
+        # Get basic overview stats using standardized calculations
+        overview_stats = DashboardStatisticsIntegration.get_overview_statistics_standardized()
+        
+        # Format numbers for template compatibility with {:,.2f} format
+        if 'total_pnl' in overview_stats:
+            overview_stats['total_pnl_formatted'] = f"{overview_stats['total_pnl']:,.2f}"
+        if 'avg_trade_pnl' in overview_stats:
+            overview_stats['avg_trade_pnl_formatted'] = f"{overview_stats['avg_trade_pnl']:,.2f}"
+        if 'total_commission' in overview_stats:
+            overview_stats['total_commission_formatted'] = f"{overview_stats['total_commission']:,.2f}"
             
+        logger.info(f"Overview stats: {overview_stats}")
+        
+        with FuturesDB() as db:
             # Get available accounts for filtering
             accounts = db.get_unique_accounts()
             
@@ -30,7 +41,19 @@ def reports_dashboard():
                              date_range=date_range)
     except Exception as e:
         logger.error(f"Error loading reports dashboard: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return render_template('error.html', error="Failed to load reports dashboard"), 500
+
+@reports_bp.route('/reports/debug')
+def debug_overview_stats():
+    """Debug route to test standardized statistics"""
+    try:
+        stats = DashboardStatisticsIntegration.get_overview_statistics_standardized()
+        return jsonify(stats)
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 @reports_bp.route('/reports/performance')
 def performance_report():
@@ -199,7 +222,7 @@ def api_summary_stats():
         end_date = request.args.get('end_date')
         
         with FuturesDB() as db:
-            stats = db.get_summary_statistics(
+            stats = DashboardStatisticsIntegration.get_summary_statistics_standardized(
                 account=account,
                 instrument=instrument,
                 start_date=start_date,
