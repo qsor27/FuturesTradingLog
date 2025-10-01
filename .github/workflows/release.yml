@@ -169,12 +169,6 @@ jobs:
         Remove-Item -Recurse -Force vendor\nssm\nssm-2.24
         Remove-Item nssm.zip
 
-    - name: Create application icon placeholder
-      run: |
-        New-Item -ItemType Directory -Force -Path static\images
-        # In production, replace this with actual icon creation
-        echo "Icon placeholder" | Out-File -FilePath static\images\icon.ico -Encoding ASCII
-
     - name: Build Windows installer
       run: |
         python build_installer.py

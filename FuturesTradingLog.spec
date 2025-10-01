@@ -94,7 +94,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='static/images/icon.ico' if Path('static/images/icon.ico').exists() else None,
 )
 
 coll = COLLECT(
