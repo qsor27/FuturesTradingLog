@@ -35,47 +35,47 @@ class InstallerBuilder:
 
     def clean_build(self):
         """Remove previous build artifacts."""
-        print("🧹 Cleaning previous build artifacts...")
+        print("[*] Cleaning previous build artifacts...")
 
         dirs_to_clean = [self.dist_dir, self.build_dir, self.output_dir]
         for dir_path in dirs_to_clean:
             if dir_path.exists():
                 shutil.rmtree(dir_path)
-                print(f"   Removed {dir_path}")
+                print(f"    Removed {dir_path}")
 
-        print("✅ Clean complete")
+        print("[OK] Clean complete")
 
     def download_dependencies(self):
         """Download Redis and NSSM if not already present."""
-        print("📥 Checking vendor dependencies...")
+        print("[*] Checking vendor dependencies...")
 
         self.vendor_dir.mkdir(exist_ok=True)
 
         # Check for Redis
         redis_dir = self.vendor_dir / "redis"
         if not redis_dir.exists() or not (redis_dir / "redis-server.exe").exists():
-            print("⚠️  Redis binaries not found in vendor/redis/")
-            print("   Please download Redis for Windows and extract to vendor/redis/")
-            print("   Download: https://github.com/microsoftarchive/redis/releases")
+            print("[WARN] Redis binaries not found in vendor/redis/")
+            print("       Please download Redis for Windows and extract to vendor/redis/")
+            print("       Download: https://github.com/microsoftarchive/redis/releases")
             return False
         else:
-            print("✅ Redis binaries found")
+            print("[OK] Redis binaries found")
 
         # Check for NSSM
         nssm_dir = self.vendor_dir / "nssm" / "win64"
         if not nssm_dir.exists() or not (nssm_dir / "nssm.exe").exists():
-            print("⚠️  NSSM not found in vendor/nssm/win64/")
-            print("   Please download NSSM and extract to vendor/nssm/win64/")
-            print("   Download: https://nssm.cc/download")
+            print("[WARN] NSSM not found in vendor/nssm/win64/")
+            print("       Please download NSSM and extract to vendor/nssm/win64/")
+            print("       Download: https://nssm.cc/download")
             return False
         else:
-            print("✅ NSSM found")
+            print("[OK] NSSM found")
 
         return True
 
     def build_executables(self):
         """Build all executables using PyInstaller."""
-        print("🔨 Building executables with PyInstaller...")
+        print("[*] Building executables with PyInstaller...")
 
         specs = [
             "FuturesTradingLog.spec",
@@ -86,10 +86,10 @@ class InstallerBuilder:
         for spec in specs:
             spec_path = self.root_dir / spec
             if not spec_path.exists():
-                print(f"⚠️  Spec file not found: {spec}")
+                print(f"[WARN] Spec file not found: {spec}")
                 continue
 
-            print(f"   Building {spec}...")
+            print(f"    Building {spec}...")
             result = subprocess.run(
                 ["pyinstaller", "--clean", str(spec_path)],
                 capture_output=True,
@@ -97,11 +97,11 @@ class InstallerBuilder:
             )
 
             if result.returncode != 0:
-                print(f"❌ Build failed for {spec}")
+                print(f"[ERROR] Build failed for {spec}")
                 print(result.stderr)
                 return False
             else:
-                print(f"✅ Built {spec}")
+                print(f"[OK] Built {spec}")
 
         return True
 
@@ -137,11 +137,11 @@ echo All services stopped!
 pause
 """)
 
-        print("✅ Helper scripts created")
+        print("[OK] Helper scripts created")
 
     def create_redis_config(self):
         """Create Redis configuration template."""
-        print("📝 Creating Redis configuration template...")
+        print("[*] Creating Redis configuration template...")
 
         redis_config_dir = self.vendor_dir / "redis"
         redis_config_dir.mkdir(parents=True, exist_ok=True)
@@ -168,11 +168,11 @@ maxmemory 256mb
 maxmemory-policy allkeys-lru
 """)
 
-        print("✅ Redis config created")
+        print("[OK] Redis config created")
 
     def build_installer(self):
         """Compile the Inno Setup installer."""
-        print("📦 Building Windows installer...")
+        print("[*] Building Windows installer...")
 
         # Find Inno Setup compiler
         iscc_paths = [
@@ -187,14 +187,14 @@ maxmemory-policy allkeys-lru
                 break
 
         if not iscc_exe:
-            print("❌ Inno Setup compiler (ISCC.exe) not found")
+            print("[ERROR] Inno Setup compiler (ISCC.exe) not found")
             print("   Please install Inno Setup 6 from https://jrsoftware.org/isdl.php")
             return False
 
         # Check if installer script exists
         installer_script = self.root_dir / "installer.iss"
         if not installer_script.exists():
-            print(f"❌ Installer script not found: {installer_script}")
+            print(f"[ERROR] Installer script not found: {installer_script}")
             return False
 
         # Compile installer
@@ -206,18 +206,18 @@ maxmemory-policy allkeys-lru
         )
 
         if result.returncode != 0:
-            print("❌ Installer compilation failed")
+            print("[ERROR] Installer compilation failed")
             print(result.stderr)
             return False
 
-        print("✅ Installer built successfully")
+        print("[OK] Installer built successfully")
 
         # Find the generated installer
         installer_files = list(self.output_dir.glob("*.exe"))
         if installer_files:
             installer_path = installer_files[0]
-            print(f"📦 Installer: {installer_path}")
-            print(f"   Size: {installer_path.stat().st_size / (1024*1024):.1f} MB")
+            print(f"[*] Installer: {installer_path}")
+            print(f"    Size: {installer_path.stat().st_size / (1024*1024):.1f} MB")
 
         return True
 
@@ -234,7 +234,7 @@ maxmemory-policy allkeys-lru
         # Step 2: Check dependencies
         if not skip_download:
             if not self.download_dependencies():
-                print("\n❌ Build aborted: Missing vendor dependencies")
+                print("\n[ERROR] Build aborted: Missing vendor dependencies")
                 return False
 
         # Step 3: Create Redis config
@@ -242,7 +242,7 @@ maxmemory-policy allkeys-lru
 
         # Step 4: Build executables
         if not self.build_executables():
-            print("\n❌ Build aborted: Executable build failed")
+            print("\n[ERROR] Build aborted: Executable build failed")
             return False
 
         # Step 5: Create helper scripts
@@ -250,11 +250,11 @@ maxmemory-policy allkeys-lru
 
         # Step 6: Build installer
         if not self.build_installer():
-            print("\n❌ Build aborted: Installer compilation failed")
+            print("\n[ERROR] Build aborted: Installer compilation failed")
             return False
 
         print("\n" + "=" * 60)
-        print("✅ Build completed successfully!")
+        print("[OK] Build completed successfully!")
         print("=" * 60)
         return True
 
