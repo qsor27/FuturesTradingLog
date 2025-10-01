@@ -22,6 +22,8 @@ from routes.profiles import profiles_bp
 from routes.tasks import bp as tasks_bp
 from routes.cache_management import cache_bp
 from routes.csv_management import csv_management_bp
+from routes.custom_fields import custom_fields_bp
+from routes.validation import validation_bp
 from scripts.TradingLog_db import FuturesDB
 from services.background_services import start_background_services, stop_background_services, get_services_status
 from services.background_data_manager import background_data_manager
@@ -188,6 +190,12 @@ app.register_blueprint(profiles_bp)  # Profile management routes
 app.register_blueprint(tasks_bp)  # Task management routes
 app.register_blueprint(cache_bp)  # Cache management routes
 app.register_blueprint(csv_management_bp)  # CSV management routes
+app.register_blueprint(custom_fields_bp)  # Custom fields API routes
+app.register_blueprint(validation_bp)  # Position-Execution integrity validation routes
+
+# Initialize validation routes with app context
+from routes.validation import init_validation_routes
+init_validation_routes(app)
 
 # Template filters for symbol handling
 @app.template_filter('base_symbol')

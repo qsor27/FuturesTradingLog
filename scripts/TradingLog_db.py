@@ -2085,6 +2085,21 @@ class FuturesDB:
         }
         return timeframe_map.get(timeframe, 60)
 
+    def get_latest_ohlc_timestamp(self, instrument: str, timeframe: str) -> Optional[int]:
+        """Get the latest timestamp for a given instrument and timeframe."""
+        try:
+            self.cursor.execute("""
+                SELECT MAX(timestamp) FROM ohlc_data
+                WHERE instrument = ? AND timeframe = ?
+            """, (instrument, timeframe))
+
+            result = self.cursor.fetchone()
+            return result[0] if result and result[0] else None
+
+        except Exception as e:
+            print(f"Error getting latest OHLC timestamp: {e}")
+            return None
+
     def get_position_executions(self, trade_id: int) -> Dict[str, Any]:
         """Get detailed execution breakdown for a position with FIFO analysis."""
         try:

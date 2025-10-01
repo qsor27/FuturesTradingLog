@@ -78,7 +78,13 @@
       "Bash(timeout:*)",
       "Bash(docker:*)",
       "Read(//c/Containers/FuturesTradingLog/data/**)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(git branch:*)",
+      "Bash(REDIS_URL=redis://redis:6379/0 docker-compose -f docker-compose.dev.yml up -d)",
+      "Bash(REDIS_URL=redis://redis:6379/0 docker-compose -f docker-compose.dev.yml up -d --build)",
+      "Bash(findstr:*)",
+      "Bash(pip show:*)",
+      "Bash(redis-cli:*)"
     ],
     "deny": [],
     "additionalDirectories": [

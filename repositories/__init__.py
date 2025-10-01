@@ -9,13 +9,15 @@ from .ohlc_repository import OHLCRepository
 from .settings_repository import SettingsRepository
 from .profile_repository import ProfileRepository
 from .statistics_repository import StatisticsRepository
+from .custom_fields_repository import CustomFieldsRepository
 
 __all__ = [
     'BaseRepository',
-    'TradeRepository', 
+    'TradeRepository',
     'PositionRepository',
     'OHLCRepository',
     'SettingsRepository',
     'ProfileRepository',
-    'StatisticsRepository'
+    'StatisticsRepository',
+    'CustomFieldsRepository'
 ]

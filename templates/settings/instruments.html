@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Instrument Management - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>Instrument Management</h2>
+                <a href="{{ url_for('main.settings') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Settings
+                </a>
+            </div>
+
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="row">
+                <!-- Existing Groups -->
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Current Instrument Groups</h5>
+                        </div>
+                        <div class="card-body">
+                            {% for group_name, group in groups.items() %}
+                            <div class="border rounded p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <h6 class="mb-1">
+                                            {{ group.name }}
+                                            {% if group.name in ['gap_filling', 'extended_gap_filling', 'popular_instruments'] %}
+                                                <span class="badge bg-primary">Default</span>
+                                            {% endif %}
+                                            {% if not group.is_active %}
+                                                <span class="badge bg-warning">Inactive</span>
+                                            {% endif %}
+                                        </h6>
+                                        <p class="text-muted mb-2">{{ group.description }}</p>
+                                        <div class="mb-2">
+                                            {% for instrument in group.instruments %}
+                                                <span class="badge bg-info me-1">{{ instrument }}</span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-outline-primary" 
+                                                onclick="editGroup('{{ group.name }}', {{ group.instruments|tojson }}, '{{ group.description }}')">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </button>
+                                        {% if group.name not in ['gap_filling', 'extended_gap_filling', 'popular_instruments'] %}
+                                        <button class="btn btn-sm btn-outline-danger" 
+                                                onclick="deleteGroup('{{ group.name }}')">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create/Edit Form -->
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 id="form-title">Create New Group</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="instrument-form" method="POST" action="{{ url_for('instruments.create_instrument_group') }}">
+                                <div class="mb-3">
+                                    <label for="group_name" class="form-label">Group Name</label>
+                                    <input type="text" class="form-control" id="group_name" name="group_name" required>
+                                    <div class="form-text">Unique name for this instrument group</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="description" class="form-label">Description</label>
+                                    <textarea class="form-control" id="description" name="description" rows="2" 
+                                              placeholder="Optional description of this group's purpose"></textarea>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="instruments" class="form-label">Instruments</label>
+                                    <textarea class="form-control" id="instruments" name="instruments" rows="3" 
+                                              placeholder="Enter instrument symbols separated by commas (e.g., MNQ, ES, YM)" required></textarea>
+                                    <div class="form-text">Common futures: MNQ, ES, YM, RTY, NQ, CL, GC, SI, etc.</div>
+                                </div>
+                                
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-primary" id="submit-btn">
+                                        <i class="fas fa-plus"></i> Create Group
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="cancel-btn" onclick="resetForm()" style="display: none;">
+                                        <i class="fas fa-times"></i> Cancel
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Help Card -->
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6>How It Works</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled">
+                                <li><strong>Gap Filling:</strong> Used for regular 15-minute data updates</li>
+                                <li><strong>Extended Gap Filling:</strong> Used for 4-hour comprehensive updates</li>
+                                <li><strong>Popular Instruments:</strong> Used for cache warming and performance</li>
+                                <li><strong>Custom Groups:</strong> Create your own groups for specialized needs</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let editingGroup = null;
+
+function editGroup(groupName, instruments, description) {
+    editingGroup = groupName;
+    document.getElementById('form-title').textContent = 'Edit Group: ' + groupName;
+    document.getElementById('group_name').value = groupName;
+    document.getElementById('group_name').readOnly = true;
+    document.getElementById('description').value = description || '';
+    document.getElementById('instruments').value = instruments.join(', ');
+    document.getElementById('submit-btn').innerHTML = '<i class="fas fa-save"></i> Update Group';
+    document.getElementById('cancel-btn').style.display = 'block';
+    
+    // Change form action for updates
+    document.getElementById('instrument-form').action = '/api/instrument-groups/' + groupName;
+    document.getElementById('instrument-form').method = 'POST';
+}
+
+function resetForm() {
+    editingGroup = null;
+    document.getElementById('form-title').textContent = 'Create New Group';
+    document.getElementById('group_name').value = '';
+    document.getElementById('group_name').readOnly = false;
+    document.getElementById('description').value = '';
+    document.getElementById('instruments').value = '';
+    document.getElementById('submit-btn').innerHTML = '<i class="fas fa-plus"></i> Create Group';
+    document.getElementById('cancel-btn').style.display = 'none';
+    
+    // Reset form action
+    document.getElementById('instrument-form').action = '{{ url_for("instruments.create_instrument_group") }}';
+    document.getElementById('instrument-form').method = 'POST';
+}
+
+function deleteGroup(groupName) {
+    if (confirm('Are you sure you want to delete the "' + groupName + '" instrument group?')) {
+        fetch('/api/instrument-groups/' + groupName, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error deleting group: ' + error);
+        });
+    }
+}
+
+// Handle form submission for updates
+document.getElementById('instrument-form').addEventListener('submit', function(e) {
+    if (editingGroup) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const data = {
+            instruments: formData.get('instruments').split(',').map(s => s.trim().toUpperCase()).filter(s => s),
+            description: formData.get('description')
+        };
+        
+        fetch('/api/instrument-groups/' + editingGroup, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error updating group: ' + error);
+        });
+    }
+});
+</script>
+{% endblock %}

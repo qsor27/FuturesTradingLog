@@ -1,0 +1,38 @@
+[run]
+source = .
+omit = 
+    tests/*
+    venv/*
+    __pycache__/*
+    .git/*
+    build/*
+    dist/*
+    *.egg-info/*
+    temp_*
+    test_*
+    *_test.py
+    conftest.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if settings.DEBUG
+    raise AssertionError
+    raise NotImplementedError
+    if 0:
+    if __name__ == .__main__.:
+    class .*\bProtocol\):
+    @(abc\.)?abstractmethod
+
+precision = 2
+show_missing = True
+sort = Cover
+
+[html]
+directory = htmlcov
+title = Futures Trading Log Coverage Report
+
+[xml]
+output = coverage.xml

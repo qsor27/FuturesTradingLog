@@ -1,0 +1,584 @@
+<!-- Position Custom Fields Component -->
+<div class="position-custom-fields" id="positionCustomFields-{{ position.id }}">
+    <div class="custom-fields-header d-flex justify-content-between align-items-center mb-3">
+        <h3>Custom Fields</h3>
+        <button class="btn btn-sm btn-outline-primary" id="editCustomFieldsBtn-{{ position.id }}" onclick="positionCustomFields.openEditModal({{ position.id }})">
+            <i class="fas fa-edit"></i> Edit Fields
+        </button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="customFieldsLoading-{{ position.id }}" class="text-center py-3">
+        <div class="spinner-border spinner-border-sm text-primary" role="status">
+            <span class="visually-hidden">Loading custom fields...</span>
+        </div>
+        <small class="text-muted ms-2">Loading custom fields...</small>
+    </div>
+
+    <!-- Empty State -->
+    <div id="customFieldsEmpty-{{ position.id }}" class="text-center py-4" style="display: none;">
+        <div class="text-muted">
+            <i class="fas fa-clipboard fa-2x mb-2" style="opacity: 0.3;"></i>
+            <p class="mb-2">No custom fields configured</p>
+            <small>Add custom fields in <a href="{{ url_for('settings.settings') }}#custom-fields" class="text-decoration-none">Settings</a> to track additional data.</small>
+        </div>
+    </div>
+
+    <!-- Custom Fields Display -->
+    <div id="customFieldsDisplay-{{ position.id }}" class="custom-fields-display" style="display: none;">
+        <div class="row" id="customFieldsGrid-{{ position.id }}">
+            <!-- Fields will be populated here -->
+        </div>
+    </div>
+</div>
+
+<!-- Custom Fields Edit Modal -->
+<div class="modal fade" id="customFieldsEditModal-{{ position.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-light">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Custom Fields - {{ position.instrument }} Position</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="customFieldsEditForm-{{ position.id }}">
+                    <div id="customFieldsFormContainer-{{ position.id }}">
+                        <!-- Form fields will be populated here -->
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading form...</span>
+                            </div>
+                            <small class="text-muted ms-2">Loading fields...</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveCustomFieldsBtn-{{ position.id }}" onclick="positionCustomFields.saveFields({{ position.id }})">
+                    <span id="saveFieldsText-{{ position.id }}">Save Fields</span>
+                    <span id="saveFieldsSpinner-{{ position.id }}" class="spinner-border spinner-border-sm ms-2" style="display: none;"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Position Custom Fields Styling */
+.position-custom-fields {
+    background: #2a2a2a;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border: 1px solid #404040;
+    margin-bottom: 30px;
+}
+
+.custom-fields-display .custom-field-item {
+    background: #1f1f1f;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #404040;
+    margin-bottom: 15px;
+}
+
+.custom-field-label {
+    font-size: 12px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.custom-field-value {
+    font-size: 14px;
+    color: #e5e5e5;
+    font-weight: 500;
+}
+
+.custom-field-value.empty {
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.custom-field-value.boolean-true {
+    color: #4ade80;
+}
+
+.custom-field-value.boolean-false {
+    color: #f87171;
+}
+
+.custom-field-value.number {
+    font-family: monospace;
+    color: #fbbf24;
+}
+
+.custom-field-value.date {
+    color: #8b5cf6;
+}
+
+.custom-field-description {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 3px;
+}
+
+/* Form styling in modal */
+.custom-field-form-group {
+    background: #2a2a2a;
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid #404040;
+    margin-bottom: 15px;
+}
+
+.custom-field-form-label {
+    font-weight: 600;
+    color: #e5e5e5;
+    margin-bottom: 5px;
+}
+
+.custom-field-required-indicator {
+    color: #ef4444;
+}
+
+/* Custom form controls for dark theme */
+.form-control.dark-theme,
+.form-select.dark-theme {
+    background-color: #1f1f1f;
+    border-color: #404040;
+    color: #e5e5e5;
+}
+
+.form-control.dark-theme:focus,
+.form-select.dark-theme:focus {
+    background-color: #1f1f1f;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    color: #e5e5e5;
+}
+
+.form-control.dark-theme::placeholder {
+    color: #9ca3af;
+}
+
+.form-check-input.dark-theme {
+    background-color: #1f1f1f;
+    border-color: #404040;
+}
+
+.form-check-input.dark-theme:checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.form-check-input.dark-theme:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+}
+
+.form-check-label {
+    color: #e5e5e5;
+}
+
+/* Responsive grid for custom fields display */
+@media (min-width: 768px) {
+    .custom-fields-display .row > .col-md-6:nth-child(2n+1) {
+        clear: left;
+    }
+}
+
+@media (min-width: 992px) {
+    .custom-fields-display .row > .col-lg-4:nth-child(3n+1) {
+        clear: left;
+    }
+    .custom-fields-display .row > .col-md-6:nth-child(2n+1) {
+        clear: none;
+    }
+}
+</style>
+
+<script>
+// Position Custom Fields JavaScript
+class PositionCustomFields {
+    constructor() {
+        this.apiBaseUrl = '/api/custom-fields';
+        this.fieldsData = {};
+        this.fieldValues = {};
+    }
+
+    async loadPositionFields(positionId) {
+        const loadingElement = document.getElementById(`customFieldsLoading-${positionId}`);
+        const emptyElement = document.getElementById(`customFieldsEmpty-${positionId}`);
+        const displayElement = document.getElementById(`customFieldsDisplay-${positionId}`);
+
+        try {
+            // Show loading state
+            loadingElement.style.display = 'block';
+            emptyElement.style.display = 'none';
+            displayElement.style.display = 'none';
+
+            // Load custom fields and their values for this position
+            const [fieldsResponse, valuesResponse] = await Promise.all([
+                fetch(`${this.apiBaseUrl}/`, { headers: { 'Accept': 'application/json' } }),
+                fetch(`${this.apiBaseUrl}/positions/${positionId}/values`, { headers: { 'Accept': 'application/json' } })
+            ]);
+
+            const fieldsData = await fieldsResponse.json();
+            const valuesData = await valuesResponse.json();
+
+            if (fieldsData.success) {
+                const activeFields = fieldsData.data.filter(field => field.is_active);
+
+                if (activeFields.length === 0) {
+                    // No active fields
+                    emptyElement.style.display = 'block';
+                } else {
+                    // Store data
+                    this.fieldsData[positionId] = activeFields;
+                    this.fieldValues[positionId] = valuesData.success ? valuesData.data : [];
+
+                    // Display fields
+                    this.displayFields(positionId, activeFields, this.fieldValues[positionId]);
+                    displayElement.style.display = 'block';
+                }
+            } else {
+                console.error('Failed to load custom fields:', fieldsData.message);
+                emptyElement.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error loading position custom fields:', error);
+            emptyElement.style.display = 'block';
+        } finally {
+            loadingElement.style.display = 'none';
+        }
+    }
+
+    displayFields(positionId, fields, values) {
+        const gridElement = document.getElementById(`customFieldsGrid-${positionId}`);
+        if (!gridElement) return;
+
+        gridElement.innerHTML = '';
+
+        // Create a map of field values for quick lookup
+        const valueMap = {};
+        values.forEach(value => {
+            valueMap[value.field_id] = value.value;
+        });
+
+        fields.forEach(field => {
+            const fieldValue = valueMap[field.id] || '';
+            const fieldElement = this.createFieldDisplayElement(field, fieldValue);
+            gridElement.appendChild(fieldElement);
+        });
+    }
+
+    createFieldDisplayElement(field, value) {
+        const col = document.createElement('div');
+        col.className = 'col-md-6 col-lg-4';
+
+        const formattedValue = this.formatFieldValue(field, value);
+        const valueClass = this.getValueClass(field, value);
+
+        col.innerHTML = `
+            <div class="custom-field-item">
+                <div class="custom-field-label">
+                    ${this.escapeHtml(field.label)}
+                    ${field.is_required ? '<span class="custom-field-required-indicator">*</span>' : ''}
+                </div>
+                <div class="custom-field-value ${valueClass}">
+                    ${formattedValue}
+                </div>
+                ${field.description ? `<div class="custom-field-description">${this.escapeHtml(field.description)}</div>` : ''}
+            </div>
+        `;
+
+        return col;
+    }
+
+    formatFieldValue(field, value) {
+        if (!value || value.trim() === '') {
+            return '<span class="empty">No value set</span>';
+        }
+
+        switch (field.field_type) {
+            case 'boolean':
+                return value.toLowerCase() === 'true' ?
+                    '<i class="fas fa-check"></i> Yes' :
+                    '<i class="fas fa-times"></i> No';
+
+            case 'date':
+                try {
+                    const date = new Date(value);
+                    return date.toLocaleDateString();
+                } catch {
+                    return this.escapeHtml(value);
+                }
+
+            case 'number':
+                return this.escapeHtml(value);
+
+            case 'select':
+                // Find the label for this value
+                if (field.options) {
+                    const option = field.options.find(opt => opt.option_value === value);
+                    return this.escapeHtml(option ? option.option_label : value);
+                }
+                return this.escapeHtml(value);
+
+            default:
+                return this.escapeHtml(value);
+        }
+    }
+
+    getValueClass(field, value) {
+        const classes = [];
+
+        if (!value || value.trim() === '') {
+            classes.push('empty');
+        } else {
+            switch (field.field_type) {
+                case 'boolean':
+                    classes.push(value.toLowerCase() === 'true' ? 'boolean-true' : 'boolean-false');
+                    break;
+                case 'number':
+                    classes.push('number');
+                    break;
+                case 'date':
+                    classes.push('date');
+                    break;
+            }
+        }
+
+        return classes.join(' ');
+    }
+
+    async openEditModal(positionId) {
+        const modal = document.getElementById(`customFieldsEditModal-${positionId}`);
+        const formContainer = document.getElementById(`customFieldsFormContainer-${positionId}`);
+
+        if (!modal || !formContainer) return;
+
+        // Show modal
+        const modalInstance = new bootstrap.Modal(modal);
+        modalInstance.show();
+
+        // Load form fields
+        await this.loadEditForm(positionId);
+    }
+
+    async loadEditForm(positionId) {
+        const formContainer = document.getElementById(`customFieldsFormContainer-${positionId}`);
+        if (!formContainer) return;
+
+        try {
+            const fields = this.fieldsData[positionId] || [];
+            const values = this.fieldValues[positionId] || [];
+
+            // Create a map of field values
+            const valueMap = {};
+            values.forEach(value => {
+                valueMap[value.field_id] = value.value;
+            });
+
+            formContainer.innerHTML = '';
+
+            if (fields.length === 0) {
+                formContainer.innerHTML = `
+                    <div class="text-center py-4">
+                        <p class="text-muted">No custom fields are available.</p>
+                        <a href="${window.location.origin}/settings#custom-fields" class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-plus"></i> Add Custom Fields
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+
+            fields.forEach(field => {
+                const fieldValue = valueMap[field.id] || field.default_value || '';
+                const fieldElement = this.createFieldFormElement(field, fieldValue);
+                formContainer.appendChild(fieldElement);
+            });
+
+        } catch (error) {
+            console.error('Error loading edit form:', error);
+            formContainer.innerHTML = '<div class="alert alert-danger">Error loading form. Please try again.</div>';
+        }
+    }
+
+    createFieldFormElement(field, value) {
+        const div = document.createElement('div');
+        div.className = 'custom-field-form-group';
+
+        let inputHtml = '';
+
+        switch (field.field_type) {
+            case 'text':
+                inputHtml = `<input type="text" class="form-control dark-theme" name="field_${field.id}" value="${this.escapeHtml(value)}" ${field.is_required ? 'required' : ''}>`;
+                break;
+
+            case 'number':
+                inputHtml = `<input type="number" class="form-control dark-theme" name="field_${field.id}" value="${this.escapeHtml(value)}" step="any" ${field.is_required ? 'required' : ''}>`;
+                break;
+
+            case 'date':
+                const dateValue = value ? new Date(value).toISOString().split('T')[0] : '';
+                inputHtml = `<input type="date" class="form-control dark-theme" name="field_${field.id}" value="${dateValue}" ${field.is_required ? 'required' : ''}>`;
+                break;
+
+            case 'boolean':
+                const checked = value && value.toLowerCase() === 'true' ? 'checked' : '';
+                inputHtml = `
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input dark-theme" name="field_${field.id}" value="true" ${checked} id="field_${field.id}">
+                        <label class="form-check-label" for="field_${field.id}">Yes</label>
+                    </div>
+                `;
+                break;
+
+            case 'select':
+                let options = '<option value="">Select an option...</option>';
+                if (field.options) {
+                    field.options.forEach(option => {
+                        const selected = value === option.option_value ? 'selected' : '';
+                        options += `<option value="${this.escapeHtml(option.option_value)}" ${selected}>${this.escapeHtml(option.option_label)}</option>`;
+                    });
+                }
+                inputHtml = `<select class="form-select dark-theme" name="field_${field.id}" ${field.is_required ? 'required' : ''}>${options}</select>`;
+                break;
+        }
+
+        div.innerHTML = `
+            <label class="custom-field-form-label">
+                ${this.escapeHtml(field.label)}
+                ${field.is_required ? '<span class="custom-field-required-indicator">*</span>' : ''}
+            </label>
+            ${inputHtml}
+            ${field.description ? `<div class="form-text">${this.escapeHtml(field.description)}</div>` : ''}
+        `;
+
+        return div;
+    }
+
+    async saveFields(positionId) {
+        const form = document.getElementById(`customFieldsEditForm-${positionId}`);
+        const saveBtn = document.getElementById(`saveCustomFieldsBtn-${positionId}`);
+        const saveText = document.getElementById(`saveFieldsText-${positionId}`);
+        const saveSpinner = document.getElementById(`saveFieldsSpinner-${positionId}`);
+
+        if (!form) return;
+
+        // Show loading state
+        saveBtn.disabled = true;
+        saveText.style.display = 'none';
+        saveSpinner.style.display = 'inline-block';
+
+        try {
+            const formData = new FormData(form);
+            const fields = this.fieldsData[positionId] || [];
+
+            // Save each field value
+            const savePromises = fields.map(async field => {
+                const fieldName = `field_${field.id}`;
+                let fieldValue = '';
+
+                if (field.field_type === 'boolean') {
+                    fieldValue = formData.has(fieldName) ? 'true' : 'false';
+                } else {
+                    fieldValue = formData.get(fieldName) || '';
+                }
+
+                // Skip empty optional fields
+                if (!field.is_required && !fieldValue.trim()) {
+                    return null;
+                }
+
+                return this.saveFieldValue(positionId, field.id, fieldValue);
+            });
+
+            const results = await Promise.all(savePromises.filter(p => p !== null));
+            const successful = results.filter(r => r).length;
+
+            if (successful > 0) {
+                this.showSuccess('Custom fields updated successfully!');
+
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById(`customFieldsEditModal-${positionId}`));
+                modal.hide();
+
+                // Reload display
+                await this.loadPositionFields(positionId);
+            } else {
+                this.showError('No changes were saved.');
+            }
+
+        } catch (error) {
+            console.error('Error saving custom fields:', error);
+            this.showError('Failed to save custom fields. Please try again.');
+        } finally {
+            // Reset button state
+            saveBtn.disabled = false;
+            saveText.style.display = 'inline';
+            saveSpinner.style.display = 'none';
+        }
+    }
+
+    async saveFieldValue(positionId, fieldId, value) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/positions/${positionId}/values`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    field_id: fieldId,
+                    value: value
+                })
+            });
+
+            const data = await response.json();
+            return data.success;
+        } catch (error) {
+            console.error(`Error saving field ${fieldId}:`, error);
+            return false;
+        }
+    }
+
+    // Utility methods
+    escapeHtml(text) {
+        if (!text) return '';
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    showError(message) {
+        alert('Error: ' + message);
+    }
+
+    showSuccess(message) {
+        alert('Success: ' + message);
+    }
+}
+
+// Initialize position custom fields manager
+const positionCustomFields = new PositionCustomFields();
+
+// Auto-load fields when component is rendered
+document.addEventListener('DOMContentLoaded', function() {
+    const positionCustomFieldsContainer = document.querySelector('[id^="positionCustomFields-"]');
+    if (positionCustomFieldsContainer) {
+        const positionId = positionCustomFieldsContainer.id.split('-')[1];
+        positionCustomFields.loadPositionFields(parseInt(positionId));
+    }
+});
+</script>

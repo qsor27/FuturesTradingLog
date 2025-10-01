@@ -168,14 +168,49 @@ class UnifiedCSVImportService:
         
         return new_files
     
+    def _detect_file_type(self, df: pd.DataFrame, filename: str) -> str:
+        """
+        Detect the type of CSV file based on column structure.
+
+        Args:
+            df: DataFrame to analyze
+            filename: Name of the file being analyzed
+
+        Returns:
+            'execution' for raw execution data, 'trade_log' for processed trades, 'unknown' if unclear
+        """
+        columns = set(df.columns)
+
+        # Check for execution file pattern (NinjaTrader exports)
+        execution_columns = {'ID', 'Account', 'Instrument', 'Time', 'Action', 'E/X', 'Quantity', 'Price', 'Commission'}
+        if execution_columns.issubset(columns):
+            return 'execution'
+
+        # Check for trade log pattern (processed positions)
+        trade_log_columns = {'Instrument', 'Side of Market', 'Quantity', 'Entry Price', 'Entry Time', 'Exit Time', 'Exit Price', 'ID', 'Account'}
+        if trade_log_columns.issubset(columns):
+            return 'trade_log'
+
+        # Check for alternative execution formats (more flexible matching)
+        alt_execution_patterns = [
+            {'Instrument', 'Action', 'Quantity', 'Price', 'Time', 'ID', 'Account'},  # Minimal execution
+            {'Instrument', 'Action', 'Qty', 'Price', 'Time', 'ID', 'Account'},      # Alternative quantity column
+        ]
+
+        for pattern in alt_execution_patterns:
+            if pattern.issubset(columns):
+                return 'execution_alt'
+
+        return 'unknown'
+
     def _validate_csv_data(self, df: pd.DataFrame, filename: str) -> bool:
         """
-        Validate CSV data structure and content.
-        
+        Validate CSV data structure and content based on detected file type.
+
         Args:
             df: DataFrame to validate
             filename: Name of file being validated (for logging)
-            
+
         Returns:
             True if validation passes, False otherwise
         """
@@ -184,36 +219,83 @@ class UnifiedCSVImportService:
             if df.empty:
                 self.logger.info(f"File {filename} is empty, skipping")
                 return False
-            
-            # Check for required columns (flexible for different formats)
-            required_base_columns = ['Time', 'Instrument', 'Qty', 'Price']
-            
-            # Check if we have basic required columns
-            missing_columns = [col for col in required_base_columns 
-                             if col not in df.columns]
-            
-            if missing_columns:
+
+            # Detect file type
+            file_type = self._detect_file_type(df, filename)
+            self.logger.info(f"Detected file type for {filename}: {file_type}")
+
+            # Validate based on file type
+            if file_type == 'execution':
+                # Validate execution file columns (full NinjaTrader format)
+                required_columns = ['ID', 'Account', 'Instrument', 'Time', 'Action', 'E/X', 'Quantity', 'Price', 'Commission']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+
+                if missing_columns:
+                    self.logger.warning(
+                        f"Execution file {filename} missing required columns: {missing_columns}. "
+                        f"Available columns: {list(df.columns)}"
+                    )
+                    return False
+
+            elif file_type == 'execution_alt':
+                # Validate alternative execution format
+                required_columns = ['Instrument', 'Action', 'Quantity', 'Price', 'Time', 'ID', 'Account']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+
+                if missing_columns:
+                    # Try with 'Qty' instead of 'Quantity'
+                    alt_required = ['Instrument', 'Action', 'Qty', 'Price', 'Time', 'ID', 'Account']
+                    alt_missing = [col for col in alt_required if col not in df.columns]
+
+                    if alt_missing:
+                        self.logger.warning(
+                            f"Alternative execution file {filename} missing required columns: {missing_columns}. "
+                            f"Available columns: {list(df.columns)}"
+                        )
+                        return False
+
+            elif file_type == 'trade_log':
+                # Validate trade log columns
+                required_columns = ['Instrument', 'Side of Market', 'Quantity', 'Entry Price', 'Entry Time', 'Exit Time', 'Exit Price', 'ID', 'Account']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+
+                if missing_columns:
+                    self.logger.warning(
+                        f"Trade log file {filename} missing required columns: {missing_columns}. "
+                        f"Available columns: {list(df.columns)}"
+                    )
+                    return False
+
+            else:
                 self.logger.warning(
-                    f"File {filename} missing required columns: {missing_columns}. "
+                    f"Unknown file format for {filename}. "
                     f"Available columns: {list(df.columns)}"
                 )
                 return False
-            
+
             # Additional validation checks
             if len(df) == 0:
                 self.logger.info(f"File {filename} has no data rows")
                 return False
-            
-            # Check for reasonable data in key columns
-            if df['Qty'].isna().all():
+
+            # Check for reasonable data in key columns (flexible based on detected columns)
+            quantity_col = 'Quantity' if 'Quantity' in df.columns else 'Qty' if 'Qty' in df.columns else None
+            if quantity_col and df[quantity_col].isna().all():
                 self.logger.warning(f"File {filename} has no valid quantity data")
                 return False
-            
-            if df['Price'].isna().all():
+
+            price_cols = ['Price', 'Entry Price', 'Exit Price']
+            has_valid_price = False
+            for price_col in price_cols:
+                if price_col in df.columns and not df[price_col].isna().all():
+                    has_valid_price = True
+                    break
+
+            if not has_valid_price:
                 self.logger.warning(f"File {filename} has no valid price data")
                 return False
-            
-            self.logger.debug(f"File {filename} validation passed. Rows: {len(df)}")
+
+            self.logger.debug(f"File {filename} validation passed. Rows: {len(df)}, Type: {file_type}")
             return True
             
         except Exception as e:
@@ -253,17 +335,36 @@ class UnifiedCSVImportService:
             # Validate data
             if not self._validate_csv_data(df, file_path.name):
                 return []
-            
-            # Process trades using existing ExecutionProcessing logic
-            self.logger.info(f"Starting trade processing for {file_path.name}")
-            processed_trades = process_trades(df, self.multipliers)
-            
-            self.logger.info(f"Processed {len(processed_trades)} trades from {file_path.name}")
-            
+
+            # Detect file type for processing
+            file_type = self._detect_file_type(df, file_path.name)
+
+            # Process based on file type
+            if file_type in ['execution', 'execution_alt']:
+                # Process raw execution data using ExecutionProcessing
+                self.logger.info(f"Processing execution file: {file_path.name}")
+
+                # For execution_alt, we might need to add missing columns with defaults
+                if file_type == 'execution_alt':
+                    df = self._normalize_execution_columns(df)
+
+                processed_trades = process_trades(df, self.multipliers)
+                self.logger.info(f"Processed {len(processed_trades)} trades from execution file {file_path.name}")
+
+            elif file_type == 'trade_log':
+                # Process already-processed trade log data
+                self.logger.info(f"Processing trade log file: {file_path.name}")
+                processed_trades = self._process_trade_log(df)
+                self.logger.info(f"Processed {len(processed_trades)} trades from trade log {file_path.name}")
+
+            else:
+                self.logger.error(f"Cannot process unknown file type: {file_path.name}")
+                return []
+
             # Log processing summary
             if processed_trades:
                 self._log_processing_summary(processed_trades, file_path.name)
-            
+
             return processed_trades
             
         except Exception as e:
@@ -665,6 +766,118 @@ class UnifiedCSVImportService:
         except Exception as e:
             self.logger.error(f"Error getting available files: {e}")
             return []
+
+    def _normalize_execution_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize execution DataFrame to match ExecutionProcessing expectations.
+
+        Args:
+            df: DataFrame to normalize
+
+        Returns:
+            Normalized DataFrame with required columns
+        """
+        df_normalized = df.copy()
+
+        # Add missing columns with appropriate defaults if needed
+        required_columns = ['ID', 'Account', 'Instrument', 'Time', 'Action', 'E/X', 'Quantity', 'Price', 'Commission']
+
+        for col in required_columns:
+            if col not in df_normalized.columns:
+                if col == 'E/X':
+                    df_normalized[col] = 'E'  # Default to 'E' for entry
+                elif col == 'Commission':
+                    df_normalized[col] = 0.0  # Default commission to 0
+                else:
+                    self.logger.warning(f"Missing required column {col}, cannot add default")
+
+        # Handle alternative column names
+        if 'Qty' in df_normalized.columns and 'Quantity' not in df_normalized.columns:
+            df_normalized['Quantity'] = df_normalized['Qty']
+
+        return df_normalized
+
+    def _process_trade_log(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Process trade log data (already processed positions) into database format.
+
+        Args:
+            df: DataFrame containing trade log data
+
+        Returns:
+            List of trade dictionaries ready for database insertion
+        """
+        trades = []
+
+        try:
+            for index, row in df.iterrows():
+                # Convert trade log format to database format
+                trade = {
+                    'instrument': row.get('Instrument', ''),
+                    'side_of_market': row.get('Side of Market', ''),
+                    'quantity': int(row.get('Quantity', 0)) if pd.notna(row.get('Quantity')) else 0,
+                    'entry_price': float(row.get('Entry Price', 0)) if pd.notna(row.get('Entry Price')) else 0.0,
+                    'exit_price': float(row.get('Exit Price', 0)) if pd.notna(row.get('Exit Price')) else 0.0,
+                    'entry_time': self._parse_datetime(row.get('Entry Time', '')),
+                    'exit_time': self._parse_datetime(row.get('Exit Time', '')),
+                    'points_gain_loss': float(row.get('Result Gain/Loss in Points', 0)) if pd.notna(row.get('Result Gain/Loss in Points')) else 0.0,
+                    'dollars_gain_loss': float(row.get('Gain/Loss in Dollars', 0)) if pd.notna(row.get('Gain/Loss in Dollars')) else 0.0,
+                    'entry_execution_id': str(row.get('ID', '')),
+                    'commission': float(row.get('Commission', 0)) if pd.notna(row.get('Commission')) else 0.0,
+                    'account': row.get('Account', ''),
+                }
+
+                # Validate required fields
+                if trade['instrument'] and trade['entry_time'] and trade['exit_time']:
+                    trades.append(trade)
+                else:
+                    self.logger.warning(f"Skipping invalid trade at row {index}: missing required fields")
+
+            self.logger.info(f"Converted {len(trades)} trade log entries to database format")
+            return trades
+
+        except Exception as e:
+            self.logger.error(f"Error processing trade log: {e}")
+            return []
+
+    def _parse_datetime(self, datetime_str: str) -> str:
+        """
+        Parse datetime string from CSV and return in consistent format.
+
+        Args:
+            datetime_str: Datetime string to parse
+
+        Returns:
+            Formatted datetime string or empty string if parsing fails
+        """
+        if not datetime_str or pd.isna(datetime_str):
+            return ''
+
+        try:
+            # Try common datetime formats
+            formats = [
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%d %H:%M:%S.%f',
+                '%m/%d/%Y %H:%M:%S',
+                '%m/%d/%Y %I:%M:%S %p',
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S.%f'
+            ]
+
+            for fmt in formats:
+                try:
+                    dt = datetime.strptime(str(datetime_str), fmt)
+                    return dt.strftime('%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    continue
+
+            # If all formats fail, return the original string
+            self.logger.warning(f"Could not parse datetime: {datetime_str}")
+            return str(datetime_str)
+
+        except Exception as e:
+            self.logger.error(f"Error parsing datetime {datetime_str}: {e}")
+            return ''
 
 
 # Global service instance

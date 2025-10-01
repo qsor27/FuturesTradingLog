@@ -90,3 +90,28 @@ data/last_sync.json
 
 # Claude settings
 .claude/settings.local.json
+
+# Log directories and files
+data/logs/
+*.log.*
+
+# Coverage reports
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+
+# Build artifacts for Windows installer
+dist/
+build/
+Output/
+vendor/
+installer/installer/
+
+# Test files
+nul
+test_*.py
+
+# Obsidian notes (optional - remove if you want to track them)
+.obsidian/
+docs/.obsidian/

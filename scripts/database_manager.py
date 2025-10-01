@@ -12,12 +12,13 @@ from typing import Optional
 from contextlib import contextmanager
 
 from repositories import (
-    TradeRepository, 
-    PositionRepository, 
-    OHLCRepository, 
+    TradeRepository,
+    PositionRepository,
+    OHLCRepository,
     SettingsRepository,
     ProfileRepository,
-    StatisticsRepository
+    StatisticsRepository,
+    CustomFieldsRepository
 )
 
 # Get database logger
@@ -46,6 +47,7 @@ class DatabaseManager:
         self.settings = None
         self.profiles = None
         self.statistics = None
+        self.custom_fields = None
     
     def __enter__(self):
         """Establish database connection and initialize repositories"""
@@ -299,12 +301,13 @@ class DatabaseManager:
     def _initialize_repositories(self):
         """Initialize all repository instances"""
         self.trades = TradeRepository(self.conn, self.cursor)
-        self.positions = PositionRepository(self.conn, self.cursor) 
+        self.positions = PositionRepository(self.conn, self.cursor)
         self.ohlc = OHLCRepository(self.conn, self.cursor)
         self.settings = SettingsRepository(self.conn, self.cursor)
         self.profiles = ProfileRepository(self.conn, self.cursor)
         self.statistics = StatisticsRepository(self.conn, self.cursor)
-        
+        self.custom_fields = CustomFieldsRepository(self.conn, self.cursor)
+
         db_logger.debug("All repositories initialized")
     
     @contextmanager

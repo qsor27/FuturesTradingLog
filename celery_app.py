@@ -33,8 +33,9 @@ app.conf.update(
         'tasks.gap_filling.*': {'queue': 'gap_filling'},
         'tasks.position_building.*': {'queue': 'position_building'},
         'tasks.cache_maintenance.*': {'queue': 'cache_maintenance'},
+        'tasks.validation_tasks.*': {'queue': 'validation'},
     },
-    
+
     # Queue definitions
     task_default_queue='default',
     task_queues=(
@@ -43,6 +44,7 @@ app.conf.update(
         Queue('gap_filling', routing_key='gap_filling'),
         Queue('position_building', routing_key='position_building'),
         Queue('cache_maintenance', routing_key='cache_maintenance'),
+        Queue('validation', routing_key='validation'),
     ),
     
     # Worker settings
@@ -87,6 +89,18 @@ app.conf.update(
             'task': 'tasks.position_building.check_rebuild_needed',
             'schedule': crontab(minute=0, hour=1),  # Daily at 1 AM
             'options': {'queue': 'position_building'}
+        },
+        'validate-all-positions': {
+            'task': 'tasks.validation_tasks.validate_all_positions_task',
+            'schedule': crontab(minute=0, hour=3),  # Daily at 3 AM
+            'args': (None, 7, True),  # status=None, days_back=7, auto_repair=True
+            'options': {'queue': 'validation'}
+        },
+        'validate-recent-positions': {
+            'task': 'tasks.validation_tasks.validate_recent_positions_task',
+            'schedule': crontab(minute='*/30'),  # Every 30 minutes
+            'args': (2, True),  # hours=2, auto_repair=True
+            'options': {'queue': 'validation'}
         }
     }
 )

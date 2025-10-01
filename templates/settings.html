@@ -193,7 +193,13 @@
             </div>
         </div>
     </div>
+
+    <!-- Include Custom Fields Section -->
+    {% include 'settings/custom_fields.html' %}
 </div>
+
+<!-- Load Custom Fields Management Script -->
+<script src="{{ url_for('static', filename='js/custom-fields-management.js') }}"></script>
 
 <style>
 #multipliers-table input {

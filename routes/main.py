@@ -2,6 +2,8 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from scripts.TradingLog_db import FuturesDB
 from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
 from tasks.position_building import auto_rebuild_positions_async
+from services.background_services import gap_filling_service, get_services_status
+from services.data_service import ohlc_service
 import os
 import time
 import shutil
@@ -802,12 +804,149 @@ def symbols():
                     'last_trade': last_trade
                 }
         
-        return render_template('symbols.html', 
+        return render_template('symbols.html',
                              ohlc_instruments=ohlc_instruments,
                              trade_instruments=trade_instruments)
-        
+
     except Exception as e:
         print(f"Error in symbols route: {e}")
         import traceback
         traceback.print_exc()
+        return f"Error: {e}", 500
+
+@main_bp.route('/api/data-health')
+def data_health_api():
+    """API endpoint for data health monitoring"""
+    try:
+        instruments = request.args.getlist('instruments')
+        if not instruments:
+            # Default to common instruments
+            instruments = ['MNQ', 'ES', 'YM', 'RTY', 'NQ', 'CL', 'GC']
+
+        timeframes = request.args.getlist('timeframes')
+        if not timeframes:
+            timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+
+        # Run health check
+        health_report = ohlc_service.check_data_health(instruments, timeframes)
+
+        # Calculate summary statistics
+        total_checks = 0
+        healthy_count = 0
+        stale_count = 0
+        no_data_count = 0
+        error_count = 0
+
+        for instrument_data in health_report.values():
+            for tf_data in instrument_data.values():
+                total_checks += 1
+                status = tf_data.get('status', 'unknown')
+                if status == 'healthy':
+                    healthy_count += 1
+                elif status == 'stale':
+                    stale_count += 1
+                elif status == 'no_data':
+                    no_data_count += 1
+                elif status == 'error':
+                    error_count += 1
+
+        summary = {
+            'health_percentage': (healthy_count / total_checks * 100) if total_checks > 0 else 0,
+            'total_checks': total_checks,
+            'healthy_count': healthy_count,
+            'stale_count': stale_count,
+            'no_data_count': no_data_count,
+            'error_count': error_count
+        }
+
+        return jsonify({
+            'success': True,
+            'summary': summary,
+            'detailed_report': health_report
+        })
+
+    except Exception as e:
+        logger.error(f"Error in data health API: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@main_bp.route('/api/background-services/status')
+def background_services_status():
+    """API endpoint for background services status"""
+    try:
+        status = get_services_status()
+        return jsonify({
+            'success': True,
+            'services': status
+        })
+    except Exception as e:
+        logger.error(f"Error getting background services status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@main_bp.route('/api/background-services/health-check', methods=['POST'])
+def trigger_health_check():
+    """API endpoint to manually trigger a health check"""
+    try:
+        instruments = request.json.get('instruments') if request.is_json else None
+        health_results = gap_filling_service.run_data_health_check(instruments)
+
+        return jsonify({
+            'success': True,
+            'health_results': health_results
+        })
+    except Exception as e:
+        logger.error(f"Error triggering health check: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@main_bp.route('/api/background-services/force-gap-fill', methods=['POST'])
+def force_gap_fill():
+    """API endpoint to manually trigger gap filling for specific instrument"""
+    try:
+        if not request.is_json:
+            return jsonify({
+                'success': False,
+                'error': 'Request must be JSON'
+            }), 400
+
+        instrument = request.json.get('instrument')
+        timeframes = request.json.get('timeframes', ['1m', '5m', '15m', '1h', '4h', '1d'])
+        days_back = request.json.get('days_back', 7)
+
+        if not instrument:
+            return jsonify({
+                'success': False,
+                'error': 'instrument parameter is required'
+            }), 400
+
+        results = gap_filling_service.force_gap_fill(instrument, timeframes, days_back)
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'instrument': instrument,
+            'timeframes_processed': len(timeframes)
+        })
+
+    except Exception as e:
+        logger.error(f"Error in force gap fill: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@main_bp.route('/monitoring')
+def monitoring_dashboard():
+    """Data monitoring dashboard"""
+    try:
+        return render_template('monitoring_dashboard.html')
+    except Exception as e:
+        logger.error(f"Error loading monitoring dashboard: {e}")
         return f"Error: {e}", 500

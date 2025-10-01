@@ -23,6 +23,7 @@ class BackgroundGapFillingService:
         self.is_running = False
         self.thread = None
         self.cache_service = get_cache_service() if config.cache_enabled else None
+        self._last_health_check = None
         bg_logger.info("Background gap-filling service initialized")
     
     def start(self):
@@ -48,6 +49,7 @@ class BackgroundGapFillingService:
         # Schedule gap-filling tasks
         schedule.every(15).minutes.do(self._fill_recent_gaps)
         schedule.every(4).hours.do(self._fill_extended_gaps)
+        schedule.every(2).hours.do(self._run_health_check)
         schedule.every().day.at("02:00").do(self._cache_maintenance)
         schedule.every().day.at("03:00").do(self._warm_popular_instruments)
         
@@ -62,36 +64,66 @@ class BackgroundGapFillingService:
                 time.sleep(300)  # Wait 5 minutes before retrying
     
     def _fill_recent_gaps(self):
-        """Fill gaps for recently accessed instruments (last 24 hours)"""
+        """Fill gaps for recently accessed instruments (last 24 hours) with data health monitoring"""
         try:
-            bg_logger.info("Starting recent gap filling")
-            
+            bg_logger.info("Starting recent gap filling with health monitoring")
+
             # Get recently accessed instruments from cache
             if self.cache_service:
                 instruments = self._get_recent_instruments()
             else:
                 # Fallback to common instruments
                 instruments = ['MNQ', 'ES', 'YM', 'RTY']
-            
+
+            if not instruments:
+                bg_logger.info("No instruments to process for recent gap filling")
+                return
+
+            # Check data health first to prioritize instruments needing attention
+            timeframes = ['1m', '5m', '15m']  # Focus on intraday timeframes
+            health_report = ohlc_service.check_data_health(instruments, timeframes)
+
+            # Prioritize instruments with stale data
+            priority_instruments = []
+            for instrument, tf_data in health_report.items():
+                has_stale_data = any(tf_info.get('is_stale', False) for tf_info in tf_data.values())
+                if has_stale_data:
+                    priority_instruments.append(instrument)
+                    bg_logger.info(f"Priority instrument {instrument}: has stale data")
+
+            # Process priority instruments first, then others
+            all_instruments = priority_instruments + [i for i in instruments if i not in priority_instruments]
+
             # Fill gaps for last 2 days
             end_date = datetime.now()
             start_date = end_date - timedelta(days=2)
-            
-            timeframes = ['1m', '5m', '15m']  # Focus on intraday timeframes
-            
-            for instrument in instruments:
+
+            successful_fills = 0
+            failed_fills = 0
+
+            for instrument in all_instruments:
                 for timeframe in timeframes:
                     try:
+                        # Check if this instrument/timeframe needs attention
+                        tf_health = health_report.get(instrument, {}).get(timeframe, {})
+                        if tf_health.get('status') == 'healthy':
+                            bg_logger.debug(f"Skipping {instrument} {timeframe}: already healthy")
+                            continue
+
                         success = ohlc_service.detect_and_fill_gaps(
                             instrument, timeframe, start_date, end_date
                         )
                         if success:
                             bg_logger.debug(f"Gap filling completed for {instrument} {timeframe}")
+                            successful_fills += 1
+                        else:
+                            failed_fills += 1
                     except Exception as e:
                         bg_logger.error(f"Error filling gaps for {instrument} {timeframe}: {e}")
-            
-            bg_logger.info(f"Recent gap filling completed for {len(instruments)} instruments")
-            
+                        failed_fills += 1
+
+            bg_logger.info(f"Recent gap filling completed: {successful_fills} successful, {failed_fills} failed")
+
         except Exception as e:
             bg_logger.error(f"Error in recent gap filling: {e}")
     
@@ -172,10 +204,36 @@ class BackgroundGapFillingService:
                     bg_logger.error(f"Error warming cache for {instrument}: {e}")
             
             bg_logger.info(f"Cache warming completed for {len(popular_instruments)} instruments")
-            
+
         except Exception as e:
             bg_logger.error(f"Error in cache warming: {e}")
-    
+
+    def _run_health_check(self):
+        """Scheduled data health check"""
+        try:
+            bg_logger.info("Running scheduled data health check")
+            health_results = self.run_data_health_check()
+
+            # Log summary
+            health_pct = health_results.get('health_percentage', 0)
+            critical_count = len(health_results.get('critical_issues', []))
+
+            if health_pct < 80:
+                bg_logger.warning(f"Data health below threshold: {health_pct:.1f}% healthy")
+            if critical_count > 0:
+                bg_logger.warning(f"Found {critical_count} critical data issues")
+
+            # Store health check results for status reporting
+            self._last_health_check = {
+                'timestamp': datetime.now().isoformat(),
+                'health_percentage': health_pct,
+                'critical_issues_count': critical_count,
+                'recommendations_count': len(health_results.get('recommendations', []))
+            }
+
+        except Exception as e:
+            bg_logger.error(f"Error in scheduled health check: {e}")
+
     def _get_recent_instruments(self) -> List[str]:
         """Get instruments accessed in the last 24 hours"""
         try:
@@ -288,24 +346,121 @@ class BackgroundGapFillingService:
                     )
                 
                 return results
-                
+
         except Exception as e:
             bg_logger.error(f"Error in emergency gap filling: {e}")
             return {}
-    
+
+    def run_data_health_check(self, instruments: List[str] = None) -> Dict[str, Any]:
+        """Run comprehensive data health check and return detailed report"""
+        try:
+            bg_logger.info("Starting comprehensive data health check")
+
+            if instruments is None:
+                if self.cache_service:
+                    instruments = self.cache_service.get_cached_instruments()
+                else:
+                    instruments = ['MNQ', 'ES', 'YM', 'RTY', 'NQ', 'CL', 'GC']
+
+            timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
+
+            # Get health report
+            health_report = ohlc_service.check_data_health(instruments, timeframes)
+
+            # Analyze the health report
+            analysis = {
+                'total_instruments': len(instruments),
+                'total_timeframes': len(timeframes),
+                'healthy_count': 0,
+                'stale_count': 0,
+                'no_data_count': 0,
+                'error_count': 0,
+                'critical_issues': [],
+                'recommendations': [],
+                'detailed_report': health_report
+            }
+
+            for instrument, tf_data in health_report.items():
+                for timeframe, health_info in tf_data.items():
+                    status = health_info.get('status', 'unknown')
+
+                    if status == 'healthy':
+                        analysis['healthy_count'] += 1
+                    elif status == 'stale':
+                        analysis['stale_count'] += 1
+                        staleness = health_info.get('staleness_minutes', 0)
+                        if staleness > 1440:  # More than 24 hours
+                            analysis['critical_issues'].append(
+                                f"{instrument} {timeframe}: {staleness/60:.1f} hours stale"
+                            )
+                    elif status == 'no_data':
+                        analysis['no_data_count'] += 1
+                        analysis['critical_issues'].append(f"{instrument} {timeframe}: No data available")
+                    elif status == 'error':
+                        analysis['error_count'] += 1
+                        error_msg = health_info.get('error', 'Unknown error')
+                        analysis['critical_issues'].append(f"{instrument} {timeframe}: {error_msg}")
+
+            # Generate recommendations
+            if analysis['stale_count'] > 0:
+                analysis['recommendations'].append(f"Run gap filling for {analysis['stale_count']} stale timeframes")
+
+            if analysis['no_data_count'] > 0:
+                analysis['recommendations'].append(f"Initialize data for {analysis['no_data_count']} missing timeframes")
+
+            if analysis['error_count'] > 0:
+                analysis['recommendations'].append(f"Investigate {analysis['error_count']} database/connection errors")
+
+            # Calculate health percentage
+            total_checks = analysis['healthy_count'] + analysis['stale_count'] + analysis['no_data_count'] + analysis['error_count']
+            analysis['health_percentage'] = (analysis['healthy_count'] / total_checks * 100) if total_checks > 0 else 0
+
+            bg_logger.info(f"Health check completed: {analysis['health_percentage']:.1f}% healthy "
+                          f"({analysis['healthy_count']}/{total_checks} checks)")
+
+            if analysis['critical_issues']:
+                bg_logger.warning(f"Found {len(analysis['critical_issues'])} critical issues")
+                for issue in analysis['critical_issues'][:5]:  # Log first 5 issues
+                    bg_logger.warning(f"  - {issue}")
+
+            return analysis
+
+        except Exception as e:
+            bg_logger.error(f"Error in data health check: {e}")
+            return {
+                'error': str(e),
+                'health_percentage': 0,
+                'critical_issues': [f"Health check failed: {str(e)}"]
+            }
+
     def get_service_status(self) -> Dict[str, Any]:
         """Get status information about the background service"""
-        return {
+        status = {
             'is_running': self.is_running,
             'thread_alive': self.thread.is_alive() if self.thread else False,
             'cache_enabled': self.cache_service is not None,
             'next_runs': {
-                'recent_gaps': schedule.next_run().isoformat() if schedule.next_run() else None,
+                'recent_gaps': 'Every 15 minutes',
+                'extended_gaps': 'Every 4 hours',
+                'health_check': 'Every 2 hours',
                 'cache_maintenance': 'Daily at 02:00 UTC',
                 'cache_warming': 'Daily at 03:00 UTC'
             },
             'last_check': datetime.now().isoformat()
         }
+
+        # Add health check results if available
+        if self._last_health_check:
+            status['last_health_check'] = self._last_health_check
+        else:
+            status['last_health_check'] = {
+                'timestamp': None,
+                'health_percentage': None,
+                'critical_issues_count': None,
+                'recommendations_count': None
+            }
+
+        return status
 
 
 class DataUpdateService:
