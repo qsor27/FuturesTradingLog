@@ -40,11 +40,14 @@ hidden_imports = [
 ]
 
 # Data files to include
-datas = [
-    ('templates', 'templates'),
-    ('static', 'static'),
-    ('.env.example', '.'),
-]
+import os
+datas = []
+if os.path.exists('templates'):
+    datas.append(('templates', 'templates'))
+if os.path.exists('static'):
+    datas.append(('static', 'static'))
+if os.path.exists('.env.template'):
+    datas.append(('.env.template', '.'))
 
 # Binaries - exclude unnecessary libraries
 excludes = [
