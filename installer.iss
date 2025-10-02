@@ -19,7 +19,6 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-LicenseFile=LICENSE
 OutputDir=Output
 OutputBaseFilename=FuturesTradingLog-Setup-v{#MyAppVersion}
 Compression=lzma
