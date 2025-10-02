@@ -46,7 +46,7 @@ Source: "vendor\nssm\win64\nssm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "dist\bin\*.bat"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 ; Configuration templates
-Source: ".env.example"; DestDir: "{commonappdata}\{#MyAppName}\config"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: ".env.template"; DestDir: "{commonappdata}\{#MyAppName}\config"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Dirs]
 ; Create data directories in ProgramData with user-modify permissions
