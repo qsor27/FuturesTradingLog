@@ -107,7 +107,7 @@ class InstallerBuilder:
 
     def create_helper_scripts(self):
         """Create batch helper scripts for manual service management."""
-        print("📝 Creating helper scripts...")
+        print("[*] Creating helper scripts...")
 
         bin_dir = self.dist_dir / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
