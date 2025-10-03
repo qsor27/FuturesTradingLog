@@ -20,6 +20,12 @@ from services.position_algorithms import (
     create_position_summary
 )
 
+
+# Import domain services for position building
+from domain.services.position_builder import PositionBuilder
+from domain.services.pnl_calculator import PnLCalculator
+from domain.models.trade import Trade, MarketSide
+
 # Get logger
 logger = logging.getLogger('enhanced_position_service_v2')
 
@@ -170,37 +176,197 @@ class EnhancedPositionServiceV2:
         logger.info(f"Position rebuild completed: {stats}")
         return stats
     
+    def _deduplicate_trades(self, trades: List[Dict]) -> List[Dict]:
+        """
+        Deduplicate trades by entry_execution_id (unique NinjaTrader execution identifier).
+
+        NinjaTrader CSV imports often create multiple database records for the same execution,
+        with quantities like [1,1,2,2] that need to be summed. The entry_execution_id uniquely
+        identifies each real execution, so we group by this field and sum quantities.
+
+        For trades without entry_execution_id, falls back to grouping by
+        (entry_time, side_of_market, entry_price).
+
+        Args:
+            trades: List of trade dictionaries from database
+
+        Returns:
+            List of deduplicated trades with summed quantities
+        """
+        from collections import defaultdict
+
+        # Group trades by entry_execution_id (or fallback key)
+        trade_groups = defaultdict(list)
+
+        for trade in trades:
+            exec_id = trade.get('entry_execution_id')
+
+            if exec_id:
+                # Use execution ID as primary grouping key
+                key = f"EXEC_{exec_id}"
+            else:
+                # Fallback to timestamp/price/side for trades without execution ID
+                key = f"FALLBACK_{trade['entry_time']}_{trade['side_of_market']}_{trade.get('entry_price')}"
+
+            trade_groups[key].append(trade)
+
+        # Deduplicate by summing quantities within each group
+        deduped_trades = []
+        duplicates_found = 0
+
+        for key, group in trade_groups.items():
+            if len(group) == 1:
+                # No duplicates for this execution
+                deduped_trades.append(group[0])
+            else:
+                # Multiple trades with same execution ID - sum quantities
+                base_trade = group[0].copy()
+                total_qty = sum(t['quantity'] for t in group)
+                base_trade['quantity'] = total_qty
+
+                exec_id = group[0].get('entry_execution_id', 'N/A')
+                logger.info(f"Deduped {len(group)} trades with execution_id={exec_id} into 1 trade with qty={total_qty}")
+
+                duplicates_found += len(group) - 1
+                deduped_trades.append(base_trade)
+
+        if duplicates_found > 0:
+            logger.info(f"Deduplication summary: removed {duplicates_found} duplicate trade records")
+
+        return deduped_trades
+
+
+
     def _process_trades_for_instrument(self, trades: List[Dict], account: str, instrument: str) -> Dict[str, Any]:
-        """Process trades for a single account/instrument combination using new algorithms"""
+        """Process trades for a single account/instrument combination using PositionBuilder with quantity flow analysis"""
         if not trades:
             return {'positions_created': 0, 'validation_errors': []}
-        
-        logger.debug(f"Processing {len(trades)} trades for {account}/{instrument}")
-        
-        # Since each trade record represents a complete round-trip position,
-        # directly create position records from trade data
-        positions_created = 0
-        validation_errors = []
-        
-        for trade in trades:
-            try:
-                logger.info(f"DEBUG: Processing trade {trade['id']}: {trade.get('entry_price')} -> {trade.get('exit_price')}")
-                position_id = self._create_position_from_trade(trade)
-                if position_id:
-                    positions_created += 1
-                    logger.info(f"Created position {position_id} from trade {trade['id']}")
-                else:
-                    logger.warning(f"No position ID returned for trade {trade['id']}")
-            except Exception as e:
-                error_msg = f"Failed to create position from trade {trade['id']}: {str(e)}"
-                logger.error(error_msg)
-                validation_errors.append(error_msg)
-        
-        return {
-            'positions_created': positions_created,
-            'validation_errors': validation_errors
-        }
+
+        logger.info(f"Processing {len(trades)} trades for {account}/{instrument} using PositionBuilder")
+
+        try:
+            # Deduplicate trades that have same timestamp/price/side (CSV import creates duplicates)
+            trades = self._deduplicate_trades(trades)
+            logger.info(f"After deduplication: {len(trades)} unique trades")
+
+            # Convert dict trades to Trade domain objects
+            trade_objects = []
+            for trade_dict in trades:
+                try:
+                    # Map side_of_market string to MarketSide enum
+                    side_str = trade_dict.get('side_of_market', '').upper()
+                    if side_str == 'BUY':
+                        market_side = MarketSide.BUY
+                    elif side_str == 'SELL':
+                        market_side = MarketSide.SELL
+                    elif side_str == 'LONG':
+                        market_side = MarketSide.LONG
+                    elif side_str == 'SHORT':
+                        market_side = MarketSide.SHORT
+                    else:
+                        logger.warning(f"Unknown side_of_market '{side_str}' for trade {trade_dict['id']}, defaulting to BUY")
+                        market_side = MarketSide.BUY
+
+                    # Create Trade domain object
+                    trade_obj = Trade(
+                        id=trade_dict['id'],
+                        instrument=trade_dict['instrument'],
+                        account=trade_dict['account'],
+                        side_of_market=market_side,
+                        quantity=trade_dict['quantity'],
+                        entry_price=trade_dict['entry_price'],
+                        exit_price=trade_dict.get('exit_price'),
+                        entry_time=datetime.fromisoformat(trade_dict['entry_time']) if isinstance(trade_dict['entry_time'], str) else trade_dict['entry_time'],
+                        exit_time=datetime.fromisoformat(trade_dict['exit_time']) if isinstance(trade_dict.get('exit_time'), str) else trade_dict.get('exit_time'),
+                        points_gain_loss=trade_dict.get('points_gain_loss', 0),
+                        dollars_gain_loss=trade_dict.get('dollars_gain_loss', 0),
+                        commission=trade_dict.get('commission', 0)
+                    )
+                    trade_objects.append(trade_obj)
+                except Exception as e:
+                    logger.error(f"Failed to convert trade dict to Trade object: {e}")
+                    continue
+
+            if not trade_objects:
+                logger.warning(f"No valid trade objects created for {account}/{instrument}")
+                return {'positions_created': 0, 'validation_errors': ['No valid trades to process']}
+
+            # Use PositionBuilder to build positions from trades using quantity flow analysis
+            pnl_calculator = PnLCalculator()
+            position_builder = PositionBuilder(pnl_calculator)
+            positions = position_builder.build_positions_from_trades(trade_objects, account, instrument)
+
+            logger.info(f"PositionBuilder created {len(positions)} positions from {len(trade_objects)} trades")
+
+            # Save positions to database
+            positions_created = 0
+            validation_errors = []
+
+            for position in positions:
+                try:
+                    position_id = self._save_position_to_db(position)
+                    if position_id:
+                        positions_created += 1
+                        logger.info(f"Saved position {position_id} for {account}/{instrument}")
+                    else:
+                        logger.warning(f"Failed to save position for {account}/{instrument}")
+                except Exception as e:
+                    error_msg = f"Failed to save position: {str(e)}"
+                    logger.error(error_msg)
+                    validation_errors.append(error_msg)
+
+            return {
+                'positions_created': positions_created,
+                'validation_errors': validation_errors
+            }
+
+        except Exception as e:
+            error_msg = f"Failed to process trades using PositionBuilder: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'positions_created': 0,
+                'validation_errors': [error_msg]
+            }
     
+    
+    def _save_position_to_db(self, position) -> Optional[int]:
+        """Save a Position domain object to the database"""
+        try:
+            # Insert position record
+            self.cursor.execute("""
+                INSERT INTO positions (
+                    instrument, account, position_type, entry_time, exit_time,
+                    total_quantity, average_entry_price, average_exit_price,
+                    total_points_pnl, total_dollars_pnl, total_commission,
+                    position_status, execution_count, max_quantity, risk_reward_ratio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                position.instrument,
+                position.account,
+                position.position_type.value,  # Convert enum to string
+                position.entry_time,
+                position.exit_time,
+                position.total_quantity,
+                position.average_entry_price,
+                position.average_exit_price,
+                position.total_points_pnl,
+                position.total_dollars_pnl,
+                position.total_commission,
+                position.position_status.value,  # Convert enum to string
+                position.execution_count,
+                position.max_quantity,
+                position.risk_reward_ratio
+            ))
+
+            position_id = self.cursor.lastrowid
+            logger.debug(f"Saved position {position_id} to database")
+
+            return position_id
+
+        except Exception as e:
+            logger.error(f"Failed to save position to database: {e}")
+            return None
+
     def _create_position_from_trade(self, trade: Dict) -> Optional[int]:
         """Create a position record directly from a trade record"""
         

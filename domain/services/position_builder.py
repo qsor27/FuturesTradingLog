@@ -40,52 +40,24 @@ class PositionBuilder:
     
     def build_positions_from_trades(self, trades: List[Trade], account: str, instrument: str) -> List[Position]:
         """
-        Build position objects from trade executions using adaptive algorithm
-        
-        ADAPTIVE MODEL: Detect data type and use appropriate processing method.
-        - Raw executions: Use quantity flow analysis (0 → +/- → 0)
-        - Completed trades: Convert directly to positions
-        - Mixed data: Separate and process each type appropriately
+        Build position objects from trade executions using quantity flow analysis
+
+        QUANTITY FLOW MODEL: All executions are aggregated using quantity flow (0 → +/- → 0)
+        - Position starts when quantity goes from 0 to non-zero
+        - Position continues while quantity remains non-zero (same direction)
+        - Position ends when quantity returns to 0
+        - Ignores P&L values on individual executions (P&L is recalculated for the complete position)
         """
         logger.info(f"=== BUILDING POSITIONS FOR {account}/{instrument} ===")
-        logger.info(f"Processing {len(trades)} trades using ADAPTIVE MODEL")
+        logger.info(f"Processing {len(trades)} trades using QUANTITY FLOW MODEL")
         
         # Sort trades by entry time for chronological processing
         trades_sorted = sorted(trades, key=lambda t: t.entry_time or datetime.min)
         
-        # Detect data types
-        completed_trades = []
-        raw_executions = []
-        
-        for trade in trades_sorted:
-            # CRITICAL: Process all individual executions from NinjaTrader data
-            # For NinjaTrader executions, entry_time == exit_time is normal for individual executions
-            # Only skip trades that are clearly completed round-trip trades (with non-zero P&L calculation)
-            
-            if trade.points_gain_loss != 0 or trade.dollars_gain_loss != 0:
-                # This is a completed trade with P&L - convert directly to position
-                completed_trades.append(trade)
-            else:
-                # This is a raw execution that needs to be aggregated
-                raw_executions.append(trade)
-        
-        logger.info(f"Data type analysis: {len(completed_trades)} completed trades, {len(raw_executions)} raw executions")
-        
-        positions = []
-        
-        # Process completed trades directly
-        if completed_trades:
-            logger.info("Processing completed trades directly to positions")
-            for trade in completed_trades:
-                position = self._convert_completed_trade_to_position(trade, account, instrument)
-                if position:
-                    positions.append(position)
-        
-        # Process raw executions using quantity flow analysis
-        if raw_executions:
-            logger.info("Processing raw executions using quantity flow analysis")
-            raw_positions = self._aggregate_executions_into_positions(raw_executions, account, instrument)
-            positions.extend(raw_positions)
+        # Process all trades using quantity flow analysis
+        # This ignores any P&L on individual executions and aggregates by quantity flow (0 → +/- → 0)
+        logger.info("Using quantity flow analysis to aggregate all executions into positions")
+        positions = self._aggregate_executions_into_positions(trades_sorted, account, instrument)
         
         logger.info(f"=== POSITION BUILDING COMPLETE ===")
         logger.info(f"Created {len(positions)} positions from {len(trades_sorted)} trades")
@@ -176,8 +148,9 @@ class PositionBuilder:
                 if current_position:
                     current_executions.append(event.trade)
                     current_position.max_quantity = max(current_position.max_quantity, abs(event.running_quantity))
+                    current_position.total_quantity = abs(event.running_quantity)  # Update running quantity
                     current_position.execution_count = len(current_executions)
-                    
+
                     if abs(event.running_quantity) > abs(event.previous_quantity):
                         logger.info(f"Added to {current_position.position_type.value} position")
                     else:
@@ -258,24 +231,30 @@ class PositionBuilder:
         """Calculate position totals from aggregated executions using FIFO methodology"""
         if not executions:
             return
-        
+
         # Set actual entry and exit times from first and last executions
         sorted_executions = sorted(executions, key=lambda x: x.entry_time or datetime.min)
         position.entry_time = sorted_executions[0].entry_time
-        
+
         # For closed positions, set exit time to the last execution
         if position.position_status == PositionStatus.CLOSED:
             position.exit_time = sorted_executions[-1].entry_time
-        
+
         # Calculate P&L using the PnL calculator
         pnl_result = self.pnl_calculator.calculate_position_pnl(position, executions)
-        
+
         position.average_entry_price = pnl_result.average_entry_price
-        position.average_exit_price = pnl_result.average_exit_price
+
+        # For OPEN positions, exit price should be None (no exits yet)
+        if position.position_status == PositionStatus.OPEN:
+            position.average_exit_price = None
+        else:
+            position.average_exit_price = pnl_result.average_exit_price
+
         position.total_points_pnl = pnl_result.points_pnl
         position.total_dollars_pnl = pnl_result.dollars_pnl
         position.total_commission = sum(t.commission for t in executions)
-        
+
         # Calculate risk/reward ratio
         if position.total_dollars_pnl != 0 and position.total_commission > 0:
             if position.total_dollars_pnl > 0:

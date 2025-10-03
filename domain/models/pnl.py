@@ -140,7 +140,9 @@ class FIFOCalculator:
             
             if match_qty > 0:
                 entry_price = float(entry.get('entry_price', 0))
-                exit_price = float(exit.get('exit_price', exit.get('entry_price', 0)))
+                # Handle None exit_price - use entry_price from exit trade as fallback
+                exit_price_value = exit.get('exit_price') or exit.get('entry_price', 0)
+                exit_price = float(exit_price_value) if exit_price_value is not None else 0.0
                 
                 # Create match
                 match = FIFOMatch(
@@ -179,7 +181,12 @@ class FIFOCalculator:
         
         avg_exit_price = 0.0
         if total_exit_quantity > 0:
-            weighted_exit = sum(float(e.get('exit_price', e.get('entry_price', 0))) * int(e.get('quantity', 0)) for e in exits)
+            # Handle None exit_price - use entry_price from exit trade as fallback
+            def get_exit_price(e):
+                exit_price = e.get('exit_price') or e.get('entry_price', 0)
+                return float(exit_price) if exit_price is not None else 0.0
+
+            weighted_exit = sum(get_exit_price(e) * int(e.get('quantity', 0)) for e in exits)
             avg_exit_price = weighted_exit / total_exit_quantity
         
         return PnLCalculation(
