@@ -99,31 +99,63 @@ class QuantityFlowAnalyzer:
     def _determine_event_type(self, previous_quantity: int, running_quantity: int) -> Optional[str]:
         """
         Determine the type of position lifecycle event based on quantity changes
-        
+
+        State Machine for Position Lifecycle:
+
+        States:
+          ZERO (qty = 0)     - No active position
+          LONG (qty > 0)     - Long position active
+          SHORT (qty < 0)    - Short position active
+
+        Transitions:
+          ┌──────────┐
+          │   ZERO   │ ◄──────────────────┐
+          └────┬─────┘                    │
+               │ position_start      position_close
+               ▼                          │
+          ┌──────────┐              ┌─────┴─────┐
+          │   LONG   │              │           │
+          │  (qty>0) │ ◄──┐    ┌──►│  SHORT    │
+          └──────────┘    │    │   │  (qty<0)  │
+               │    position_modify  └───────────┘
+               │          │    │         │
+               └──────────┘    └─────────┘
+                               position_
+                               reversal
+
         Position Lifecycle Rules:
-        - START: 0 → non-zero
-        - MODIFY: non-zero → non-zero (same sign)
-        - CLOSE: non-zero → 0
-        - REVERSAL: positive → negative or negative → positive
+        - position_start: 0 → non-zero (entering LONG or SHORT from ZERO)
+        - position_modify: qty changes but remains same sign (staying in LONG or SHORT)
+        - position_close: non-zero → 0 (returning to ZERO)
+        - position_reversal: sign flip (LONG ↔ SHORT without passing through ZERO)
+
+        Examples:
+        - 0 → +5:  position_start (enter LONG)
+        - +5 → +8: position_modify (add to LONG)
+        - +8 → +3: position_modify (reduce LONG)
+        - +3 → 0:  position_close (exit LONG)
+        - +3 → -2: position_reversal (close LONG, open SHORT)
         """
-        
-        # Position start: 0 → non-zero
+
+        # Position start: 0 → non-zero (ZERO → LONG or ZERO → SHORT)
         if previous_quantity == 0 and running_quantity != 0:
             return 'position_start'
-        
-        # Position reversal: sign change (e.g., +10 → -5)
+
+        # Position reversal: sign change without reaching zero (LONG ↔ SHORT)
+        # Example: +10 → -5 (closes LONG with 10 contracts, opens SHORT with 5)
         elif previous_quantity != 0 and running_quantity != 0 and previous_quantity * running_quantity < 0:
             return 'position_reversal'
-        
-        # Position close: non-zero → 0
+
+        # Position close: non-zero → 0 (LONG → ZERO or SHORT → ZERO)
         elif previous_quantity != 0 and running_quantity == 0:
             return 'position_close'
-        
+
         # Position modify: non-zero → non-zero (same sign)
+        # Stays within LONG (both positive) or SHORT (both negative)
         elif previous_quantity != 0 and running_quantity != 0 and previous_quantity * running_quantity > 0:
             return 'position_modify'
-        
-        # No significant event
+
+        # No significant event (e.g., 0 → 0)
         return None
     
     def validate_quantity_flow(self, trades: List[Trade]) -> List[str]:
