@@ -1400,32 +1400,51 @@ class FuturesDB:
             self.conn.rollback()
             return False
 
-    def add_trade(self, trade_data: Dict[str, Any]) -> bool:
-        """Add a single trade to the database with duplicate checking."""
+    def add_trade(self, trade_data: Dict[str, Any], csv_filename: Optional[str] = None) -> bool:
+        """
+        Add a single trade to the database with execution ID deduplication.
+
+        Args:
+            trade_data: Trade data dictionary
+            csv_filename: Optional CSV filename for audit trail
+
+        Returns:
+            True if trade was imported or already exists, False on error
+        """
         try:
-            # Check for duplicate using account + entry_execution_id
+            execution_id = trade_data.get('entry_execution_id', '')
+
+            # Skip trades without execution ID
+            if not execution_id or execution_id.strip() == '':
+                import logging
+                logger = logging.getLogger('database')
+                logger.warning("Skipping trade without execution_id")
+                return False
+
+            # Check if execution_id already imported using imported_executions table
             self.cursor.execute("""
-                SELECT COUNT(*) FROM trades
-                WHERE account = ? AND entry_execution_id = ?
-            """, (trade_data.get('account'), trade_data.get('entry_execution_id')))
-            
+                SELECT COUNT(*) FROM imported_executions
+                WHERE execution_id = ?
+            """, (execution_id,))
+
             if self.cursor.fetchone()[0] > 0:
-                print(f"Skipping duplicate trade: {trade_data.get('entry_execution_id')}")
+                print(f"Skipping duplicate execution: {execution_id}")
                 return True  # Return True to indicate it was processed (already exists)
-            
+
             # Convert datetime objects to proper string format for SQLite
             if trade_data.get('entry_time') is not None:
                 if hasattr(trade_data['entry_time'], 'strftime'):  # pandas Timestamp or datetime
                     trade_data['entry_time'] = trade_data['entry_time'].strftime('%Y-%m-%d %H:%M:%S')
                 elif isinstance(trade_data['entry_time'], str):
                     trade_data['entry_time'] = pd.to_datetime(trade_data['entry_time']).strftime('%Y-%m-%d %H:%M:%S')
-            
+
             if trade_data.get('exit_time') is not None:
                 if hasattr(trade_data['exit_time'], 'strftime'):  # pandas Timestamp or datetime
                     trade_data['exit_time'] = trade_data['exit_time'].strftime('%Y-%m-%d %H:%M:%S')
                 elif isinstance(trade_data['exit_time'], str):
                     trade_data['exit_time'] = pd.to_datetime(trade_data['exit_time']).strftime('%Y-%m-%d %H:%M:%S')
-            
+
+            # Begin transaction: Insert into both trades and imported_executions atomically
             # Insert the trade
             self.cursor.execute("""
                 INSERT INTO trades (
@@ -1445,9 +1464,24 @@ class FuturesDB:
                 float(trade_data.get('dollars_gain_loss', 0.0)),
                 float(trade_data.get('commission', 0.0)),
                 str(trade_data.get('account', '')),
-                str(trade_data.get('entry_execution_id', ''))
+                execution_id
             ))
-            
+
+            # Insert into imported_executions table to track this execution_id
+            self.cursor.execute("""
+                INSERT INTO imported_executions (
+                    execution_id,
+                    csv_filename,
+                    import_timestamp,
+                    import_source
+                ) VALUES (?, ?, ?, ?)
+            """, (
+                execution_id,
+                csv_filename,
+                trade_data.get('entry_time'),
+                'CSV_IMPORT'
+            ))
+
             self.conn.commit()
             return True
             

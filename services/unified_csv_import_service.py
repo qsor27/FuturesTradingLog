@@ -406,61 +406,69 @@ class UnifiedCSVImportService:
         except Exception as e:
             self.logger.error(f"Error creating processing summary: {e}")
     
-    def _import_trades_to_database(self, trades: List[Dict[str, Any]]) -> bool:
+    def _import_trades_to_database(self, trades: List[Dict[str, Any]], csv_filename: Optional[str] = None) -> bool:
         """
-        Import processed trades to the database.
-        
+        Import processed trades to the database with deduplication.
+
         Args:
             trades: List of trade dictionaries to import
-            
+            csv_filename: Optional CSV filename for audit trail
+
         Returns:
             True if import successful, False otherwise
         """
         if not trades:
             self.logger.debug("No trades to import")
             return True
-        
+
         try:
             if not FuturesDB:
                 self.logger.error("FuturesDB not available - cannot import trades")
                 return False
-                
+
             imported_count = 0
-            
+            skipped_count = 0
+
             with FuturesDB() as db:
                 for trade in trades:
                     # Convert trade dictionary to database format
+                    # Handle both uppercase keys (from execution processing) and lowercase keys (from trade_log processing)
                     trade_data = {
-                        'instrument': trade.get('Instrument', ''),
-                        'side_of_market': trade.get('Side of Market', ''),
-                        'quantity': trade.get('Quantity', 0),
-                        'entry_price': trade.get('Entry Price', 0.0),
-                        'entry_time': trade.get('Entry Time', ''),
-                        'exit_time': trade.get('Exit Time', ''),
-                        'exit_price': trade.get('Exit Price', 0.0),
-                        'points_gain_loss': trade.get('Result Gain/Loss in Points', 0.0),
-                        'dollars_gain_loss': trade.get('Gain/Loss in Dollars', 0.0),
-                        'entry_execution_id': trade.get('ID', ''),
-                        'commission': trade.get('Commission', 0.0),
-                        'account': trade.get('Account', '')
+                        'instrument': trade.get('instrument') or trade.get('Instrument', ''),
+                        'side_of_market': trade.get('side_of_market') or trade.get('Side of Market', ''),
+                        'quantity': trade.get('quantity') or trade.get('Quantity', 0),
+                        'entry_price': trade.get('entry_price') or trade.get('Entry Price', 0.0),
+                        'entry_time': trade.get('entry_time') or trade.get('Entry Time', ''),
+                        'exit_time': trade.get('exit_time') or trade.get('Exit Time', ''),
+                        'exit_price': trade.get('exit_price') or trade.get('Exit Price', 0.0),
+                        'points_gain_loss': trade.get('points_gain_loss') or trade.get('Result Gain/Loss in Points', 0.0),
+                        'dollars_gain_loss': trade.get('dollars_gain_loss') or trade.get('Gain/Loss in Dollars', 0.0),
+                        'entry_execution_id': trade.get('entry_execution_id') or trade.get('ID', ''),
+                        'commission': trade.get('commission') or trade.get('Commission', 0.0),
+                        'account': trade.get('account') or trade.get('Account', '')
                     }
-                    
-                    # Insert trade (database handles duplicates)
+
+                    # Insert trade with execution ID deduplication
                     self.logger.debug(f"Importing trade: {trade_data['entry_execution_id']}")
-                    success = db.add_trade(trade_data)
-                    
+                    success = db.add_trade(trade_data, csv_filename=csv_filename)
+
                     if success:
-                        imported_count += 1
-                        self.logger.debug(f"Successfully imported trade {trade_data['entry_execution_id']}")
+                        # Check if it was actually imported or skipped as duplicate
+                        if trade_data.get('entry_execution_id'):
+                            imported_count += 1
+                            self.logger.debug(f"Successfully imported trade {trade_data['entry_execution_id']}")
+                        else:
+                            skipped_count += 1
                     else:
+                        skipped_count += 1
                         self.logger.warning(
                             f"Failed to import trade {trade_data['entry_execution_id']} "
-                            f"- possibly duplicate"
+                            f"- skipped (no execution ID or error)"
                         )
-                
-                self.logger.info(f"Successfully imported {imported_count} trades to database")
+
+                self.logger.info(f"Import complete: {imported_count} imported, {skipped_count} skipped")
                 return True
-                
+
         except Exception as e:
             self.logger.error(f"Error importing trades to database: {e}")
             return False
@@ -602,26 +610,23 @@ class UnifiedCSVImportService:
             # Process all files
             all_trades = []
             processed_files = []
-            
+
             for file_path in new_files:
                 trades = self._process_csv_file(file_path)
-                all_trades.extend(trades)
-                processed_files.append(file_path)
-                
-                # Mark as processed
-                self.processed_files.add(file_path.name)
-            
-            # Import trades to database
+
+                # Import trades from this file with filename for audit trail
+                if trades:
+                    import_success = self._import_trades_to_database(trades, csv_filename=file_path.name)
+                    if import_success:
+                        all_trades.extend(trades)
+                        processed_files.append(file_path)
+                        # Mark as processed
+                        self.processed_files.add(file_path.name)
+                    else:
+                        self.logger.error(f"Failed to import trades from {file_path.name}")
+
+            # Continue with position rebuild if any trades were imported
             if all_trades:
-                import_success = self._import_trades_to_database(all_trades)
-                
-                if not import_success:
-                    return {
-                        'success': False,
-                        'error': 'Failed to import trades to database',
-                        'files_processed': len(processed_files),
-                        'trades_imported': 0
-                    }
                 
                 # Rebuild positions
                 if FuturesDB:
@@ -686,10 +691,10 @@ class UnifiedCSVImportService:
             
             # Process the file
             trades = self._process_csv_file(file_path)
-            
+
             if trades:
-                # Import to database
-                import_success = self._import_trades_to_database(trades)
+                # Import to database with filename for audit trail
+                import_success = self._import_trades_to_database(trades, csv_filename=file_path.name)
                 
                 if not import_success:
                     return {
