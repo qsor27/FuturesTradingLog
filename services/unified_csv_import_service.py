@@ -372,95 +372,128 @@ class UnifiedCSVImportService:
             return []
     
     def _log_processing_summary(self, trades: List[Dict[str, Any]], filename: str) -> None:
-        """Log summary of processed trades"""
+        """Log summary of processed trades/executions"""
         try:
             account_summary = {}
             instrument_summary = {}
-            
+
+            # Detect format
+            is_individual_execution = trades and 'execution_id' in trades[0]
+
             for trade in trades:
                 # Account summary
                 account = trade.get('Account', 'Unknown')
                 if account not in account_summary:
                     account_summary[account] = {'count': 0, 'total_pnl': 0}
                 account_summary[account]['count'] += 1
-                account_summary[account]['total_pnl'] += trade.get('Gain/Loss in Dollars', 0)
-                
+
+                # For individual executions, P&L is not calculated yet
+                if not is_individual_execution:
+                    account_summary[account]['total_pnl'] += trade.get('Gain/Loss in Dollars', 0)
+
                 # Instrument summary
                 instrument = trade.get('Instrument', 'Unknown')
                 if instrument not in instrument_summary:
                     instrument_summary[instrument] = 0
                 instrument_summary[instrument] += 1
-            
+
+            record_type = "executions" if is_individual_execution else "trades"
             self.logger.info(f"Processing summary for {filename}:")
-            self.logger.info(f"  Total trades: {len(trades)}")
-            
+            self.logger.info(f"  Total {record_type}: {len(trades)}")
+
             for account, summary in account_summary.items():
-                self.logger.info(
-                    f"  {account}: {summary['count']} trades, "
-                    f"P&L: ${summary['total_pnl']:.2f}"
-                )
-            
+                if is_individual_execution:
+                    self.logger.info(f"  {account}: {summary['count']} executions")
+                else:
+                    self.logger.info(
+                        f"  {account}: {summary['count']} trades, "
+                        f"P&L: ${summary['total_pnl']:.2f}"
+                    )
+
             for instrument, count in instrument_summary.items():
-                self.logger.info(f"  {instrument}: {count} trades")
+                self.logger.info(f"  {instrument}: {count} {record_type}")
                 
         except Exception as e:
             self.logger.error(f"Error creating processing summary: {e}")
     
     def _import_trades_to_database(self, trades: List[Dict[str, Any]]) -> bool:
         """
-        Import processed trades to the database.
-        
+        Import processed executions to the database.
+
+        Handles both individual executions (new format) and complete trades (legacy format).
+
         Args:
-            trades: List of trade dictionaries to import
-            
+            trades: List of execution/trade dictionaries to import
+
         Returns:
             True if import successful, False otherwise
         """
         if not trades:
             self.logger.debug("No trades to import")
             return True
-        
+
         try:
             if not FuturesDB:
                 self.logger.error("FuturesDB not available - cannot import trades")
                 return False
-                
+
             imported_count = 0
-            
+
             with FuturesDB() as db:
                 for trade in trades:
-                    # Convert trade dictionary to database format
-                    trade_data = {
-                        'instrument': trade.get('Instrument', ''),
-                        'side_of_market': trade.get('Side of Market', ''),
-                        'quantity': trade.get('Quantity', 0),
-                        'entry_price': trade.get('Entry Price', 0.0),
-                        'entry_time': trade.get('Entry Time', ''),
-                        'exit_time': trade.get('Exit Time', ''),
-                        'exit_price': trade.get('Exit Price', 0.0),
-                        'points_gain_loss': trade.get('Result Gain/Loss in Points', 0.0),
-                        'dollars_gain_loss': trade.get('Gain/Loss in Dollars', 0.0),
-                        'entry_execution_id': trade.get('ID', ''),
-                        'commission': trade.get('Commission', 0.0),
-                        'account': trade.get('Account', '')
-                    }
-                    
+                    # Detect format: new individual execution format vs legacy trade format
+                    is_individual_execution = 'execution_id' in trade and 'entry_exit' in trade
+
+                    if is_individual_execution:
+                        # New format: Individual execution
+                        trade_data = {
+                            'instrument': trade.get('Instrument', ''),
+                            'side_of_market': trade.get('action', ''),  # Buy/Sell
+                            'quantity': trade.get('quantity', 0),
+                            'entry_price': trade.get('entry_price', None),
+                            'entry_time': trade.get('entry_time', None),
+                            'exit_time': trade.get('exit_time', None),
+                            'exit_price': trade.get('exit_price', None),
+                            'points_gain_loss': None,  # Position builder calculates this
+                            'dollars_gain_loss': None,  # Position builder calculates this
+                            'entry_execution_id': trade.get('execution_id', ''),
+                            'commission': trade.get('commission', 0.0),
+                            'account': trade.get('Account', '')
+                        }
+                        exec_id = trade_data['entry_execution_id']
+                    else:
+                        # Legacy format: Complete trade
+                        trade_data = {
+                            'instrument': trade.get('Instrument', ''),
+                            'side_of_market': trade.get('Side of Market', ''),
+                            'quantity': trade.get('Quantity', 0),
+                            'entry_price': trade.get('Entry Price', 0.0),
+                            'entry_time': trade.get('Entry Time', ''),
+                            'exit_time': trade.get('Exit Time', ''),
+                            'exit_price': trade.get('Exit Price', 0.0),
+                            'points_gain_loss': trade.get('Result Gain/Loss in Points', 0.0),
+                            'dollars_gain_loss': trade.get('Gain/Loss in Dollars', 0.0),
+                            'entry_execution_id': trade.get('ID', ''),
+                            'commission': trade.get('Commission', 0.0),
+                            'account': trade.get('Account', '')
+                        }
+                        exec_id = trade_data['entry_execution_id']
+
                     # Insert trade (database handles duplicates)
-                    self.logger.debug(f"Importing trade: {trade_data['entry_execution_id']}")
+                    self.logger.debug(f"Importing execution: {exec_id}")
                     success = db.add_trade(trade_data)
-                    
+
                     if success:
                         imported_count += 1
-                        self.logger.debug(f"Successfully imported trade {trade_data['entry_execution_id']}")
+                        self.logger.debug(f"Successfully imported execution {exec_id}")
                     else:
                         self.logger.warning(
-                            f"Failed to import trade {trade_data['entry_execution_id']} "
-                            f"- possibly duplicate"
+                            f"Failed to import execution {exec_id} - possibly duplicate"
                         )
-                
-                self.logger.info(f"Successfully imported {imported_count} trades to database")
+
+                self.logger.info(f"Successfully imported {imported_count} executions to database")
                 return True
-                
+
         except Exception as e:
             self.logger.error(f"Error importing trades to database: {e}")
             return False
