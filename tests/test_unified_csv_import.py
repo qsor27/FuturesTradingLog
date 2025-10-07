@@ -30,14 +30,15 @@ class TestUnifiedCSVImportService:
         """Sample CSV data for testing"""
         return {
             'valid_ninja_trader': pd.DataFrame({
-                'Time': ['2023-01-01 09:30:00', '2023-01-01 10:00:00'],
-                'Instrument': ['ES 03-23', 'ES 03-23'],
-                'Market pos.': ['Long', 'Short'],
-                'Qty': [1, 1],
-                'Price': [4100.25, 4105.50],
-                'Account': ['Sim101', 'Sim101'],
                 'ID': ['12345', '12346'],
-                'Commission': [2.25, 2.25]
+                'Account': ['Sim101', 'Sim101'],
+                'Instrument': ['ES 03-23', 'ES 03-23'],
+                'Time': ['2023-01-01 09:30:00', '2023-01-01 10:00:00'],
+                'Action': ['Buy', 'Sell'],
+                'E/X': ['Entry', 'Exit'],
+                'Quantity': [1, 1],
+                'Price': [4100.25, 4105.50],
+                'Commission': ['$2.25', '$2.25']
             }),
             'empty_csv': pd.DataFrame(),
             'invalid_columns': pd.DataFrame({
@@ -161,34 +162,49 @@ class TestUnifiedCSVImportService:
     
     @patch('services.unified_csv_import_service.process_trades')
     def test_process_csv_file_success(self, mock_process_trades, service, sample_csv_data, temp_data_dir):
-        """Test successful CSV file processing"""
+        """Test successful CSV file processing with new individual execution format"""
         # Setup
         csv_file = temp_data_dir / 'test.csv'
         sample_csv_data['valid_ninja_trader'].to_csv(csv_file, index=False)
-        
+
+        # Mock returns 2 individual executions (Entry and Exit)
         mock_process_trades.return_value = [
             {
+                'execution_id': '12345',
+                'Account': 'Sim101',
                 'Instrument': 'ES 03-23',
-                'Side of Market': 'Long',
-                'Quantity': 1,
-                'Entry Price': 4100.25,
-                'Entry Time': '2023-01-01 09:30:00',
-                'Exit Time': '2023-01-01 10:00:00',
-                'Exit Price': 4105.50,
-                'Result Gain/Loss in Points': 5.25,
-                'Gain/Loss in Dollars': 262.50,
-                'ID': '12345',
-                'Commission': 2.25,
-                'Account': 'Sim101'
+                'action': 'Buy',
+                'entry_exit': 'Entry',
+                'quantity': 1,
+                'entry_price': 4100.25,
+                'entry_time': pd.to_datetime('2023-01-01 09:30:00'),
+                'exit_price': None,
+                'exit_time': None,
+                'commission': 2.25
+            },
+            {
+                'execution_id': '12346',
+                'Account': 'Sim101',
+                'Instrument': 'ES 03-23',
+                'action': 'Sell',
+                'entry_exit': 'Exit',
+                'quantity': 1,
+                'entry_price': None,
+                'entry_time': None,
+                'exit_price': 4105.50,
+                'exit_time': pd.to_datetime('2023-01-01 10:00:00'),
+                'commission': 2.25
             }
         ]
-        
+
         # Execute
         result = service._process_csv_file(csv_file)
-        
-        # Verify
-        assert len(result) == 1
+
+        # Verify - should return 2 individual executions
+        assert len(result) == 2
         assert result[0]['Instrument'] == 'ES 03-23'
+        assert result[0]['execution_id'] == '12345'
+        assert result[1]['execution_id'] == '12346'
         mock_process_trades.assert_called_once()
     
     def test_process_csv_file_not_found(self, service, temp_data_dir):
@@ -470,17 +486,18 @@ class TestUnifiedCSVImportServiceIntegration:
             return service
     
     def test_end_to_end_file_processing(self, integration_service, temp_data_dir):
-        """Test complete end-to-end file processing workflow"""
-        # Create realistic NinjaTrader CSV file
+        """Test complete end-to-end file processing workflow with new execution format"""
+        # Create realistic NinjaTrader CSV file with new format (Action and E/X)
         csv_data = pd.DataFrame({
-            'Time': ['1/1/2023 9:30:00 AM', '1/1/2023 10:00:00 AM'],
-            'Instrument': ['ES 03-23', 'ES 03-23'],
-            'Market pos.': ['Long', 'Short'],
-            'Qty': [1, 1],
-            'Price': [4100.25, 4105.50],
-            'Account': ['Sim101', 'Sim101'],
             'ID': ['12345', '12346'],
-            'Commission': [2.25, 2.25]
+            'Account': ['Sim101', 'Sim101'],
+            'Instrument': ['ES 03-23', 'ES 03-23'],
+            'Time': ['1/1/2023 9:30:00 AM', '1/1/2023 10:00:00 AM'],
+            'Action': ['Buy', 'Sell'],
+            'E/X': ['Entry', 'Exit'],
+            'Quantity': [1, 1],
+            'Price': [4100.25, 4105.50],
+            'Commission': ['$2.25', '$2.25']
         })
         
         csv_file = temp_data_dir / 'NinjaTrader_Executions_20230101.csv'
@@ -491,21 +508,33 @@ class TestUnifiedCSVImportServiceIntegration:
              patch('services.unified_csv_import_service.FuturesDB') as mock_db_class, \
              patch('services.unified_csv_import_service.EnhancedPositionServiceV2') as mock_ps:
             
-            # Setup mocks
+            # Setup mocks - return individual executions (new format)
             mock_process.return_value = [
                 {
+                    'execution_id': '12345',
+                    'Account': 'Sim101',
                     'Instrument': 'ES 03-23',
-                    'Side of Market': 'Long',
-                    'Quantity': 1,
-                    'Entry Price': 4100.25,
-                    'Entry Time': '2023-01-01 09:30:00',
-                    'Exit Time': '2023-01-01 10:00:00',
-                    'Exit Price': 4105.50,
-                    'Result Gain/Loss in Points': 5.25,
-                    'Gain/Loss in Dollars': 262.50,
-                    'ID': '12345',
-                    'Commission': 2.25,
-                    'Account': 'Sim101'
+                    'action': 'Buy',
+                    'entry_exit': 'Entry',
+                    'quantity': 1,
+                    'entry_price': 4100.25,
+                    'entry_time': pd.to_datetime('2023-01-01 09:30:00'),
+                    'exit_price': None,
+                    'exit_time': None,
+                    'commission': 2.25
+                },
+                {
+                    'execution_id': '12346',
+                    'Account': 'Sim101',
+                    'Instrument': 'ES 03-23',
+                    'action': 'Sell',
+                    'entry_exit': 'Exit',
+                    'quantity': 1,
+                    'entry_price': None,
+                    'entry_time': None,
+                    'exit_price': 4105.50,
+                    'exit_time': pd.to_datetime('2023-01-01 10:00:00'),
+                    'commission': 2.25
                 }
             ]
             
@@ -523,15 +552,15 @@ class TestUnifiedCSVImportServiceIntegration:
             # Execute the workflow
             result = integration_service.process_all_new_files()
             
-            # Verify results
+            # Verify results - now expects 2 executions imported instead of 1 trade
             assert result['success'] is True
             assert result['files_processed'] == 1
-            assert result['trades_imported'] == 1
+            assert result['trades_imported'] == 2  # 2 individual executions
             assert result['positions_created'] == 1
-            
+
             # Verify file was processed and archived
             assert 'NinjaTrader_Executions_20230101.csv' in integration_service.processed_files
-            
-            # Verify database interactions
-            mock_db_instance.add_trade.assert_called_once()
+
+            # Verify database interactions - should be called twice (once per execution)
+            assert mock_db_instance.add_trade.call_count == 2
             mock_ps_instance.rebuild_positions_from_trades.assert_called_once()
