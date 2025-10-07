@@ -265,9 +265,11 @@ namespace NinjaTrader.NinjaScript.Indicators
         {
             try
             {
-                var instrumentKey = execution.Instrument.FullName;
-                
-                // Initialize position tracking for this instrument
+                // Track positions separately by account and instrument
+                var accountName = execution.Account?.Name ?? "Unknown";
+                var instrumentKey = $"{accountName}_{execution.Instrument.FullName}";
+
+                // Initialize position tracking for this account+instrument combination
                 if (!positionTracker.ContainsKey(instrumentKey))
                 {
                     positionTracker[instrumentKey] = 0;
@@ -333,9 +335,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     
                     if (EnableLogging)
                     {
-                        var instrumentKey = execution.Instrument.FullName;
+                        var accountName = execution.Account?.Name ?? "Unknown";
+                        var instrumentKey = $"{accountName}_{execution.Instrument.FullName}";
                         var currentPos = positionTracker.ContainsKey(instrumentKey) ? positionTracker[instrumentKey] : 0;
-                        LogMessage($"Exported execution: {execution.Instrument.FullName} {entryExit} {execution.Quantity}@{execution.Price} - Position: {currentPos}");
+                        LogMessage($"Exported execution: [{accountName}] {execution.Instrument.FullName} {entryExit} {execution.Quantity}@{execution.Price} - Position: {currentPos}");
                     }
                 }
             }
@@ -356,8 +359,9 @@ namespace NinjaTrader.NinjaScript.Indicators
             var id = executionId;
             var entryExitValue = entryExit;
             
-            // Get current position after this execution from position tracker
-            var instrumentKey = execution.Instrument.FullName;
+            // Get current position after this execution from position tracker (account-specific)
+            var accountName = execution.Account?.Name ?? "Unknown";
+            var instrumentKey = $"{accountName}_{execution.Instrument.FullName}";
             var currentPosition = positionTracker.ContainsKey(instrumentKey) ? positionTracker[instrumentKey] : 0;
             
             string position;
