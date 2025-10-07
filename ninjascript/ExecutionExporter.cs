@@ -273,18 +273,34 @@ namespace NinjaTrader.NinjaScript.Indicators
                 if (!positionTracker.ContainsKey(instrumentKey))
                 {
                     positionTracker[instrumentKey] = 0;
+                    LogMessage($"Created new position tracker for key: {instrumentKey}");
+                }
+
+                var previousPosition = positionTracker[instrumentKey];
+                LogMessage($"DetermineEntryExit - Key: {instrumentKey}, Previous Position: {previousPosition}, OrderAction: {execution.Order.OrderAction}");
+
+                // Determine signed quantity based on order action
+                // Buy/BuyToCover = positive, Sell/SellShort = negative
+                int signedQuantity;
+                if (execution.Order.OrderAction == OrderAction.Buy || execution.Order.OrderAction == OrderAction.BuyToCover)
+                {
+                    signedQuantity = Math.Abs(execution.Quantity);
+                }
+                else if (execution.Order.OrderAction == OrderAction.Sell || execution.Order.OrderAction == OrderAction.SellShort)
+                {
+                    signedQuantity = -Math.Abs(execution.Quantity);
+                }
+                else
+                {
+                    // Fallback for unknown order actions
+                    signedQuantity = execution.Quantity;
                 }
                 
-                var previousPosition = positionTracker[instrumentKey];
-                
-                // For buy orders, quantity is positive. For sell orders, we need to make it negative
-                var signedQuantity = execution.Order.OrderAction == OrderAction.Buy ? 
-                    Math.Abs(execution.Quantity) : -Math.Abs(execution.Quantity);
-                
                 var newPosition = previousPosition + signedQuantity;
-                
+
                 // Update position tracker
                 positionTracker[instrumentKey] = newPosition;
+                LogMessage($"Updated position - Key: {instrumentKey}, New Position: {newPosition}");
                 
                 // Determine if this is entry or exit based on position change
                 if (previousPosition == 0)
