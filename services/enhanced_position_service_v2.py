@@ -294,20 +294,25 @@ class EnhancedPositionServiceV2:
             # Use PositionBuilder to build positions from trades using quantity flow analysis
             pnl_calculator = PnLCalculator()
             position_builder = PositionBuilder(pnl_calculator)
-            positions = position_builder.build_positions_from_trades(trade_objects, account, instrument)
 
-            logger.info(f"PositionBuilder created {len(positions)} positions from {len(trade_objects)} trades")
+            # Build positions - the PositionBuilder tracks which trades belong to each position internally
+            # We need to map positions to their trades for the database relationship
+            # Create a dict mapping trade object IDs to trade dict IDs
+            trade_id_map = {trade_obj.id: trade_dict['id'] for trade_obj, trade_dict in zip(trade_objects, trades)}
+            positions_with_trades = self._build_positions_with_trade_mapping(position_builder, trade_objects, trade_id_map, account, instrument)
 
-            # Save positions to database
+            logger.info(f"PositionBuilder created {len(positions_with_trades)} positions from {len(trade_objects)} trades")
+
+            # Save positions to database with trade mappings
             positions_created = 0
             validation_errors = []
 
-            for position in positions:
+            for position, trade_ids in positions_with_trades:
                 try:
-                    position_id = self._save_position_to_db(position)
+                    position_id = self._save_position_to_db(position, trade_ids)
                     if position_id:
                         positions_created += 1
-                        logger.info(f"Saved position {position_id} for {account}/{instrument}")
+                        logger.info(f"Saved position {position_id} with {len(trade_ids)} trade mappings for {account}/{instrument}")
                     else:
                         logger.warning(f"Failed to save position for {account}/{instrument}")
                 except Exception as e:
@@ -329,8 +334,83 @@ class EnhancedPositionServiceV2:
             }
     
     
-    def _save_position_to_db(self, position) -> Optional[int]:
-        """Save a Position domain object to the database"""
+    def _build_positions_with_trade_mapping(self, position_builder, trade_objects, trade_id_map, account, instrument):
+        """
+        Build positions and track which trades belong to each position.
+
+        Args:
+            position_builder: PositionBuilder instance
+            trade_objects: List of Trade domain objects
+            trade_id_map: Dict mapping trade object IDs to database trade IDs
+            account: Account name
+            instrument: Instrument name
+
+        Returns: List of tuples (position, [trade_ids])
+        """
+        from domain.services.quantity_flow_analyzer import QuantityFlowAnalyzer
+
+        # Sort trades by entry time
+        sorted_trades = sorted(trade_objects, key=lambda t: t.entry_time or datetime.min)
+
+        # Use quantity flow analyzer to track position lifecycle
+        flow_analyzer = QuantityFlowAnalyzer()
+        flow_events = flow_analyzer.analyze_quantity_flow(sorted_trades)
+
+        positions_with_trades = []
+        current_position = None
+        current_trade_ids = []
+
+        for event in flow_events:
+            if event.event_type == 'position_start':
+                # Start tracking new position
+                current_trade_ids = [event.trade.id]
+
+            elif event.event_type in ['position_modify']:
+                # Add trade to current position
+                if current_trade_ids is not None:
+                    current_trade_ids.append(event.trade.id)
+
+            elif event.event_type == 'position_close':
+                # Close position and save mapping
+                if current_trade_ids is not None:
+                    current_trade_ids.append(event.trade.id)
+
+            elif event.event_type == 'position_reversal':
+                # Save old position mapping, start new one
+                if current_trade_ids is not None:
+                    current_trade_ids.append(event.trade.id)
+                # Reset for new position
+                current_trade_ids = []
+
+        # Now build the actual positions using PositionBuilder
+        positions = position_builder.build_positions_from_trades(trade_objects, account, instrument)
+
+        # Match positions with their trades using quantity flow analysis again
+        # This is a simplification - we rebuild the mapping
+        sorted_trades = sorted(trade_objects, key=lambda t: t.entry_time or datetime.min)
+        flow_events = flow_analyzer.analyze_quantity_flow(sorted_trades)
+
+        position_index = 0
+        current_trade_ids = []
+
+        for event in flow_events:
+            if event.event_type == 'position_start':
+                current_trade_ids = [event.trade.id]
+
+            elif event.event_type in ['position_modify']:
+                current_trade_ids.append(event.trade.id)
+
+            elif event.event_type in ['position_close', 'position_reversal']:
+                current_trade_ids.append(event.trade.id)
+                if position_index < len(positions):
+                    positions_with_trades.append((positions[position_index], current_trade_ids))
+                    position_index += 1
+                current_trade_ids = []
+
+        return positions_with_trades
+
+    def _save_position_to_db(self, position, trade_ids=None) -> Optional[int]:
+        """Save a Position domain object to the database with trade mappings"""
         try:
             # Insert position record
             self.cursor.execute("""
@@ -360,6 +440,19 @@ class EnhancedPositionServiceV2:
 
             position_id = self.cursor.lastrowid
             logger.debug(f"Saved position {position_id} to database")
+
+            # Save position_executions mappings if provided
+            if trade_ids:
+                for execution_order, trade_id in enumerate(trade_ids, start=1):
+                    try:
+                        self.cursor.execute("""
+                            INSERT INTO position_executions (position_id, trade_id, execution_order)
+                            VALUES (?, ?, ?)
+                        """, (position_id, trade_id, execution_order))
+                    except Exception as e:
+                        logger.warning(f"Failed to save position_execution mapping for position {position_id}, trade {trade_id}: {e}")
+
+                logger.info(f"Saved {len(trade_ids)} position_executions mappings for position {position_id}")
 
             return position_id
 
@@ -745,7 +838,7 @@ class EnhancedPositionServiceV2:
             List of execution dictionaries with trade details
         """
         self.cursor.execute("""
-            SELECT 
+            SELECT
                 t.*,
                 pe.execution_order,
                 t.side_of_market,
@@ -763,9 +856,10 @@ class EnhancedPositionServiceV2:
             WHERE pe.position_id = ?
             ORDER BY pe.execution_order, t.entry_time
         """, (position_id,))
-        
-        executions = [dict(row) for row in self.cursor.fetchall()]
-        
+
+        rows = self.cursor.fetchall()
+        executions = [dict(row) for row in rows]
+
         logger.debug(f"Found {len(executions)} executions for position {position_id}")
         return executions
 

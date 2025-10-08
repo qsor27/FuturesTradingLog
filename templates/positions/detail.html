@@ -205,15 +205,10 @@
         <!-- Position Summary Metrics -->
         <div class="position-summary">
             <div class="summary-card">
-                <div class="summary-label">Total Quantity</div>
-                <div class="summary-value">{{ position.total_quantity }} contracts</div>
-            </div>
-            
-            <div class="summary-card">
                 <div class="summary-label">Average Entry Price</div>
                 <div class="summary-value">{{ "%.2f"|format(position.average_entry_price) }}</div>
             </div>
-            
+
             {% if position.average_exit_price %}
             <div class="summary-card">
                 <div class="summary-label">Average Exit Price</div>

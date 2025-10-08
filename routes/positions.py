@@ -113,10 +113,8 @@ def position_detail(position_id):
         # Get the executions that make up this position
         executions = pos_service.get_position_executions(position_id)
         position['executions'] = executions
-        
-        # Debug logging
-        logger.info(f"Position {position_id} details: execution_count={position.get('execution_count')}, actual_executions={len(executions)}")
-        logger.info(f"Executions found: {[{'id': e.get('id'), 'side': e.get('side_of_market'), 'qty': e.get('quantity')} for e in executions[:5]]}")  # First 5 only
+
+        logger.debug(f"Position {position_id} details: execution_count={position.get('execution_count')}, actual_executions={len(executions)}")
     
     # Calculate additional metrics for the detail view
     # Use existing position data for timing analysis
