@@ -1,0 +1,37 @@
+task_groups:
+  - name: Foundation & Analysis
+    claude_code_subagent: general-purpose
+    standards:
+      - none
+  - name: Core Service Development
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: Account-Aware Position Building
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: File Processing Pipeline
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: Background Service Integration
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: Error Handling & Monitoring
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: Historical Data Migration
+    claude_code_subagent: implementer
+    standards:
+      - all
+  - name: Comprehensive Testing & Validation
+    claude_code_subagent: test-runner
+    standards:
+      - all
+  - name: UI Cleanup (LAST STEP)
+    claude_code_subagent: implementer
+    standards:
+      - all

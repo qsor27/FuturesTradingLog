@@ -45,6 +45,16 @@ except ImportError as e:
     file_watcher = None
     FILE_WATCHER_AVAILABLE = False
 
+# Task 5.4: Import NinjaTrader import service
+try:
+    from services.ninjatrader_import_service import ninjatrader_import_service
+    NINJATRADER_IMPORT_AVAILABLE = True
+    logger.info("NinjaTrader import service imported successfully")
+except ImportError as e:
+    logger.warning(f"NinjaTrader import service not available: {e}")
+    ninjatrader_import_service = None
+    NINJATRADER_IMPORT_AVAILABLE = False
+
 app = Flask(__name__)
 
 # Prometheus Metrics for Trading Application
@@ -115,7 +125,7 @@ def after_request(response):
         method = request.method
         endpoint = request.endpoint or 'unknown'
         status = str(response.status_code)
-        
+
         # Record metrics (safely handle None values)
         try:
             if request_count:
@@ -125,11 +135,11 @@ def after_request(response):
         except Exception as e:
             # Ignore metrics errors to prevent breaking the application
             pass
-        
+
         # Log slow requests (> 1 second)
         if duration > 1.0:
             logger.warning(f"Slow request: {method} {request.path} took {duration:.2f}s")
-    
+
     return response
 
 # System Metrics Collection (runs in background)
@@ -141,11 +151,11 @@ def collect_system_metrics():
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
-            
+
             system_cpu_usage.set(cpu_percent)
             system_memory_usage.set(memory.used)
             system_disk_usage.set(disk.used)
-            
+
             # Cache hit ratio (if Redis available)
             try:
                 from services.redis_cache_service import get_cache_stats
@@ -154,7 +164,7 @@ def collect_system_metrics():
                     cache_hit_ratio.set(stats['hit_ratio'])
             except Exception as e:
                 logger.debug(f"Could not collect cache stats: {e}")
-            
+
             # Background services status
             try:
                 from services.background_services import get_services_status
@@ -163,10 +173,10 @@ def collect_system_metrics():
                     background_services_status.labels(service=service_name).set(1 if is_running else 0)
             except Exception as e:
                 logger.debug(f"Could not collect service status: {e}")
-                
+
         except Exception as e:
             logger.error(f"Error collecting system metrics: {e}")
-        
+
         time.sleep(30)
 
 # Start system metrics collection thread
@@ -261,14 +271,14 @@ def health_check():
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         db_status = "error"
-    
+
     # Check log directory
     log_dir = config.data_dir / 'logs'
     logs_accessible = log_dir.exists() and log_dir.is_dir()
-    
+
     # Check background services
     services_status = get_services_status()
-    
+
     # Check data sync system
     try:
         data_sync_status = get_data_sync_status()
@@ -277,12 +287,23 @@ def health_check():
         logger.error(f"Data sync status check failed: {e}")
         data_sync_healthy = False
         data_sync_status = {'error': str(e)}
-    
+
+    # Check NinjaTrader import service (Task 5.6)
+    ninjatrader_import_status = {}
+    if NINJATRADER_IMPORT_AVAILABLE:
+        try:
+            ninjatrader_import_status = ninjatrader_import_service.get_status()
+        except Exception as e:
+            logger.error(f"NinjaTrader import status check failed: {e}")
+            ninjatrader_import_status = {'error': str(e)}
+
     health_data = {
         'status': 'healthy' if db_status == 'healthy' else 'degraded',
         'database': db_status,
         'file_watcher_running': file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False,
         'file_watcher_available': FILE_WATCHER_AVAILABLE,
+        'ninjatrader_import_running': ninjatrader_import_status.get('running', False) if NINJATRADER_IMPORT_AVAILABLE else False,
+        'ninjatrader_import_available': NINJATRADER_IMPORT_AVAILABLE,
         'background_services': services_status,
         'automated_data_sync': data_sync_status,
         'logs_accessible': logs_accessible,
@@ -290,7 +311,7 @@ def health_check():
         'development_mode': True,  # Indicates direct deployment mode
         'deployment_type': 'direct'  # vs 'github-actions'
     }
-    
+
     logger.info(f"Health check: {health_data}")
     return jsonify(health_data), 200 if db_status == 'healthy' else 503
 
@@ -304,7 +325,7 @@ def detailed_health_check():
     """Enhanced health check with comprehensive metrics"""
     try:
         start_time = time.time()
-        
+
         # Database health
         db_status = "healthy"
         db_response_time = 0
@@ -321,15 +342,15 @@ def detailed_health_check():
             db_status = "error"
             trade_count = 0
             ohlc_count = 0
-        
+
         # System resources
         cpu_percent = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
-        
+
         # Background services
         services_status = get_services_status()
-        
+
         # Cache status
         cache_status = "unavailable"
         cache_stats = {}
@@ -339,7 +360,7 @@ def detailed_health_check():
             cache_status = "healthy" if cache_stats.get('connected', False) else "error"
         except Exception as e:
             logger.debug(f"Cache status check failed: {e}")
-        
+
         # Data sync status
         try:
             data_sync_status = get_data_sync_status()
@@ -348,10 +369,21 @@ def detailed_health_check():
             logger.error(f"Data sync status check failed: {e}")
             data_sync_healthy = False
             data_sync_status = {'error': str(e)}
-        
+
         # File watcher status
         file_watcher_running = file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False
-        
+
+        # NinjaTrader import service status (Task 5.6)
+        ninjatrader_import_running = False
+        ninjatrader_import_status = {}
+        if NINJATRADER_IMPORT_AVAILABLE:
+            try:
+                ninjatrader_import_status = ninjatrader_import_service.get_status()
+                ninjatrader_import_running = ninjatrader_import_status.get('running', False)
+            except Exception as e:
+                logger.error(f"NinjaTrader import status check failed: {e}")
+                ninjatrader_import_status = {'error': str(e)}
+
         health_data = {
             'status': 'healthy' if db_status == 'healthy' else 'degraded',
             'response_time_ms': round((time.time() - start_time) * 1000, 2),
@@ -374,6 +406,11 @@ def detailed_health_check():
                     'running': file_watcher_running,
                     'available': FILE_WATCHER_AVAILABLE
                 },
+                'ninjatrader_import': {
+                    'running': ninjatrader_import_running,
+                    'available': NINJATRADER_IMPORT_AVAILABLE,
+                    'status': ninjatrader_import_status
+                },
                 'data_sync': {
                     'running': data_sync_healthy,
                     'status': data_sync_status
@@ -385,14 +422,14 @@ def detailed_health_check():
             },
             'timestamp': time.time()
         }
-        
+
         # Update Prometheus metrics
         database_query_duration.labels(table='health', operation='check').observe(db_response_time)
-        
+
         logger.info(f"Detailed health check completed in {health_data['response_time_ms']}ms")
-        
+
         return jsonify(health_data), 200 if db_status == 'healthy' else 503
-        
+
     except Exception as e:
         logger.error(f"Detailed health check failed: {e}")
         return jsonify({
@@ -405,7 +442,7 @@ def file_watcher_status():
     """Get file watcher status"""
     if not FILE_WATCHER_AVAILABLE:
         return jsonify({'error': 'File watcher not available'}), 503
-    
+
     return jsonify({
         'running': file_watcher.is_running(),
         'check_interval': file_watcher.check_interval
@@ -416,7 +453,7 @@ def process_files_now():
     """Manually trigger file processing"""
     if not FILE_WATCHER_AVAILABLE:
         return jsonify({'error': 'File watcher not available'}), 503
-    
+
     try:
         file_watcher.process_now()
         return jsonify({'message': 'File processing triggered successfully'}), 200
@@ -438,10 +475,10 @@ def cache_stats():
     try:
         from services.redis_cache_service import get_cache_service
         cache_service = get_cache_service()
-        
+
         if not cache_service or not cache_service.redis_client:
             return jsonify({'error': 'Cache service not available'}), 503
-        
+
         stats = cache_service.get_cache_stats()
         return jsonify(stats), 200
     except Exception as e:
@@ -453,10 +490,10 @@ def cache_clean():
     try:
         from services.redis_cache_service import get_cache_service
         cache_service = get_cache_service()
-        
+
         if not cache_service or not cache_service.redis_client:
             return jsonify({'error': 'Cache service not available'}), 503
-        
+
         stats = cache_service.clean_expired_cache()
         return jsonify({'message': 'Cache cleanup completed', 'stats': stats}), 200
     except Exception as e:
@@ -480,10 +517,10 @@ def force_data_sync_api(sync_type):
             return jsonify({
                 'error': f'Invalid sync type. Must be one of: {", ".join(valid_types)}'
             }), 400
-        
+
         logger.info(f"Force data sync requested: {sync_type}")
         results = force_data_sync(sync_type)
-        
+
         return jsonify({
             'message': f'{sync_type.title()} data sync completed',
             'results': results
@@ -498,11 +535,11 @@ def force_gap_filling(instrument):
     try:
         from services.background_services import gap_filling_service
         from flask import request
-        
+
         data = request.get_json() or {}
         timeframes = data.get('timeframes', ['1m', '5m', '15m', '1h', '4h', '1d'])
         days_back = data.get('days_back', 7)
-        
+
         results = gap_filling_service.force_gap_fill(instrument, timeframes, days_back)
         return jsonify({
             'message': f'Gap filling triggered for {instrument}',
@@ -573,9 +610,9 @@ def check_and_send_alerts():
     """Check system health and send alerts if needed"""
     try:
         import psutil
-        
+
         alerts_to_send = []
-        
+
         # CPU Alert
         cpu_percent = psutil.cpu_percent(interval=0.1)
         if cpu_percent > 90:
@@ -584,7 +621,7 @@ def check_and_send_alerts():
                 'component': 'system',
                 'message': f'Critical CPU usage: {cpu_percent}%'
             })
-        
+
         # Memory Alert
         memory = psutil.virtual_memory()
         if memory.percent > 90:
@@ -593,7 +630,7 @@ def check_and_send_alerts():
                 'component': 'system',
                 'message': f'Critical memory usage: {memory.percent}%'
             })
-        
+
         # Disk Alert
         disk = psutil.disk_usage('/')
         disk_gb = disk.used / (1024**3)
@@ -603,14 +640,14 @@ def check_and_send_alerts():
                 'component': 'storage',
                 'message': f'Critical disk usage: {disk_gb:.1f}GB'
             })
-        
+
         # Database connectivity
         try:
             with FuturesDB() as db:
                 start_time = time.time()
                 db.cursor.execute("SELECT 1")
                 db_response_time = time.time() - start_time
-                
+
                 if db_response_time > 2.0:
                     alerts_to_send.append({
                         'severity': 'warning',
@@ -623,12 +660,12 @@ def check_and_send_alerts():
                 'component': 'database',
                 'message': f'Database connection failed: {str(e)}'
             })
-        
+
         # Send email alerts for critical issues
         for alert in alerts_to_send:
             if alert['severity'] == 'critical':
                 send_email_alert(alert)
-                
+
     except Exception as e:
         logger.error(f"Error checking alerts: {e}")
 
@@ -638,18 +675,18 @@ def send_email_alert(alert_data):
         import smtplib
         from email.mime.text import MimeText
         import os
-        
+
         # Email configuration
         smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
         smtp_port = int(os.getenv('SMTP_PORT', '587'))
         smtp_username = os.getenv('SMTP_USERNAME')
         smtp_password = os.getenv('SMTP_PASSWORD')
         alert_recipients = os.getenv('ALERT_RECIPIENTS', '').split(',')
-        
+
         if not smtp_username or not smtp_password or not alert_recipients[0]:
             logger.warning("Email alerting not configured - skipping alert")
             return
-        
+
         subject = f"[{alert_data['severity'].upper()}] Trading App Alert - {alert_data['component']}"
         body = f"""
 Trading Application Alert
@@ -661,20 +698,20 @@ Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}
 
 Please check the monitoring dashboard at /monitoring for more details.
         """
-        
+
         msg = MimeText(body)
         msg['Subject'] = subject
         msg['From'] = smtp_username
         msg['To'] = ', '.join(alert_recipients)
-        
+
         server = smtplib.SMTP(smtp_server, smtp_port)
         server.starttls()
         server.login(smtp_username, smtp_password)
         server.send_message(msg)
         server.quit()
-        
+
         logger.info(f"Critical alert email sent: {alert_data['message']}")
-        
+
     except Exception as e:
         logger.error(f"Failed to send email alert: {e}")
 
@@ -682,14 +719,14 @@ Please check the monitoring dashboard at /monitoring for more details.
 def start_alert_monitoring():
     """Start background alert monitoring"""
     import schedule
-    
+
     schedule.every(5).minutes.do(check_and_send_alerts)
-    
+
     def run_scheduler():
         while True:
             schedule.run_pending()
             time.sleep(60)
-    
+
     alert_thread = threading.Thread(target=run_scheduler, daemon=True)
     alert_thread.start()
     logger.info("Alert monitoring started")
@@ -700,7 +737,7 @@ start_alert_monitoring()
 if __name__ == '__main__':
     # Log system information for troubleshooting
     log_system_info()
-    
+
     # Start the file watcher service if auto-import is enabled and available
     if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
         file_watcher.start()
@@ -712,7 +749,20 @@ if __name__ == '__main__':
     else:
         logger.info("Auto-import is disabled")
         print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
-    
+
+    # Task 5.4: Start NinjaTrader import background watcher
+    if NINJATRADER_IMPORT_AVAILABLE:
+        try:
+            ninjatrader_import_service.start_watcher()
+            logger.info("NinjaTrader import background watcher started successfully")
+            print(f"NinjaTrader import watcher started (polling every {ninjatrader_import_service._poll_interval} seconds)")
+        except Exception as e:
+            logger.warning(f"NinjaTrader import watcher failed to start: {e}")
+            print(f"Warning: NinjaTrader import watcher failed to start: {e}")
+    else:
+        logger.info("NinjaTrader import service not available")
+        print("NinjaTrader import service not available")
+
     # Start enhanced background data manager (replaces old gap-filling)
     if BACKGROUND_DATA_CONFIG['enabled']:
         try:
@@ -725,7 +775,7 @@ if __name__ == '__main__':
     else:
         logger.info("Enhanced Background Data Manager is disabled")
         print("Enhanced Background Data Manager is disabled (BACKGROUND_DATA_CONFIG['enabled'] = False)")
-    
+
     # Start legacy background services for gap-filling and caching (as fallback)
     try:
         start_background_services()
@@ -734,7 +784,7 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"Legacy background services failed to start: {e}")
         print(f"Warning: Legacy background services failed to start: {e}")
-    
+
     # Start automated data sync system
     try:
         start_automated_data_sync()
@@ -743,14 +793,19 @@ if __name__ == '__main__':
     except Exception as e:
         logger.warning(f"Automated data sync system failed to start: {e}")
         print(f"Warning: Automated data sync system failed to start: {e}")
-    
-    # Register cleanup on exit
+
+    # Task 5.5: Register cleanup handlers for graceful shutdown
     atexit.register(lambda: background_data_manager.stop())
     atexit.register(stop_background_services)
     atexit.register(stop_automated_data_sync)
-    
+
+    # Register NinjaTrader import service cleanup
+    if NINJATRADER_IMPORT_AVAILABLE:
+        atexit.register(ninjatrader_import_service.stop_watcher)
+        logger.info("NinjaTrader import watcher cleanup handler registered")
+
     logger.info(f"Starting Flask application on {config.host}:{config.port}")
-    
+
     try:
         app.run(debug=config.debug, port=config.port, host=config.host)
     except Exception as e:
@@ -761,11 +816,16 @@ if __name__ == '__main__':
         if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
             logger.info("Stopping file watcher service")
             file_watcher.stop()
-        
+
+        # Stop NinjaTrader import watcher
+        if NINJATRADER_IMPORT_AVAILABLE:
+            logger.info("Stopping NinjaTrader import watcher")
+            ninjatrader_import_service.stop_watcher()
+
         logger.info("Stopping background services")
         stop_background_services()
-        
+
         logger.info("Stopping automated data sync system")
         stop_automated_data_sync()
-        
+
         logger.info("Application shutdown complete")
