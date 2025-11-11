@@ -117,10 +117,11 @@ def process_trades(df, multipliers):
 
     Returns:
         List of individual execution records with the following structure:
-        - For Entry executions: execution_id, Account, Instrument, action, entry_exit,
+        - All executions store their price in entry_price field (not exit_price)
+        - Entry executions: execution_id, Account, Instrument, action, entry_exit='Entry',
           quantity, entry_price, entry_time, exit_price=None, exit_time=None, commission
-        - For Exit executions: execution_id, Account, Instrument, action, entry_exit,
-          quantity, exit_price, exit_time, entry_price=None, entry_time=None, commission
+        - Exit executions: execution_id, Account, Instrument, action, entry_exit='Exit',
+          quantity, entry_price, entry_time, exit_price=None, exit_time=None, commission
     """
     # Validate DataFrame size
     if len(df) > MAX_ROWS:
@@ -195,7 +196,8 @@ def process_trades(df, multipliers):
                 print(f"    Created Entry execution record: {qty} contracts at {price}")
 
             elif entry_exit == 'Exit':
-                # Exit execution: set exit fields, leave entry fields as None
+                # Exit execution: Store price in entry_price field (all individual executions use entry_price)
+                # The exit_price field is only for completed round-trip trades (not individual executions)
                 execution_record = {
                     'execution_id': exec_id,
                     'Account': account,
@@ -203,10 +205,10 @@ def process_trades(df, multipliers):
                     'action': action,
                     'entry_exit': entry_exit,
                     'quantity': qty,
-                    'entry_price': None,
-                    'entry_time': None,
-                    'exit_price': price,
-                    'exit_time': time,
+                    'entry_price': price,  # FIX: Store execution price in entry_price (not None)
+                    'entry_time': time,  # Use execution timestamp
+                    'exit_price': None,   # Leave as None for individual executions
+                    'exit_time': None,    # Leave as None for individual executions
                     'commission': commission
                 }
                 print(f"    Created Exit execution record: {qty} contracts at {price}")
@@ -296,19 +298,23 @@ def main():
     if os.path.exists(trade_log_path):
         existing_trades_df = pd.read_csv(trade_log_path)
         # Convert datetime columns to consistent format
-        datetime_columns = ['Entry Time', 'Exit Time']
+        # Use actual column names from execution records (lowercase with underscore)
+        datetime_columns = ['entry_time', 'exit_time']
         for col in datetime_columns:
-            new_trades_df[col] = pd.to_datetime(new_trades_df[col])
-            existing_trades_df[col] = pd.to_datetime(existing_trades_df[col])
-        
+            if col in new_trades_df.columns:
+                new_trades_df[col] = pd.to_datetime(new_trades_df[col])
+            if col in existing_trades_df.columns:
+                existing_trades_df[col] = pd.to_datetime(existing_trades_df[col])
+
         # Combine existing and new trades
         combined_trades_df = pd.concat([existing_trades_df, new_trades_df], ignore_index=True)
-        
-        # Remove any duplicates based on ID
-        combined_trades_df = combined_trades_df.drop_duplicates(subset=['ID'])
-        
-        # Sort by Entry Time
-        combined_trades_df = combined_trades_df.sort_values('Entry Time')
+
+        # Remove any duplicates based on execution_id
+        combined_trades_df = combined_trades_df.drop_duplicates(subset=['execution_id'])
+
+        # Sort by entry_time (with fallback to exit_time for exit-only records)
+        sort_column = 'entry_time' if 'entry_time' in combined_trades_df.columns else 'exit_time'
+        combined_trades_df = combined_trades_df.sort_values(sort_column)
         
         # Ensure trade_log.csv is in the data directory
         trade_log_path = os.path.join(str(config.data_dir), 'trade_log.csv')
