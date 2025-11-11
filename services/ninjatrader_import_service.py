@@ -138,15 +138,12 @@ class NinjaTraderImportService:
     def _setup_redis(self) -> Optional[redis.Redis]:
         """Setup Redis client for execution ID deduplication"""
         try:
-            redis_client = redis.Redis(
-                host='localhost',
-                port=6379,
-                db=0,
-                decode_responses=True
-            )
+            # Use redis_url from config to support Docker networking
+            redis_url = config.redis_url
+            redis_client = redis.from_url(redis_url, decode_responses=True)
             # Test connection
             redis_client.ping()
-            self.logger.info("Redis connection established for execution deduplication")
+            self.logger.info(f"Redis connection established for execution deduplication: {redis_url}")
             return redis_client
         except Exception as e:
             self.logger.warning(f"Redis connection failed: {e}. Deduplication disabled.")
