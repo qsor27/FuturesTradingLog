@@ -2,6 +2,24 @@
 """
 Automated Data Sync System for Futures Trading Log
 Ensures OHLC data is always current for all instruments in the trading log
+
+DEPRECATION NOTICE (2025-11-13):
+================================================================================
+The automated sync schedules in this file have been DEPRECATED and DISABLED.
+
+OHLC data syncing is now triggered automatically after daily CSV imports
+at 2:05pm PT via the DailyImportScheduler service. This ensures:
+- Only instruments from imported trades are synced
+- All 18 Yahoo Finance timeframes are downloaded
+- Single daily sync reduces API calls and improves reliability
+
+The manual sync methods in this file are retained for administrative use
+via API endpoints, but the automatic schedule.every() calls are disabled.
+
+For more information, see:
+- agent-os/specs/2025-11-13-daily-ohlc-sync/spec.md
+- services/daily_import_scheduler.py
+================================================================================
 """
 
 import schedule
@@ -330,24 +348,29 @@ class AutomatedDataSyncer:
         self.logger.info("Automated Data Sync System stopped")
     
     def _run_scheduler(self):
-        """Main scheduler loop"""
-        # Schedule sync operations
-        schedule.every().hour.do(self.hourly_recent_sync)
-        schedule.every().day.at("02:00").do(self.daily_full_sync)
-        schedule.every().sunday.at("03:00").do(self.weekly_deep_sync)
-        
-        self.logger.info("Data sync scheduler configured:")
-        self.logger.info("  - Hourly: Recent data sync (3 days)")
-        self.logger.info("  - Daily 02:00: Full sync (30 days)")
-        self.logger.info("  - Weekly Sunday 03:00: Deep sync (90 days)")
-        
+        """Main scheduler loop
+
+        DEPRECATED: Automatic syncs are now handled by DailyImportScheduler
+        This method is retained for backward compatibility but schedules are disabled.
+        """
+        # DEPRECATED: Old automatic sync schedules - now disabled
+        # OHLC syncing is now triggered automatically after CSV imports
+        # See: services/daily_import_scheduler.py
+        #
+        # schedule.every().hour.do(self.hourly_recent_sync)
+        # schedule.every().day.at("02:00").do(self.daily_full_sync)
+        # schedule.every().sunday.at("03:00").do(self.weekly_deep_sync)
+
+        self.logger.warning("=" * 80)
+        self.logger.warning("DEPRECATION WARNING: AutomatedDataSyncer schedules are DISABLED")
+        self.logger.warning("OHLC syncing now happens automatically after daily CSV imports")
+        self.logger.warning("See: services/daily_import_scheduler.py")
+        self.logger.warning("Manual sync methods are still available via API")
+        self.logger.warning("=" * 80)
+
+        # Keep thread alive but don't run any schedules
         while self.is_running:
-            try:
-                schedule.run_pending()
-                time.sleep(60)  # Check every minute
-            except Exception as e:
-                self.logger.error(f"Error in data sync scheduler: {e}")
-                time.sleep(300)  # Wait 5 minutes before retrying
+            time.sleep(60)
     
     def get_status(self) -> Dict[str, any]:
         """Get current status of the data sync system"""

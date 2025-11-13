@@ -105,7 +105,36 @@ class BatchOptimizedRateLimiter:
 
 class OHLCDataService:
     """Service for managing OHLC market data with gap detection and backfilling"""
-    
+
+    # All 18 Yahoo Finance supported timeframes
+    ALL_YAHOO_TIMEFRAMES = [
+        '1m', '2m', '5m', '15m', '30m', '60m', '90m',
+        '1h', '2h', '4h', '6h', '8h', '12h',
+        '1d', '5d', '1wk', '1mo', '3mo'
+    ]
+
+    # Historical data retention limits by Yahoo Finance
+    HISTORICAL_LIMITS = {
+        '1m': 7,      # 7 days
+        '2m': 60,     # 60 days
+        '5m': 60,
+        '15m': 60,
+        '30m': 60,
+        '60m': 60,
+        '90m': 60,
+        '1h': 60,
+        '2h': 60,
+        '4h': 60,
+        '6h': 60,
+        '8h': 60,
+        '12h': 60,
+        '1d': 365,    # 365 days
+        '5d': 365,
+        '1wk': 365,
+        '1mo': 365,
+        '3mo': 365
+    }
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
@@ -155,9 +184,20 @@ class OHLCDataService:
         return symbol_service.get_yfinance_symbol(instrument)
 
     def _convert_timeframe_to_yfinance(self, timeframe: str) -> str:
+        """Convert internal timeframe to Yahoo Finance interval format
+
+        Supports all 18 Yahoo Finance timeframes:
+        - Minute: 1m, 2m, 5m, 15m, 30m, 60m, 90m
+        - Hourly: 1h, 2h, 4h, 6h, 8h, 12h
+        - Daily+: 1d, 5d, 1wk, 1mo, 3mo
+        """
         timeframe_map = {
-            '1m': '1m', '3m': '3m', '5m': '5m', 
-            '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d'
+            '1m': '1m', '2m': '2m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '60m': '60m', '90m': '90m',
+            '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
+            '1d': '1d', '5d': '5d', '1wk': '1wk', '1mo': '1mo', '3mo': '3mo',
+            # Backward compatibility for old '3m' timeframe
+            '3m': '5m'
         }
         return timeframe_map.get(timeframe, '1m')
 
@@ -378,15 +418,30 @@ class OHLCDataService:
         return True
 
     def get_expected_freshness_window(self, timeframe: str) -> int:
-        """Get expected data freshness window in seconds for different timeframes"""
+        """Get expected data freshness window in seconds for different timeframes
+
+        Supports all 18 Yahoo Finance timeframes
+        """
         freshness_windows = {
-            '1m': 300,    # 5 minutes
-            '3m': 600,    # 10 minutes
-            '5m': 900,    # 15 minutes
-            '15m': 1800,  # 30 minutes
-            '1h': 7200,   # 2 hours
-            '4h': 14400,  # 4 hours
-            '1d': 86400   # 1 day
+            '1m': 300,      # 5 minutes
+            '2m': 600,      # 10 minutes
+            '3m': 600,      # 10 minutes (backward compatibility)
+            '5m': 900,      # 15 minutes
+            '15m': 1800,    # 30 minutes
+            '30m': 3600,    # 1 hour
+            '60m': 7200,    # 2 hours
+            '90m': 7200,    # 2 hours
+            '1h': 7200,     # 2 hours
+            '2h': 14400,    # 4 hours
+            '4h': 14400,    # 4 hours
+            '6h': 21600,    # 6 hours
+            '8h': 28800,    # 8 hours
+            '12h': 43200,   # 12 hours
+            '1d': 86400,    # 1 day
+            '5d': 432000,   # 5 days
+            '1wk': 604800,  # 1 week
+            '1mo': 2592000, # 30 days
+            '3mo': 7776000  # 90 days
         }
         return freshness_windows.get(timeframe, 1800)  # Default 30 minutes
 
@@ -628,15 +683,31 @@ class OHLCDataService:
         return validation_results
 
     def _get_timeframe_seconds(self, timeframe: str) -> int:
-        """Convert timeframe to seconds"""
+        """Convert timeframe to seconds
+
+        Supports all 18 Yahoo Finance timeframes
+        """
         timeframe_map = {
             '1m': 60,
+            '2m': 120,
             '5m': 300,
             '15m': 900,
             '30m': 1800,
+            '60m': 3600,
+            '90m': 5400,
             '1h': 3600,
+            '2h': 7200,
             '4h': 14400,
-            '1d': 86400
+            '6h': 21600,
+            '8h': 28800,
+            '12h': 43200,
+            '1d': 86400,
+            '5d': 432000,
+            '1wk': 604800,
+            '1mo': 2592000,  # Approximate (30 days)
+            '3mo': 7776000,  # Approximate (90 days)
+            # Backward compatibility
+            '3m': 180
         }
         return timeframe_map.get(timeframe, 3600)
 
@@ -801,13 +872,13 @@ class OHLCDataService:
         return sorted(timeframes, key=lambda tf: priority_order.get(tf, 999))
 
     def get_timeframe_specific_date_range(self, timeframe: str) -> Tuple[datetime, datetime]:
+        """Get date range based on Yahoo Finance timeframe limits
+
+        Applies appropriate historical limits for each timeframe
+        """
         end_date = datetime.now()
-        if timeframe == '1m':
-            start_date = end_date - timedelta(days=7)
-        elif timeframe in ['3m', '5m', '15m', '1h', '4h']:
-            start_date = end_date - timedelta(days=60)
-        else:
-            start_date = end_date - timedelta(days=365)
+        days_limit = self.HISTORICAL_LIMITS.get(timeframe, 365)
+        start_date = end_date - timedelta(days=days_limit)
         return start_date, end_date
 
     def batch_update_multiple_instruments(self, instruments: List[str], 
@@ -846,15 +917,185 @@ class OHLCDataService:
     def update_all_active_instruments(self, timeframes: List[str] = None) -> Dict[str, Dict[str, bool]]:
         if timeframes is None:
             timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
-        
+
         with FuturesDB() as db:
             recent_date = datetime.now() - timedelta(days=30)
             instruments = db.get_active_instruments_since(recent_date)
-        
+
         if not instruments:
             return {}
-        
+
         return self.batch_update_multiple_instruments(instruments, timeframes)
+
+    def get_all_yahoo_timeframes(self) -> List[str]:
+        """Get list of all supported Yahoo Finance timeframes
+
+        Returns:
+            List of all 18 Yahoo Finance timeframe strings
+        """
+        return self.ALL_YAHOO_TIMEFRAMES.copy()
+
+    def _get_fetch_window(self, timeframe: str) -> Tuple[datetime, datetime]:
+        """Calculate appropriate fetch window based on Yahoo Finance limits
+
+        Args:
+            timeframe: Timeframe string (e.g., '1m', '1h', '1d')
+
+        Returns:
+            Tuple of (start_date, end_date) for fetching data
+        """
+        end_date = datetime.now()
+        days_limit = self.HISTORICAL_LIMITS.get(timeframe, 365)
+        start_date = end_date - timedelta(days=days_limit)
+        return start_date, end_date
+
+    def _sync_instrument(self, instrument: str, timeframes: List[str]) -> Dict[str, any]:
+        """Sync all timeframes for a single instrument
+
+        Args:
+            instrument: Yahoo Finance symbol (e.g., 'NQ=F')
+            timeframes: List of timeframes to sync
+
+        Returns:
+            Dictionary with sync statistics
+        """
+        stats = {
+            'instrument': instrument,
+            'timeframes_synced': 0,
+            'timeframes_failed': 0,
+            'candles_added': 0,
+            'api_calls': 0,
+            'errors': []
+        }
+
+        self.logger.info(f"Syncing {instrument} for {len(timeframes)} timeframes...")
+
+        for timeframe in timeframes:
+            try:
+                # Get appropriate date range for this timeframe
+                start_date, end_date = self._get_fetch_window(timeframe)
+
+                # Fetch OHLC data
+                data = self.fetch_ohlc_data(instrument, timeframe, start_date, end_date)
+                stats['api_calls'] += 1
+
+                if data:
+                    # Insert into database
+                    inserted_count = 0
+                    with FuturesDB() as db:
+                        for record in data:
+                            try:
+                                db.insert_ohlc_data(
+                                    record['instrument'], record['timeframe'], record['timestamp'],
+                                    record['open_price'], record['high_price'], record['low_price'],
+                                    record['close_price'], record['volume']
+                                )
+                                inserted_count += 1
+                            except Exception as e:
+                                # Skip duplicates silently
+                                pass
+
+                    stats['candles_added'] += inserted_count
+                    stats['timeframes_synced'] += 1
+                    self.logger.debug(f"  {timeframe}: {inserted_count} candles added")
+                else:
+                    self.logger.warning(f"  {timeframe}: No data returned")
+                    stats['timeframes_failed'] += 1
+
+                # Rate limiting: 100ms delay between API calls
+                time.sleep(0.1)
+
+            except Exception as e:
+                error_msg = f"{timeframe}: {str(e)}"
+                stats['errors'].append(error_msg)
+                stats['timeframes_failed'] += 1
+                self.logger.error(f"  Failed to sync {instrument} {timeframe}: {e}")
+
+        return stats
+
+    def sync_instruments(self, instruments: List[str], timeframes: List[str] = None,
+                        reason: str = "manual") -> Dict[str, any]:
+        """Sync OHLC data for multiple instruments across all timeframes
+
+        Args:
+            instruments: List of Yahoo Finance symbols (e.g., ['NQ=F', 'ES=F'])
+            timeframes: List of timeframes to sync (defaults to all 18)
+            reason: Reason for sync (for logging)
+
+        Returns:
+            Dictionary with comprehensive sync statistics
+        """
+        if timeframes is None:
+            timeframes = self.get_all_yahoo_timeframes()
+
+        sync_start = datetime.now()
+        self.logger.info(f"=== Starting OHLC Sync ===")
+        self.logger.info(f"Reason: {reason}")
+        self.logger.info(f"Instruments: {len(instruments)} ({', '.join(instruments)})")
+        self.logger.info(f"Timeframes: {len(timeframes)}")
+
+        overall_stats = {
+            'reason': reason,
+            'start_time': sync_start.isoformat(),
+            'instruments_total': len(instruments),
+            'instruments_synced': 0,
+            'instruments_failed': 0,
+            'timeframes_synced': 0,
+            'timeframes_failed': 0,
+            'candles_added': 0,
+            'api_calls': 0,
+            'duration_seconds': 0,
+            'instrument_details': []
+        }
+
+        for instrument in instruments:
+            try:
+                instrument_stats = self._sync_instrument(instrument, timeframes)
+                overall_stats['instrument_details'].append(instrument_stats)
+                overall_stats['instruments_synced'] += 1
+                overall_stats['timeframes_synced'] += instrument_stats['timeframes_synced']
+                overall_stats['timeframes_failed'] += instrument_stats['timeframes_failed']
+                overall_stats['candles_added'] += instrument_stats['candles_added']
+                overall_stats['api_calls'] += instrument_stats['api_calls']
+
+                if instrument_stats['timeframes_failed'] > 0:
+                    self.logger.warning(f"Completed {instrument} with {instrument_stats['timeframes_failed']} failures")
+                else:
+                    self.logger.info(f"Completed {instrument}: {instrument_stats['candles_added']} candles")
+
+            except Exception as e:
+                overall_stats['instruments_failed'] += 1
+                self.logger.error(f"Failed to sync instrument {instrument}: {e}")
+
+        sync_end = datetime.now()
+        overall_stats['duration_seconds'] = (sync_end - sync_start).total_seconds()
+        overall_stats['end_time'] = sync_end.isoformat()
+
+        # Log comprehensive summary
+        self._log_sync_summary(overall_stats)
+
+        return overall_stats
+
+    def _log_sync_summary(self, stats: Dict[str, any]):
+        """Log comprehensive sync summary
+
+        Args:
+            stats: Statistics dictionary from sync_instruments()
+        """
+        self.logger.info("=== OHLC Sync Complete ===")
+        self.logger.info(f"Reason: {stats['reason']}")
+        self.logger.info(f"Duration: {stats['duration_seconds']:.1f}s")
+        self.logger.info(f"Instruments: {stats['instruments_synced']}/{stats['instruments_total']} succeeded, "
+                        f"{stats['instruments_failed']} failed")
+        self.logger.info(f"Timeframes: {stats['timeframes_synced']} succeeded, "
+                        f"{stats['timeframes_failed']} failed")
+        self.logger.info(f"Candles Added: {stats['candles_added']}")
+        self.logger.info(f"API Calls: {stats['api_calls']}")
+
+        if stats['instruments_failed'] > 0 or stats['timeframes_failed'] > 0:
+            self.logger.warning("⚠️  Sync completed with failures - check logs for details")
+        else:
+            self.logger.info("✓ Sync completed successfully")
 
 # Global instance
 ohlc_service = OHLCDataService()
