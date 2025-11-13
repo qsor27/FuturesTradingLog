@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, g
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import time
+import os
 import psutil
 import threading
 from config import config
@@ -24,6 +25,7 @@ from routes.cache_management import cache_bp
 from routes.csv_management import csv_management_bp
 from routes.custom_fields import custom_fields_bp
 from routes.validation import validation_bp
+from routes.validation_cleanup import validation_cleanup_bp
 from scripts.TradingLog_db import FuturesDB
 from services.background_services import start_background_services, stop_background_services, get_services_status
 from services.background_data_manager import background_data_manager
@@ -54,6 +56,16 @@ except ImportError as e:
     logger.warning(f"NinjaTrader import service not available: {e}")
     ninjatrader_import_service = None
     NINJATRADER_IMPORT_AVAILABLE = False
+
+# Task Group 4: Import Daily Import Scheduler
+try:
+    from services.daily_import_scheduler import daily_import_scheduler
+    DAILY_IMPORT_SCHEDULER_AVAILABLE = True
+    logger.info("Daily import scheduler imported successfully")
+except ImportError as e:
+    logger.warning(f"Daily import scheduler not available: {e}")
+    daily_import_scheduler = None
+    DAILY_IMPORT_SCHEDULER_AVAILABLE = False
 
 app = Flask(__name__)
 
@@ -202,6 +214,7 @@ app.register_blueprint(cache_bp)  # Cache management routes
 app.register_blueprint(csv_management_bp)  # CSV management routes
 app.register_blueprint(custom_fields_bp)  # Custom fields API routes
 app.register_blueprint(validation_bp)  # Position-Execution integrity validation routes
+app.register_blueprint(validation_cleanup_bp)  # Position validation and database cleanup API routes
 
 # Initialize validation routes with app context
 from routes.validation import init_validation_routes
@@ -297,6 +310,15 @@ def health_check():
             logger.error(f"NinjaTrader import status check failed: {e}")
             ninjatrader_import_status = {'error': str(e)}
 
+    # Check Daily Import Scheduler (Task Group 4)
+    daily_import_status = {}
+    if DAILY_IMPORT_SCHEDULER_AVAILABLE:
+        try:
+            daily_import_status = daily_import_scheduler.get_status()
+        except Exception as e:
+            logger.error(f"Daily import scheduler status check failed: {e}")
+            daily_import_status = {'error': str(e)}
+
     health_data = {
         'status': 'healthy' if db_status == 'healthy' else 'degraded',
         'database': db_status,
@@ -304,6 +326,8 @@ def health_check():
         'file_watcher_available': FILE_WATCHER_AVAILABLE,
         'ninjatrader_import_running': ninjatrader_import_status.get('running', False) if NINJATRADER_IMPORT_AVAILABLE else False,
         'ninjatrader_import_available': NINJATRADER_IMPORT_AVAILABLE,
+        'daily_import_scheduler_running': daily_import_status.get('running', False) if DAILY_IMPORT_SCHEDULER_AVAILABLE else False,
+        'daily_import_scheduler_available': DAILY_IMPORT_SCHEDULER_AVAILABLE,
         'background_services': services_status,
         'automated_data_sync': data_sync_status,
         'logs_accessible': logs_accessible,
@@ -738,6 +762,17 @@ if __name__ == '__main__':
     # Log system information for troubleshooting
     log_system_info()
 
+    # Initialize database schema before any services start
+    try:
+        logger.info("Initializing database schema...")
+        with FuturesDB() as db:
+            logger.info("Database schema initialized successfully")
+            print("✅ Database schema initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database schema: {e}")
+        print(f"❌ Database initialization failed: {e}")
+        raise
+
     # Start the file watcher service if auto-import is enabled and available
     if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
         file_watcher.start()
@@ -751,7 +786,12 @@ if __name__ == '__main__':
         print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
 
     # Task 5.4: Start NinjaTrader import background watcher
-    if NINJATRADER_IMPORT_AVAILABLE:
+    # NOTE: This continuous watcher will be deprecated in favor of the daily import scheduler
+    # For now, we keep it disabled to avoid conflicts with the new daily import strategy
+    # To re-enable: set ENABLE_CONTINUOUS_WATCHER=true in environment
+    enable_continuous_watcher = os.getenv('ENABLE_CONTINUOUS_WATCHER', 'false').lower() == 'true'
+
+    if NINJATRADER_IMPORT_AVAILABLE and enable_continuous_watcher:
         try:
             ninjatrader_import_service.start_watcher()
             logger.info("NinjaTrader import background watcher started successfully")
@@ -759,9 +799,26 @@ if __name__ == '__main__':
         except Exception as e:
             logger.warning(f"NinjaTrader import watcher failed to start: {e}")
             print(f"Warning: NinjaTrader import watcher failed to start: {e}")
+    elif NINJATRADER_IMPORT_AVAILABLE:
+        logger.info("NinjaTrader continuous watcher disabled (using daily import scheduler instead)")
+        print("NinjaTrader continuous watcher disabled (using daily import scheduler at 2:05pm PT)")
     else:
         logger.info("NinjaTrader import service not available")
         print("NinjaTrader import service not available")
+
+    # Task Group 4: Start Daily Import Scheduler
+    if DAILY_IMPORT_SCHEDULER_AVAILABLE:
+        try:
+            daily_import_scheduler.start()
+            logger.info("Daily import scheduler started successfully")
+            print(f"✅ Daily import scheduler started - automatic import at 2:05pm PT")
+            print(f"   Next scheduled import: {daily_import_scheduler._get_next_import_time()}")
+        except Exception as e:
+            logger.warning(f"Daily import scheduler failed to start: {e}")
+            print(f"⚠️ Warning: Daily import scheduler failed to start: {e}")
+    else:
+        logger.info("Daily import scheduler not available")
+        print("Daily import scheduler not available")
 
     # Start enhanced background data manager (replaces old gap-filling)
     if BACKGROUND_DATA_CONFIG['enabled']:
@@ -804,6 +861,11 @@ if __name__ == '__main__':
         atexit.register(ninjatrader_import_service.stop_watcher)
         logger.info("NinjaTrader import watcher cleanup handler registered")
 
+    # Register Daily Import Scheduler cleanup (Task Group 4)
+    if DAILY_IMPORT_SCHEDULER_AVAILABLE:
+        atexit.register(daily_import_scheduler.stop)
+        logger.info("Daily import scheduler cleanup handler registered")
+
     logger.info(f"Starting Flask application on {config.host}:{config.port}")
 
     try:
@@ -821,6 +883,11 @@ if __name__ == '__main__':
         if NINJATRADER_IMPORT_AVAILABLE:
             logger.info("Stopping NinjaTrader import watcher")
             ninjatrader_import_service.stop_watcher()
+
+        # Stop Daily Import Scheduler (Task Group 4)
+        if DAILY_IMPORT_SCHEDULER_AVAILABLE:
+            logger.info("Stopping daily import scheduler")
+            daily_import_scheduler.stop()
 
         logger.info("Stopping background services")
         stop_background_services()

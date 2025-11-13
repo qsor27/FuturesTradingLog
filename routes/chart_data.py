@@ -11,7 +11,7 @@ from services.data_service import ohlc_service
 from services.cache_only_chart_service import cache_only_chart_service
 from services.background_data_manager import background_data_manager
 from scripts.TradingLog_db import FuturesDB
-from config import SUPPORTED_TIMEFRAMES, TIMEFRAME_PREFERENCE_ORDER, PAGE_LOAD_CONFIG
+from config import SUPPORTED_TIMEFRAMES, PAGE_LOAD_CONFIG
 from utils.instrument_utils import get_root_symbol
 from services.ohlc_service import OHLCOnDemandService
 
@@ -820,9 +820,11 @@ def get_available_timeframes(instrument):
                     available_timeframes.append({'timeframe': timeframe, 'count': count})
         
         # Determine best timeframe from the populated list
+        # Preference: hourly intervals, then daily, then shorter intervals
+        timeframe_preference = ['1h', '1d', '15m', '5m', '30m', '4h', '2h', '1m', '2m']
         best_timeframe = None
         if available_timeframes:
-            for pref in TIMEFRAME_PREFERENCE_ORDER:
+            for pref in timeframe_preference:
                 if any(tf['timeframe'] == pref for tf in available_timeframes):
                     best_timeframe = pref
                     break

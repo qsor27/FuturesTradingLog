@@ -100,20 +100,20 @@ class Config:
         """Return cache TTL in days (default: 14 days)"""
         return int(os.getenv('CACHE_TTL_DAYS', 14))
 
-# Timeframe configuration constants
-SUPPORTED_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
-TIMEFRAME_PREFERENCE_ORDER = ['1h', '1d', '15m', '5m', '30m', '4h', '1m', '3m']
+# Timeframe configuration constants (expanded to support all 18 Yahoo Finance timeframes)
+SUPPORTED_TIMEFRAMES = [
+    '1m', '2m', '5m', '15m', '30m', '60m', '90m',  # Minute intervals
+    '1h', '2h', '4h', '6h', '8h', '12h',            # Hourly intervals
+    '1d', '5d', '1wk', '1mo', '3mo'                 # Daily and longer
+]
 
-# yfinance timeframe mapping
+# yfinance timeframe mapping (expanded to support all 18 timeframes)
 YFINANCE_TIMEFRAME_MAP = {
-    '1m': '1m',
-    '3m': '3m', 
-    '5m': '5m',
-    '15m': '15m',
-    '30m': '30m',
-    '1h': '1h',
-    '4h': '4h',
-    '1d': '1d'
+    '1m': '1m', '2m': '2m', '5m': '5m', '15m': '15m', '30m': '30m',
+    '60m': '60m', '90m': '90m',
+    '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
+    '1d': '1d', '5d': '5d', '1wk': '1wk', '1mo': '1mo', '3mo': '3mo',
+    '3m': '5m'  # Backward compatibility
 }
 
 # Background processing configuration
