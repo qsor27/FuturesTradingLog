@@ -107,8 +107,17 @@ class Config:
 
     @property
     def cache_ttl_days(self) -> int:
-        """Return cache TTL in days (default: 14 days)"""
-        return int(os.getenv('CACHE_TTL_DAYS', 14))
+        """Return cache TTL in days (default: 30 days for more aggressive caching)"""
+        return int(os.getenv('CACHE_TTL_DAYS', 30))
+
+    @property
+    def use_priority_timeframes(self) -> bool:
+        """Return True to use priority timeframes (6) instead of all timeframes (18)
+
+        Priority timeframes reduce API calls by 67% while covering all major trading styles.
+        Set OHLC_USE_PRIORITY_TIMEFRAMES=false to fetch all 18 timeframes (default: true)
+        """
+        return os.getenv('OHLC_USE_PRIORITY_TIMEFRAMES', 'true').lower() == 'true'
 
 # Timeframe configuration constants
 # All 18 Yahoo Finance supported timeframes (as of 2025-11-13)

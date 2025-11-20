@@ -203,6 +203,11 @@ class OHLCDataService:
         '1d', '5d', '1wk', '1mo', '3mo'
     ]
 
+    # Priority timeframes (reduces API calls by 67%: from 18 to 6 per instrument)
+    # These cover all major trading styles: scalping (1m), day trading (5m, 15m),
+    # swing trading (1h, 4h), and long-term analysis (1d)
+    PRIORITY_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d']
+
     # Historical data retention limits by Yahoo Finance
     HISTORICAL_LIMITS = {
         '1m': 7,      # 7 days
@@ -227,7 +232,14 @@ class OHLCDataService:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        
+
+        # Load configuration for timeframe strategy
+        self.use_priority_timeframes = config.use_priority_timeframes
+        if self.use_priority_timeframes:
+            self.logger.info("Using PRIORITY timeframes (6) - reduces API calls by 67%")
+        else:
+            self.logger.info("Using ALL timeframes (18) - maximum data coverage")
+
         self.cache_service = get_cache_service() if config.cache_enabled else None
         if self.cache_service:
             self.logger.info("Redis cache service initialized")
@@ -1045,6 +1057,22 @@ class OHLCDataService:
         """
         return self.ALL_YAHOO_TIMEFRAMES.copy()
 
+    def get_priority_timeframes(self) -> List[str]:
+        """Get list of priority timeframes (reduces API calls by 67%)
+
+        Priority timeframes cover all major trading styles while minimizing Yahoo Finance API calls:
+        - 1m: Scalping and tick analysis
+        - 5m: Day trading standard
+        - 15m: Swing trading entries
+        - 1h: Position building
+        - 4h: Trend analysis
+        - 1d: Long-term charting
+
+        Returns:
+            List of 6 priority timeframe strings
+        """
+        return self.PRIORITY_TIMEFRAMES.copy()
+
     def _get_fetch_window(self, timeframe: str) -> Tuple[datetime, datetime]:
         """Calculate appropriate fetch window based on Yahoo Finance limits
 
@@ -1173,19 +1201,24 @@ class OHLCDataService:
         return stats
 
     def sync_instruments(self, instruments: List[str], timeframes: List[str] = None,
-                        reason: str = "manual") -> Dict[str, any]:
-        """Sync OHLC data for multiple instruments across all timeframes
+                        reason: str = "manual", use_priority_timeframes: bool = None) -> Dict[str, any]:
+        """Sync OHLC data for multiple instruments across timeframes
 
         Args:
             instruments: List of Yahoo Finance symbols (e.g., ['NQ=F', 'ES=F'])
-            timeframes: List of timeframes to sync (defaults to all 18)
+            timeframes: List of timeframes to sync (defaults based on configuration)
             reason: Reason for sync (for logging)
+            use_priority_timeframes: If True, use 6 priority timeframes; if False, use all 18;
+                                   if None (default), read from config (OHLC_USE_PRIORITY_TIMEFRAMES)
 
         Returns:
             Dictionary with comprehensive sync statistics
         """
+        # Determine which timeframes to use
         if timeframes is None:
-            timeframes = self.get_all_yahoo_timeframes()
+            # Use parameter if provided, otherwise fall back to config
+            should_use_priority = use_priority_timeframes if use_priority_timeframes is not None else self.use_priority_timeframes
+            timeframes = self.get_priority_timeframes() if should_use_priority else self.get_all_yahoo_timeframes()
 
         # Check daily quota before starting sync
         if not self.rate_limiter.check_daily_quota():
@@ -1204,7 +1237,11 @@ class OHLCDataService:
         self.logger.info(f"=== Starting OHLC Sync ===")
         self.logger.info(f"Reason: {reason}")
         self.logger.info(f"Instruments: {len(instruments)} ({', '.join(instruments)})")
-        self.logger.info(f"Timeframes: {len(timeframes)}")
+        self.logger.info(f"Timeframes: {len(timeframes)} ({', '.join(timeframes)})")
+        if len(timeframes) == 6:
+            self.logger.info(f"Using PRIORITY timeframes (67% fewer API calls than all 18)")
+        else:
+            self.logger.info(f"Using {'CUSTOM' if len(timeframes) not in [6, 18] else 'ALL'} timeframes")
 
         # Log quota status
         quota_remaining = self.rate_limiter.get_daily_quota_remaining()
