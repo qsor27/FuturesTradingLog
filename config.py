@@ -97,8 +97,8 @@ class Config:
 
     @property
     def cache_ttl_days(self) -> int:
-        """Return cache TTL in days (default: 14 days)"""
-        return int(os.getenv('CACHE_TTL_DAYS', 14))
+        """Return cache TTL in days (default: 30 days for more aggressive caching)"""
+        return int(os.getenv('CACHE_TTL_DAYS', 30))
 
 # Timeframe configuration constants (expanded to support all 18 Yahoo Finance timeframes)
 SUPPORTED_TIMEFRAMES = [

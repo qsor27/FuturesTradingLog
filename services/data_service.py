@@ -16,20 +16,36 @@ from services.error_handling import CircuitBreaker, RateLimitError, NetworkError
 import redis
 
 class BatchOptimizedRateLimiter:
-    """Intelligent rate limiting for batch-optimized Yahoo Finance API requests"""
-    
+    """Intelligent rate limiting for batch-optimized Yahoo Finance API requests
+
+    Features:
+    - Exponential backoff for consecutive requests
+    - Daily quota tracking to prevent hitting Yahoo limits
+    - Adaptive delays based on success/failure rates
+    """
+
     def __init__(self, cache_service, yahoo_config):
         self.logger = logging.getLogger(__name__)
         self.cache_service = cache_service
         self.config = yahoo_config.get('rate_limiting', {})
         self.batch_config = yahoo_config.get('batch_processing', {})
-        
+
         from config import config as main_config
         self.redis_client = redis.from_url(main_config.redis_url)
         self.success_key = "rate_limiter:success_window"
         self.failure_key = "rate_limiter:failure_window"
         self.window_size = self.config.get('success_window', 100)
-        
+
+        # Daily quota tracking
+        self.daily_quota_key = "rate_limiter:daily_quota"
+        self.daily_quota_limit = self.config.get('daily_quota_limit', 2000)  # Conservative Yahoo limit
+
+        # Progressive backoff state with fixed delay steps
+        self.request_count = 0  # Tracks consecutive requests for backoff
+        # Delay sequence: 5s, 30s, 2min (120s), 60min (3600s), then cap at 60min
+        self.backoff_delays = self.config.get('backoff_delays', [5, 30, 120, 3600])
+        self.backoff_max_delay = 3600  # Maximum 60 minutes
+
         self.max_concurrent_requests = self.batch_config.get('max_concurrent_instruments', 3)
         self.endpoint_delays = {}
 
@@ -43,9 +59,49 @@ class BatchOptimizedRateLimiter:
 
     def register_success(self):
         self._update_window(self.success_key, time.time())
+        self._increment_daily_quota()
 
     def register_failure(self):
         self._update_window(self.failure_key, time.time())
+        self._increment_daily_quota()
+
+    def _increment_daily_quota(self):
+        """Increment daily API call counter with automatic daily reset"""
+        try:
+            # Increment counter
+            current_count = self.redis_client.incr(self.daily_quota_key)
+
+            # Set expiration to end of day (UTC) on first increment
+            if current_count == 1:
+                # Calculate seconds until midnight UTC
+                now = datetime.utcnow()
+                midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                seconds_until_midnight = int((midnight - now).total_seconds())
+                self.redis_client.expire(self.daily_quota_key, seconds_until_midnight)
+
+            return current_count
+        except Exception as e:
+            self.logger.warning(f"Failed to update daily quota counter: {e}")
+            return 0
+
+    def get_daily_quota_remaining(self) -> int:
+        """Get remaining API calls for today"""
+        try:
+            used = int(self.redis_client.get(self.daily_quota_key) or 0)
+            return max(0, self.daily_quota_limit - used)
+        except Exception as e:
+            self.logger.warning(f"Failed to get daily quota: {e}")
+            return self.daily_quota_limit  # Fail open
+
+    def check_daily_quota(self) -> bool:
+        """Check if daily quota has been exceeded"""
+        remaining = self.get_daily_quota_remaining()
+        if remaining <= 0:
+            self.logger.error(f"Daily quota exceeded! Limit: {self.daily_quota_limit}")
+            return False
+        elif remaining < 100:
+            self.logger.warning(f"Daily quota running low: {remaining} remaining out of {self.daily_quota_limit}")
+        return True
 
     def get_current_delay(self) -> float:
         """Calculate adaptive delay based on recent success/failure rates"""
@@ -66,10 +122,44 @@ class BatchOptimizedRateLimiter:
         else:
             return self.config.get('base_delay', 2.5)
 
-    def enforce(self):
-        """Enforce rate limit delay"""
-        delay = self.get_current_delay()
+    def get_exponential_backoff_delay(self) -> float:
+        """Calculate progressive backoff delay based on consecutive request count
+
+        Fixed delay sequence to avoid rate limiting:
+          Request 0: 5 seconds
+          Request 1: 30 seconds
+          Request 2: 2 minutes (120 seconds)
+          Request 3+: 60 minutes (3600 seconds)
+
+        This aggressive backoff strategy prevents hitting Yahoo Finance rate limits.
+        """
+        if self.request_count >= len(self.backoff_delays):
+            # Cap at maximum delay for all subsequent requests
+            return self.backoff_max_delay
+        return self.backoff_delays[self.request_count]
+
+    def enforce(self, use_exponential_backoff: bool = True):
+        """Enforce rate limit delay with optional progressive backoff
+
+        Args:
+            use_exponential_backoff: If True, uses progressive backoff (5s, 30s, 2m, 60m).
+                                    If False, uses standard adaptive delay.
+        """
+        if use_exponential_backoff:
+            delay = self.get_exponential_backoff_delay()
+            self.request_count += 1
+            delay_display = f"{delay:.0f}s" if delay < 60 else f"{delay/60:.1f}m"
+            self.logger.debug(f"Progressive backoff delay: {delay_display} (request #{self.request_count})")
+        else:
+            delay = self.get_current_delay()
+
         time.sleep(delay)
+
+    def reset_backoff(self):
+        """Reset progressive backoff counter (call after completing a batch of requests)"""
+        if self.request_count > 0:
+            self.logger.debug(f"Resetting progressive backoff (was at request #{self.request_count})")
+        self.request_count = 0
 
     def validate_cache_first(self, instrument: str, timeframes: List[str]) -> Tuple[List[str], Dict[str, List[Dict]]]:
         """Check cache for multiple timeframes to minimize API calls"""
@@ -174,14 +264,34 @@ class OHLCDataService:
             self.logger.error(f"Error during instrument name migration: {e}")
 
     def _enforce_rate_limit(self):
-        """Enforce rate limiting between API requests"""
-        self.rate_limiter.enforce()
+        """Enforce rate limiting between API requests with progressive backoff (5s, 30s, 2m, 60m)"""
+        self.rate_limiter.enforce(use_exponential_backoff=True)
 
     def _get_base_instrument(self, instrument: str) -> str:
         return symbol_service.get_base_symbol(instrument)
-    
+
     def _get_yfinance_symbol(self, instrument: str) -> str:
         return symbol_service.get_yfinance_symbol(instrument)
+
+    def _get_smart_cache_ttl(self, timeframe: str) -> int:
+        """Calculate smart cache TTL based on timeframe to reduce API calls
+
+        Longer timeframes get longer cache TTLs since historical data changes less frequently:
+        - Intraday (1m-90m): 1 day TTL (data is constantly updating)
+        - Hourly (1h-12h): 7 days TTL (moderate update frequency)
+        - Daily+ (1d-3mo): 90 days TTL (very stable historical data)
+
+        This aggressive caching significantly reduces Yahoo Finance API calls.
+        """
+        # Minute timeframes: very short-lived cache
+        if timeframe in ['1m', '2m', '5m', '15m', '30m', '60m', '90m']:
+            return 1  # 1 day
+        # Hourly timeframes: moderate cache
+        elif timeframe in ['1h', '2h', '4h', '6h', '8h', '12h']:
+            return 7  # 1 week
+        # Daily and longer: very long cache
+        else:  # 1d, 5d, 1wk, 1mo, 3mo
+            return 90  # 90 days (historical data rarely changes)
 
     def _convert_timeframe_to_yfinance(self, timeframe: str) -> str:
         """Convert internal timeframe to Yahoo Finance interval format
@@ -950,14 +1060,17 @@ class OHLCDataService:
         return start_date, end_date
 
     def _sync_instrument(self, instrument: str, timeframes: List[str]) -> Dict[str, any]:
-        """Sync all timeframes for a single instrument
+        """Sync all timeframes for a single instrument with automatic 365-day backfill
+
+        Detects zero-record instruments and triggers automatic backfill for up to 365 days
+        of historical data (respecting Yahoo Finance API limits per timeframe).
 
         Args:
             instrument: Yahoo Finance symbol (e.g., 'NQ=F')
             timeframes: List of timeframes to sync
 
         Returns:
-            Dictionary with sync statistics
+            Dictionary with sync statistics including backfill metrics
         """
         stats = {
             'instrument': instrument,
@@ -965,22 +1078,48 @@ class OHLCDataService:
             'timeframes_failed': 0,
             'candles_added': 0,
             'api_calls': 0,
-            'errors': []
+            'errors': [],
+            'backfilled_timeframes': []
         }
 
         self.logger.info(f"Syncing {instrument} for {len(timeframes)} timeframes...")
+        base_instrument = self._get_base_instrument(instrument)
 
         for timeframe in timeframes:
             try:
-                # Get appropriate date range for this timeframe
-                start_date, end_date = self._get_fetch_window(timeframe)
+                # Check if zero records exist for this instrument/timeframe (triggers backfill)
+                with FuturesDB() as db:
+                    record_count = db.get_ohlc_count(base_instrument, timeframe)
 
-                # Fetch OHLC data
+                is_backfill = record_count == 0
+
+                if is_backfill:
+                    # BACKFILL MODE: Zero records detected - fetch 365 days (respecting API limits)
+                    days_limit = self.HISTORICAL_LIMITS.get(timeframe, 365)
+                    actual_backfill_days = min(365, days_limit)
+                    end_date = datetime.now()
+                    start_date = end_date - timedelta(days=actual_backfill_days)
+
+                    self.logger.info(
+                        f"BACKFILL: Zero records detected for {base_instrument} {timeframe} - "
+                        f"fetching {actual_backfill_days} days (API limit: {days_limit}d)"
+                    )
+                    self.logger.info(
+                        f"BACKFILL: Date range {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+                    )
+
+                    stats['backfilled_timeframes'].append(timeframe)
+                else:
+                    # NORMAL SYNC MODE: Records exist - use standard fetch window
+                    start_date, end_date = self._get_fetch_window(timeframe)
+                    self.logger.debug(f"  {timeframe}: Normal sync ({record_count} existing records)")
+
+                # Fetch OHLC data (same flow for both backfill and normal sync)
                 data = self.fetch_ohlc_data(instrument, timeframe, start_date, end_date)
                 stats['api_calls'] += 1
 
                 if data:
-                    # Insert into database
+                    # Insert into database using batch optimization
                     inserted_count = 0
                     with FuturesDB() as db:
                         for record in data:
@@ -995,15 +1134,35 @@ class OHLCDataService:
                                 # Skip duplicates silently
                                 pass
 
+                        # Update cache if cache service available with smart TTL
+                        if self.cache_service and data:
+                            start_ts = int(start_date.timestamp())
+                            end_ts = int(end_date.timestamp())
+                            smart_ttl = self._get_smart_cache_ttl(timeframe)
+                            self.cache_service.cache_ohlc_data(
+                                base_instrument, timeframe, start_ts, end_ts,
+                                data, ttl_days=smart_ttl
+                            )
+
                     stats['candles_added'] += inserted_count
                     stats['timeframes_synced'] += 1
-                    self.logger.debug(f"  {timeframe}: {inserted_count} candles added")
+
+                    if is_backfill:
+                        self.logger.info(
+                            f"BACKFILL COMPLETE: {inserted_count} candles added for {base_instrument} {timeframe}"
+                        )
+                    else:
+                        self.logger.debug(f"  {timeframe}: {inserted_count} candles added")
                 else:
-                    self.logger.warning(f"  {timeframe}: No data returned")
+                    log_msg = f"  {timeframe}: No data returned"
+                    if is_backfill:
+                        log_msg = f"BACKFILL: No data available for {base_instrument} {timeframe}"
+                    self.logger.warning(log_msg)
                     stats['timeframes_failed'] += 1
 
-                # Rate limiting: 100ms delay between API calls
-                time.sleep(0.1)
+                # Exponential backoff between timeframe requests to avoid rate limiting
+                # This increases delay progressively: 2s, 3s, 4.5s, 6.75s, etc.
+                # No delay needed - enforce() is called in fetch_ohlc_data before each API call
 
             except Exception as e:
                 error_msg = f"{timeframe}: {str(e)}"
@@ -1028,11 +1187,28 @@ class OHLCDataService:
         if timeframes is None:
             timeframes = self.get_all_yahoo_timeframes()
 
+        # Check daily quota before starting sync
+        if not self.rate_limiter.check_daily_quota():
+            quota_remaining = self.rate_limiter.get_daily_quota_remaining()
+            return {
+                'reason': reason,
+                'error': 'Daily quota exceeded',
+                'quota_remaining': quota_remaining,
+                'instruments_total': len(instruments),
+                'instruments_synced': 0,
+                'timeframes_synced': 0,
+                'candles_added': 0
+            }
+
         sync_start = datetime.now()
         self.logger.info(f"=== Starting OHLC Sync ===")
         self.logger.info(f"Reason: {reason}")
         self.logger.info(f"Instruments: {len(instruments)} ({', '.join(instruments)})")
         self.logger.info(f"Timeframes: {len(timeframes)}")
+
+        # Log quota status
+        quota_remaining = self.rate_limiter.get_daily_quota_remaining()
+        self.logger.info(f"Daily quota remaining: {quota_remaining} / {self.rate_limiter.daily_quota_limit}")
 
         overall_stats = {
             'reason': reason,
@@ -1063,9 +1239,14 @@ class OHLCDataService:
                 else:
                     self.logger.info(f"Completed {instrument}: {instrument_stats['candles_added']} candles")
 
+                # Reset exponential backoff counter after completing an instrument
+                self.rate_limiter.reset_backoff()
+
             except Exception as e:
                 overall_stats['instruments_failed'] += 1
                 self.logger.error(f"Failed to sync instrument {instrument}: {e}")
+                # Reset backoff even on failure to start fresh for next instrument
+                self.rate_limiter.reset_backoff()
 
         sync_end = datetime.now()
         overall_stats['duration_seconds'] = (sync_end - sync_start).total_seconds()
