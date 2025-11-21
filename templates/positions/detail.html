@@ -347,7 +347,13 @@
                             </span>
                         </td>
                         <td>{{ execution.quantity }}</td>
-                        <td>{{ "%.2f"|format(execution.entry_price) }}</td>
+                        <td>
+                            {% if execution.entry_price %}
+                                {{ "%.2f"|format(execution.entry_price) }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                         <td>
                             {% if execution.exit_price %}
                                 {{ "%.2f"|format(execution.exit_price) }}

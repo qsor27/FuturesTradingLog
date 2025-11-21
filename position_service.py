@@ -782,18 +782,32 @@ class PositionService:
         # Load from config or use default
         try:
             from config import config
+            from services.symbol_service import symbol_service
             import json
             import os
-            
+
             # First try the configured path
             config_path = config.instrument_config
             if not os.path.exists(config_path):
                 # Fallback to working directory
                 config_path = 'data/config/instrument_multipliers.json'
-            
+
             with open(config_path, 'r') as f:
                 multipliers = json.load(f)
-            return float(multipliers.get(instrument, 1.0))
+
+            # Try exact match first
+            if instrument in multipliers:
+                return float(multipliers[instrument])
+
+            # If no exact match, try base symbol (e.g., "MNQ DEC25" → "MNQ")
+            base_symbol = symbol_service.get_base_symbol(instrument)
+            if base_symbol in multipliers:
+                logger.info(f"Using base symbol {base_symbol} multiplier for {instrument}")
+                return float(multipliers[base_symbol])
+
+            # No match found, use default
+            logger.warning(f"No multiplier found for {instrument} or {base_symbol}, using default 1.0")
+            return 1.0
         except Exception as e:
             logger.warning(f"Could not load multiplier for {instrument}: {e}")
             return 1.0

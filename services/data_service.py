@@ -358,21 +358,45 @@ class OHLCDataService:
             self._fetch_ohlc_data_internal, instrument, timeframe, start_date, end_date
         )
     
-    def _fetch_ohlc_data_internal(self, instrument: str, timeframe: str, 
+    def _fetch_ohlc_data_internal(self, instrument: str, timeframe: str,
                                  start_date: datetime, end_date: datetime) -> List[Dict]:
         try:
             yf_symbol = self._get_yfinance_symbol(instrument)
             yf_interval = self._convert_timeframe_to_yfinance(timeframe)
-            
-            self.logger.info(f"Fetching {instrument} ({yf_symbol}) {timeframe} data from {start_date} to {end_date}")
-            
+
+            # Comprehensive API call logging
+            self.logger.info(f"═══ Yahoo Finance API Call ═══")
+            self.logger.info(f"Instrument: {instrument} → Yahoo Symbol: {yf_symbol}")
+            self.logger.info(f"Timeframe: {timeframe} → YF Interval: {yf_interval}")
+            self.logger.info(f"Date Range: {start_date.strftime('%Y-%m-%d %H:%M:%S')} to {end_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.logger.info(f"Request URL: https://query2.finance.yahoo.com/v8/finance/chart/{yf_symbol}")
+
+            # Make API call
+            import time
+            start_time = time.time()
+
             ticker = yf.Ticker(yf_symbol)
             data = ticker.history(
                 start=start_date, end=end_date, interval=yf_interval, prepost=True
             )
-            
+
+            elapsed_time = time.time() - start_time
+
+            # Log API response details
+            self.logger.info(f"═══ Yahoo Finance API Response ═══")
+            self.logger.info(f"Response Time: {elapsed_time:.2f}s")
+            self.logger.info(f"Response Type: {type(data).__name__}")
+            self.logger.info(f"Response Shape: {data.shape if hasattr(data, 'shape') else 'N/A'}")
+            self.logger.info(f"Is Empty: {data.empty}")
+
+            if not data.empty:
+                self.logger.info(f"Columns: {list(data.columns)}")
+                self.logger.info(f"Date Range in Response: {data.index[0]} to {data.index[-1]}")
+                self.logger.info(f"Sample Data (first row): Open={data.iloc[0]['Open']:.2f}, Close={data.iloc[0]['Close']:.2f}, Volume={data.iloc[0]['Volume']:.0f}")
+
             if data.empty:
-                self.logger.warning(f"No data returned for {instrument} {timeframe}")
+                self.logger.warning(f"❌ No data returned for {instrument} {timeframe}")
+                self.logger.warning(f"Possible reasons: Symbol delisted, incorrect format, API rate limit, or market closed")
                 return []
             
             ohlc_records = []
@@ -396,11 +420,21 @@ class OHLCDataService:
             if len(validated_records) != len(ohlc_records):
                 self.logger.warning(f"Data validation filtered {len(ohlc_records) - len(validated_records)} invalid records")
 
-            self.logger.info(f"Successfully fetched and validated {len(validated_records)} records for {instrument}")
+            self.logger.info(f"✅ Successfully fetched and validated {len(validated_records)} records for {instrument}")
+            self.logger.info(f"═══════════════════════════════")
             return validated_records
-            
+
         except Exception as e:
-            self.logger.error(f"Error fetching OHLC data for {instrument}: {e}")
+            self.logger.error(f"═══ Yahoo Finance API Error ═══")
+            self.logger.error(f"Exception Type: {type(e).__name__}")
+            self.logger.error(f"Exception Message: {str(e)}")
+            self.logger.error(f"Instrument: {instrument} ({yf_symbol if 'yf_symbol' in locals() else 'N/A'})")
+            self.logger.error(f"Timeframe: {timeframe} ({yf_interval if 'yf_interval' in locals() else 'N/A'})")
+
+            # Log traceback for debugging
+            import traceback
+            self.logger.error(f"Traceback:\n{traceback.format_exc()}")
+            self.logger.error(f"═══════════════════════════════")
             return []
 
     def get_market_holidays(self, year: int) -> List[datetime]:

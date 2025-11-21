@@ -13,6 +13,8 @@ pydantic==2.5.0
 yfinance==0.2.28
 requests==2.31.0
 schedule==1.2.0
+APScheduler==3.10.4  # Timezone-aware scheduling for daily OHLC imports
+pytz==2023.3
 
 # Caching & Performance
 redis==5.0.1

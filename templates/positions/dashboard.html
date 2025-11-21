@@ -437,28 +437,28 @@
     </div>
 
     <!-- Rebuild Positions Section -->
-    <div class="rebuild-section">
-        <h3>Position Management</h3>
-        <p>Positions are automatically aggregated from your trade executions. Use these tools to manage your trading data.</p>
-        
-        <div class="management-actions">
-            <div class="action-group">
-                <h4>Rebuild Positions</h4>
-                <p>Rebuild all positions from existing trade data.</p>
-                <button onclick="rebuildPositions()" class="btn" id="rebuildBtn">Rebuild Positions</button>
+    <!-- Daily Import Scheduler Status -->
+    <div id="daily-import-status-card" class="import-status-badge" style="background-color: #dbeafe; border: 1px solid #3b82f6; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="flex: 1;">
+                <span id="import-status-title" style="color: #1e40af; font-weight: 600;">
+                    <i class="fas fa-clock"></i> Daily Import Scheduler
+                </span>
+                <p id="import-status-subtitle" style="margin: 4px 0 0 0; font-size: 0.875rem; color: #4b5563;">
+                    Scheduled import at 2:05pm PT • Checking status...
+                </p>
+                <p id="import-last-import" style="margin: 4px 0 0 0; font-size: 0.75rem; color: #6b7280;">
+                </p>
             </div>
-            
-            <div class="action-group">
-                <h4>Re-import Deleted Trades</h4>
-                <p>Scan for archived CSV files and re-import any missing trades.</p>
-                <button onclick="reimportTrades()" class="btn" id="reimportBtn">Re-import Trades</button>
-                <select id="csvFileSelect" style="margin-left: 10px; display: none;">
-                    <option value="">Select CSV file...</option>
-                </select>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="triggerManualImport()" class="btn btn-success" style="white-space: nowrap;">
+                    <i class="fas fa-download"></i> Import Now
+                </button>
+                <a href="{{ url_for('main.csv_manager') }}" class="btn btn-primary" style="white-space: nowrap;">
+                    <i class="fas fa-cog"></i> CSV Manager
+                </a>
             </div>
         </div>
-        
-        <div id="managementStatus" style="margin-top: 10px;"></div>
     </div>
 
     <!-- Filters Section -->
@@ -570,7 +570,7 @@
                     <td>{{ position.account }}</td>
                     <td>{{ position.entry_time if position.entry_time else 'N/A' }}</td>
                     <td>{{ position.exit_time if position.exit_time else '-' }}</td>
-                    <td>{{ position.total_quantity }}</td>
+                    <td>{{ position.max_quantity if position.max_quantity else position.total_quantity }}</td>
                     <td>{{ "%.2f"|format(position.average_entry_price) if position.average_entry_price is not none else "-" }}</td>
                     <td>
                         {% if position.average_exit_price %}
@@ -619,141 +619,6 @@
 
 {% block scripts %}
 <script>
-        function rebuildPositions() {
-            const btn = document.getElementById('rebuildBtn');
-            const status = document.getElementById('managementStatus');
-            
-            btn.disabled = true;
-            btn.textContent = 'Rebuilding...';
-            status.innerHTML = '<div style="color: #6b7280;">Rebuilding positions from trade data...</div>';
-            
-            fetch('{{ url_for("positions.rebuild_positions") }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    status.innerHTML = `<div style="color: #059669;">${data.message}</div>`;
-                    // Reload page after 2 seconds to show updated data
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
-                } else {
-                    status.innerHTML = `<div style="color: #dc2626;">Error: ${data.message}</div>`;
-                }
-            })
-            .catch(error => {
-                status.innerHTML = `<div style="color: #dc2626;">Error: ${error.message}</div>`;
-            })
-            .finally(() => {
-                btn.disabled = false;
-                btn.textContent = 'Rebuild Positions';
-            });
-        }
-
-        function reimportTrades() {
-            const btn = document.getElementById('reimportBtn');
-            const status = document.getElementById('managementStatus');
-            const csvSelect = document.getElementById('csvFileSelect');
-            
-            btn.disabled = true;
-            btn.textContent = 'Scanning...';
-            status.innerHTML = '<div style="color: #6b7280;">Scanning for available CSV files...</div>';
-            
-            // First, get list of available CSV files
-            fetch('{{ url_for("positions.list_csv_files") }}')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.files.length > 0) {
-                    // Populate dropdown with CSV files
-                    csvSelect.innerHTML = '<option value="">Select CSV file...</option>';
-                    data.files.forEach(file => {
-                        const option = document.createElement('option');
-                        option.value = file;
-                        option.textContent = file;
-                        csvSelect.appendChild(option);
-                    });
-                    
-                    csvSelect.style.display = 'inline-block';
-                    status.innerHTML = `<div style="color: #059669;">Found ${data.files.length} CSV file(s). Select a file to re-import.</div>`;
-                    btn.textContent = 'Import Selected File';
-                    btn.disabled = false;
-                    
-                    // Update button behavior
-                    btn.onclick = function() { importSelectedFile(); };
-                    
-                } else if (data.success && data.files.length === 0) {
-                    status.innerHTML = '<div style="color: #f59e0b;">No CSV files found in data directory.</div>';
-                    btn.disabled = false;
-                    btn.textContent = 'Re-import Trades';
-                } else {
-                    status.innerHTML = `<div style="color: #dc2626;">Error: ${data.message}</div>`;
-                    btn.disabled = false;
-                    btn.textContent = 'Re-import Trades';
-                }
-            })
-            .catch(error => {
-                status.innerHTML = `<div style="color: #dc2626;">Error: ${error.message}</div>`;
-                btn.disabled = false;
-                btn.textContent = 'Re-import Trades';
-            });
-        }
-
-        function importSelectedFile() {
-            const btn = document.getElementById('reimportBtn');
-            const status = document.getElementById('managementStatus');
-            const csvSelect = document.getElementById('csvFileSelect');
-            const selectedFile = csvSelect.value;
-            
-            if (!selectedFile) {
-                status.innerHTML = '<div style="color: #f59e0b;">Please select a CSV file to import.</div>';
-                return;
-            }
-            
-            btn.disabled = true;
-            btn.textContent = 'Importing...';
-            status.innerHTML = `<div style="color: #6b7280;">Importing trades from ${selectedFile}...</div>`;
-            
-            fetch('{{ url_for("positions.reimport_csv") }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    filename: selectedFile
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    status.innerHTML = `<div style="color: #059669;">${data.message}</div>`;
-                    // Reload page after 2 seconds to show updated data
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
-                } else {
-                    status.innerHTML = `<div style="color: #dc2626;">Error: ${data.message}</div>`;
-                }
-                
-                // Reset UI
-                csvSelect.style.display = 'none';
-                btn.onclick = function() { reimportTrades(); };
-                btn.textContent = 'Re-import Trades';
-            })
-            .catch(error => {
-                status.innerHTML = `<div style="color: #dc2626;">Error: ${error.message}</div>`;
-                csvSelect.style.display = 'none';
-                btn.onclick = function() { reimportTrades(); };
-                btn.textContent = 'Re-import Trades';
-            })
-            .finally(() => {
-                btn.disabled = false;
-            });
-        }
-
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
             const checkboxes = document.querySelectorAll('.position-checkbox');
@@ -1092,6 +957,120 @@
         // Initialize validation status manager when page loads
         document.addEventListener('DOMContentLoaded', function() {
             window.validationManager = new ValidationStatusManager();
+            loadDailyImportStatus();
+            // Refresh status every 60 seconds
+            setInterval(loadDailyImportStatus, 60000);
         });
+
+        // ================================================================
+        // Daily Import Scheduler Functions
+        // ================================================================
+
+        async function loadDailyImportStatus() {
+            try {
+                const response = await fetch('/api/csv/daily-import/status');
+                const data = await response.json();
+
+                if (data.success) {
+                    updateDailyImportUI(data);
+                } else {
+                    console.error('Failed to load daily import status:', data.error);
+                    updateDailyImportUI({
+                        running: false,
+                        scheduled_import_time: '2:05 PT',
+                        next_scheduled_import: 'Unknown',
+                        last_scheduled_import: null,
+                        last_manual_import: null
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading daily import status:', error);
+            }
+        }
+
+        function updateDailyImportUI(status) {
+            const statusCard = document.getElementById('daily-import-status-card');
+            const statusTitle = document.getElementById('import-status-title');
+            const statusSubtitle = document.getElementById('import-status-subtitle');
+            const lastImportText = document.getElementById('import-last-import');
+
+            // Update status indicator
+            if (status.running) {
+                statusCard.style.backgroundColor = '#d1fae5';
+                statusCard.style.borderColor = '#10b981';
+                statusTitle.innerHTML = '<i class="fas fa-check-circle"></i> Daily Import Scheduler Active';
+                statusTitle.style.color = '#065f46';
+            } else {
+                statusCard.style.backgroundColor = '#fef3c7';
+                statusCard.style.borderColor = '#f59e0b';
+                statusTitle.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Daily Import Scheduler Inactive';
+                statusTitle.style.color = '#92400e';
+            }
+
+            // Update subtitle with next import time
+            const nextImport = status.next_scheduled_import || 'Not scheduled';
+            statusSubtitle.textContent = `Scheduled at ${status.scheduled_import_time} • Next: ${nextImport}`;
+            statusSubtitle.style.color = status.running ? '#047857' : '#92400e';
+
+            // Update last import info
+            let lastImportInfo = '';
+            if (status.last_manual_import) {
+                const lastManual = new Date(status.last_manual_import);
+                lastImportInfo = `Last manual import: ${lastManual.toLocaleString()}`;
+            } else if (status.last_scheduled_import) {
+                const lastScheduled = new Date(status.last_scheduled_import);
+                lastImportInfo = `Last scheduled import: ${lastScheduled.toLocaleString()}`;
+            } else {
+                lastImportInfo = 'No imports yet today';
+            }
+            lastImportText.textContent = lastImportInfo;
+        }
+
+        async function triggerManualImport() {
+            // Confirm action
+            if (!confirm('Import today\'s CSV file now? This will process all new executions and rebuild positions for affected accounts.')) {
+                return;
+            }
+
+            const importButton = event.target;
+            const originalText = importButton.innerHTML;
+
+            // Disable button and show loading state
+            importButton.disabled = true;
+            importButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+
+            try {
+                const response = await fetch('/api/csv/daily-import/manual', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Show success message
+                    alert(`✓ Import successful!\n\nExecutions imported: ${data.total_executions}\nPositions rebuilt: ${data.positions_rebuilt}\nAccounts affected: ${data.accounts_affected ? data.accounts_affected.join(', ') : 'None'}`);
+
+                    // Reload the page to show updated positions
+                    window.location.reload();
+                } else {
+                    // Show error message
+                    alert(`✗ Import failed:\n\n${data.error}`);
+                }
+            } catch (error) {
+                console.error('Error triggering manual import:', error);
+                alert(`Error triggering manual import: ${error.message}`);
+            } finally {
+                // Re-enable button
+                importButton.disabled = false;
+                importButton.innerHTML = originalText;
+
+                // Refresh status
+                loadDailyImportStatus();
+            }
+        }
 </script>
 {% endblock %}

@@ -148,7 +148,8 @@ class PositionBuilder:
                 if current_position:
                     current_executions.append(event.trade)
                     current_position.max_quantity = max(current_position.max_quantity, abs(event.running_quantity))
-                    current_position.total_quantity = abs(event.running_quantity)  # Update running quantity
+                    # total_quantity should track the maximum quantity, not the current running quantity
+                    current_position.total_quantity = current_position.max_quantity
                     current_position.execution_count = len(current_executions)
 
                     if abs(event.running_quantity) > abs(event.previous_quantity):

@@ -33,8 +33,8 @@ class Trade:
     quantity: int = 0
     
     # Pricing
-    entry_price: float = 0.0
-    exit_price: Optional[float] = None
+    entry_price: Optional[float] = None  # None for exit-only executions
+    exit_price: Optional[float] = None  # None for entry-only executions
     
     # Timing
     entry_time: Optional[datetime] = None
@@ -55,14 +55,33 @@ class Trade:
     
     def __post_init__(self):
         """Validate trade data after initialization"""
-        if self.quantity <= 0:
+        # Ensure quantity is never None
+        if self.quantity is None or self.quantity <= 0:
             raise ValueError("Quantity must be positive")
-        
-        if self.entry_price <= 0:
-            raise ValueError("Entry price must be positive")
-        
+
+        # Must have at least entry_price OR exit_price (not both None)
+        if self.entry_price is None and self.exit_price is None:
+            raise ValueError("Trade must have at least entry_price or exit_price")
+
+        # Validate entry_price if present
+        if self.entry_price is not None and self.entry_price <= 0:
+            raise ValueError("Entry price must be positive when set")
+
+        # Validate exit_price if present
         if self.exit_price is not None and self.exit_price <= 0:
-            raise ValueError("Exit price must be positive")
+            raise ValueError("Exit price must be positive when set")
+
+        # Ensure points_gain_loss defaults to 0.0 if None
+        if self.points_gain_loss is None:
+            self.points_gain_loss = 0.0
+
+        # Ensure dollars_gain_loss defaults to 0.0 if None
+        if self.dollars_gain_loss is None:
+            self.dollars_gain_loss = 0.0
+
+        # Ensure commission defaults to 0.0 if None
+        if self.commission is None:
+            self.commission = 0.0
     
     def is_completed(self) -> bool:
         """Check if trade is completed (has exit data)"""

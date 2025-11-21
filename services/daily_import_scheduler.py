@@ -12,15 +12,15 @@ Futures Market Schedule:
 - Data Export: NinjaTrader exports with CLOSING date (e.g., Monday session closes at 2pm = Monday's date)
 
 Task Group 4: Daily Import Strategy Implementation
+Task Group 2: APScheduler Refactoring for Timezone-Aware Scheduling
 """
 
 import logging
-import threading
-import time
 from datetime import datetime, time as dt_time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-import schedule
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 from config import config
@@ -39,7 +39,7 @@ class DailyImportScheduler:
     - Scheduled import at 2:05pm PT daily (if app is running)
     - Manual import trigger via API
     - Import validation (date matching, closed positions only)
-    - Timezone-aware scheduling (Pacific Time)
+    - Timezone-aware scheduling (Pacific Time) using APScheduler
     """
 
     # Market close time: 2:00pm Pacific (5:00pm Eastern)
@@ -60,9 +60,8 @@ class DailyImportScheduler:
         self.ohlc_service = ohlc_service
         self.instrument_mapper = InstrumentMapper()
 
-        # Scheduler state
-        self._scheduler_thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
+        # APScheduler instance
+        self._scheduler: Optional[BackgroundScheduler] = None
         self._running = False
 
         # Import history
@@ -74,13 +73,89 @@ class DailyImportScheduler:
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
 
         logger.info("DailyImportScheduler initialized")
+
+        # Validate configuration at startup
+        self._validate_timezone_config()
+        self._validate_redis_connection()
         logger.info(f"Scheduled import time: {self.IMPORT_TIME_PT} PT")
+
+
+    def _validate_redis_connection(self) -> bool:
+        """
+        Validate Redis connectivity at startup.
+
+        Returns:
+            True if Redis is accessible, False otherwise
+        """
+        try:
+            # Only validate if cache is enabled
+            if not config.cache_enabled:
+                logger.warning("=" * 80)
+                logger.warning("CACHE_ENABLED is set to false")
+                logger.warning("OHLC data sync requires Redis caching to function properly")
+                logger.warning("Troubleshooting:")
+                logger.warning("  1. Set CACHE_ENABLED=true in .env file")
+                logger.warning("  2. Ensure REDIS_URL points to correct Redis instance")
+                logger.warning("  3. For Docker: use REDIS_URL=redis://redis:6379/0")
+                logger.warning("  4. For local: use REDIS_URL=redis://localhost:6379/0")
+                logger.warning("=" * 80)
+                return False
+
+            # Test Redis connection
+            import redis
+            redis_client = redis.Redis.from_url(config.redis_url)
+            redis_client.ping()
+
+            logger.info(f"Redis connection successful: {config.redis_url}")
+            return True
+
+        except Exception as e:
+            logger.error("=" * 80)
+            logger.error("Redis connection failed!")
+            logger.error(f"Error: {e}")
+            logger.error(f"Redis URL: {config.redis_url}")
+            logger.error("Troubleshooting:")
+            logger.error("  1. Verify Redis service is running")
+            logger.error("  2. Check REDIS_URL in .env file")
+            logger.error("  3. For Docker: use 'redis' as hostname (redis://redis:6379/0)")
+            logger.error("  4. For local: use 'localhost' (redis://localhost:6379/0)")
+            logger.error("  5. Ensure containers are on the same Docker network")
+            logger.error("=" * 80)
+            return False
+
+    def _validate_timezone_config(self) -> bool:
+        """
+        Validate timezone configuration (Pacific Time).
+
+        Returns:
+            True if timezone is properly configured
+        """
+        try:
+            # Verify Pacific timezone is set
+            if self.pacific_tz.zone != 'America/Los_Angeles':
+                logger.error(f"Timezone misconfigured! Expected 'America/Los_Angeles', got '{self.pacific_tz.zone}'")
+                return False
+
+            # Log current time in both UTC and Pacific
+            now_utc = datetime.now(pytz.UTC)
+            now_pt = datetime.now(self.pacific_tz)
+
+            logger.info("Timezone configuration validated:")
+            logger.info(f"  - Pacific Time: {now_pt.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            logger.info(f"  - UTC Time: {now_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            logger.info(f"  - Scheduled import: {self.IMPORT_TIME_PT} PT (22:05 UTC)")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Timezone validation failed: {e}", exc_info=True)
+            return False
 
     def start(self):
         """
         Start the daily import scheduler.
 
-        This starts a background thread that runs the schedule checker.
+        This starts APScheduler's BackgroundScheduler which manages its own threading.
         The scheduler will automatically import at 2:05pm PT each day.
         """
         if self._running:
@@ -89,24 +164,33 @@ class DailyImportScheduler:
 
         logger.info("Starting daily import scheduler...")
 
-        # Clear any existing schedule
-        schedule.clear()
+        # Create BackgroundScheduler with Pacific timezone
+        self._scheduler = BackgroundScheduler(timezone=self.pacific_tz)
 
-        # Schedule daily import at 2:05pm Pacific
-        schedule.every().day.at(self.IMPORT_TIME_PT).do(self._scheduled_import_callback)
-
-        # Start scheduler thread
-        self._stop_event.clear()
-        self._scheduler_thread = threading.Thread(
-            target=self._scheduler_loop,
-            name="DailyImportScheduler",
-            daemon=True
+        # Schedule daily import at 2:05pm Pacific using CronTrigger
+        self._scheduler.add_job(
+            self._scheduled_import_callback,
+            CronTrigger(hour=14, minute=5, timezone=self.pacific_tz),
+            id='daily_import',
+            name='Daily OHLC Import at 14:05 PT',
+            replace_existing=True
         )
-        self._scheduler_thread.start()
+
+        # Start the scheduler (APScheduler handles threading internally)
+        self._scheduler.start()
 
         self._running = True
+
+        # Log startup with timezone information
+        now_utc = datetime.now(pytz.UTC)
+        now_pt = datetime.now(self.pacific_tz)
+        next_run = self._get_next_import_time()
+
         logger.info("Daily import scheduler started successfully")
-        logger.info(f"Next scheduled import: {self._get_next_import_time()}")
+        logger.info(f"  - Current time (UTC): {now_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        logger.info(f"  - Current time (Pacific): {now_pt.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        logger.info(f"  - Scheduled for: 14:05 PT (22:05 UTC)")
+        logger.info(f"  - Next scheduled import: {next_run}")
 
     def stop(self):
         """Stop the daily import scheduler."""
@@ -116,36 +200,12 @@ class DailyImportScheduler:
 
         logger.info("Stopping daily import scheduler...")
 
-        # Signal thread to stop
-        self._stop_event.set()
-
-        # Wait for thread to finish (with timeout)
-        if self._scheduler_thread and self._scheduler_thread.is_alive():
-            self._scheduler_thread.join(timeout=5.0)
-
-        # Clear schedule
-        schedule.clear()
+        # Shutdown APScheduler (wait for any running jobs to complete)
+        if self._scheduler:
+            self._scheduler.shutdown(wait=True)
 
         self._running = False
         logger.info("Daily import scheduler stopped")
-
-    def _scheduler_loop(self):
-        """Background thread loop for running scheduled tasks."""
-        logger.info("Scheduler thread started")
-
-        while not self._stop_event.is_set():
-            try:
-                # Run pending scheduled tasks
-                schedule.run_pending()
-
-                # Sleep for 30 seconds before next check
-                time.sleep(30)
-
-            except Exception as e:
-                logger.error(f"Error in scheduler loop: {e}", exc_info=True)
-                time.sleep(60)  # Wait longer after error
-
-        logger.info("Scheduler thread stopped")
 
     def _scheduled_import_callback(self):
         """
@@ -455,29 +515,54 @@ class DailyImportScheduler:
         Get scheduler status.
 
         Returns:
-            Dict with scheduler state and statistics
+            Dict with scheduler state and statistics including timezone information
         """
+        now_utc = datetime.now(pytz.UTC)
         now_pt = datetime.now(self.pacific_tz)
 
         return {
             'running': self._running,
             'scheduled_import_time': self.IMPORT_TIME_PT + ' PT',
+            'scheduled_import_time_utc': '22:05 UTC',
             'next_scheduled_import': self._get_next_import_time(),
             'last_scheduled_import': self.last_scheduled_import.isoformat() if self.last_scheduled_import else None,
             'last_manual_import': self.last_manual_import.isoformat() if self.last_manual_import else None,
             'current_time_pt': now_pt.strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'current_time_utc': now_utc.strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'timezone': 'America/Los_Angeles (Pacific Time)',
             'import_history_count': len(self.import_history),
             'recent_imports': self.import_history[-5:] if self.import_history else []
         }
 
     def _get_next_import_time(self) -> Optional[str]:
-        """Get next scheduled import time."""
+        """
+        Get next scheduled import time.
+
+        Returns:
+            Formatted string with next run time in Pacific Time, or None if not scheduled
+        """
         try:
-            next_run = schedule.next_run()
+            if not self._scheduler:
+                return None
+
+            jobs = self._scheduler.get_jobs()
+            if not jobs:
+                return None
+
+            # Get next run time from first job (our daily import)
+            next_run = jobs[0].next_run_time
+
             if next_run:
-                # Convert to Pacific Time
-                next_run_pt = next_run.replace(tzinfo=pytz.UTC).astimezone(self.pacific_tz)
+                # Convert to Pacific Time if not already
+                if next_run.tzinfo is None:
+                    next_run = pytz.UTC.localize(next_run)
+                next_run_pt = next_run.astimezone(self.pacific_tz)
                 return next_run_pt.strftime('%Y-%m-%d %H:%M:%S %Z')
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting next import time: {e}", exc_info=True)
             return None
         except Exception:
             return None

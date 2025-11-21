@@ -96,10 +96,100 @@ class Position:
         """Get position duration in minutes"""
         if not self.entry_time:
             return None
-        
+
         end_time = self.exit_time or datetime.now()
         duration = end_time - self.entry_time
         return int(duration.total_seconds() / 60)
+
+    def validate_state(self) -> Dict[str, Any]:
+        """
+        Validate position state for consistency and data integrity.
+
+        Returns:
+            Dictionary with validation results:
+            {
+                'is_valid': bool,
+                'errors': List[str],
+                'warnings': List[str],
+                'integrity_score': float (0-100)
+            }
+        """
+        errors = []
+        warnings = []
+
+        # Check 1: Open position should not have exit_time
+        if self.position_status == PositionStatus.OPEN and self.exit_time is not None:
+            errors.append(f"Open position {self.id} has exit_time set")
+
+        # Check 2: Closed position should have exit_time
+        if self.position_status == PositionStatus.CLOSED and self.exit_time is None:
+            errors.append(f"Closed position {self.id} missing exit_time")
+
+        # Check 3: Average entry price should not be zero for closed positions
+        if self.position_status == PositionStatus.CLOSED and self.average_entry_price == 0.0:
+            errors.append(f"Closed position {self.id} has zero average_entry_price")
+
+        # Check 4: Average exit price should be set for closed positions
+        if self.position_status == PositionStatus.CLOSED and self.average_exit_price is None:
+            warnings.append(f"Closed position {self.id} missing average_exit_price")
+
+        # Check 5: Entry time should always be set
+        if self.entry_time is None:
+            errors.append(f"Position {self.id} missing entry_time")
+
+        # Check 6: Exit time should be after entry time
+        if self.entry_time and self.exit_time:
+            if self.exit_time < self.entry_time:
+                errors.append(f"Position {self.id} has exit_time before entry_time")
+
+        # Check 7: Quantity should be positive
+        if self.total_quantity <= 0:
+            errors.append(f"Position {self.id} has non-positive total_quantity")
+
+        # Check 8: Max quantity should be >= total quantity
+        if self.max_quantity < self.total_quantity:
+            warnings.append(f"Position {self.id} has max_quantity < total_quantity")
+
+        # Check 9: Execution count should be positive for closed positions
+        if self.position_status == PositionStatus.CLOSED and self.execution_count == 0:
+            warnings.append(f"Closed position {self.id} has zero execution_count")
+
+        # Check 10: Catastrophic P&L detection (likely data corruption)
+        if abs(self.total_dollars_pnl) > 1000000:  # > $1M
+            errors.append(f"Position {self.id} has catastrophic P&L: ${self.total_dollars_pnl:,.2f}")
+
+        # Check 11: Instrument and account should be set
+        if not self.instrument:
+            errors.append(f"Position {self.id} missing instrument")
+        if not self.account:
+            errors.append(f"Position {self.id} missing account")
+
+        # Calculate integrity score (0-100)
+        total_checks = 11
+        failed_checks = len(errors)
+        warning_checks = len(warnings)
+        integrity_score = max(0.0, 100.0 - (failed_checks * 10) - (warning_checks * 2))
+
+        is_valid = len(errors) == 0
+
+        return {
+            'is_valid': is_valid,
+            'errors': errors,
+            'warnings': warnings,
+            'integrity_score': integrity_score
+        }
+
+    def update_validation_status(self) -> None:
+        """
+        Update position validation status based on current state.
+
+        This should be called after position creation or modification.
+        """
+        validation_result = self.validate_state()
+
+        self.validation_status = 'passed' if validation_result['is_valid'] else 'failed'
+        self.integrity_score = validation_result['integrity_score']
+        self.last_validated_at = datetime.now()
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert position to dictionary for serialization"""

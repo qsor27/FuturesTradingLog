@@ -1,0 +1,11 @@
+{
+  "type": "hourly_recent",
+  "timestamp": "2025-10-09T13:18:01.250929",
+  "results": {
+    "MNQ": {
+      "5m": false,
+      "15m": false,
+      "1h": false
+    }
+  }
+}

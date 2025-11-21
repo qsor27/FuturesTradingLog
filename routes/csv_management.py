@@ -13,6 +13,7 @@ from typing import Dict, Any, List
 from services.unified_csv_import_service import unified_csv_import_service
 from services.file_watcher import file_watcher
 from services.ninjatrader_import_service import ninjatrader_import_service
+from services.daily_import_scheduler import daily_import_scheduler
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -375,6 +376,150 @@ def reset_processed_files():
 
     except Exception as e:
         logger.error(f"Error resetting processed files: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ========================================================================
+# Task Group 4: Daily Import Scheduler Endpoints
+# ========================================================================
+
+@csv_management_bp.route('/daily-import/status')
+def get_daily_import_status():
+    """
+    Get daily import scheduler status.
+
+    Returns scheduler state, next scheduled import time, and import history.
+    """
+    try:
+        status = daily_import_scheduler.get_status()
+        return jsonify({
+            'success': True,
+            **status
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting daily import scheduler status: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/daily-import/manual', methods=['POST'])
+def trigger_manual_import():
+    """
+    Trigger manual import.
+
+    Request body (optional):
+        {
+            "date": "20251112"  // Optional specific date in YYYYMMDD format
+        }
+
+    Returns import results.
+    """
+    try:
+        data = request.get_json() or {}
+        specific_date = data.get('date')
+
+        if specific_date:
+            logger.info(f"Manual import requested for date: {specific_date}")
+        else:
+            logger.info("Manual import requested for today's date")
+
+        result = daily_import_scheduler.manual_import(specific_date=specific_date)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error in manual import trigger: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/daily-import/start', methods=['POST'])
+def start_daily_import_scheduler():
+    """
+    Start the daily import scheduler.
+
+    This enables automatic imports at 2:05pm PT each day.
+    """
+    try:
+        if daily_import_scheduler.is_running():
+            return jsonify({
+                'success': True,
+                'message': 'Daily import scheduler is already running'
+            })
+
+        daily_import_scheduler.start()
+        logger.info("Daily import scheduler started via API")
+
+        return jsonify({
+            'success': True,
+            'message': 'Daily import scheduler started successfully',
+            'next_import': daily_import_scheduler._get_next_import_time()
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting daily import scheduler: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/daily-import/stop', methods=['POST'])
+def stop_daily_import_scheduler():
+    """
+    Stop the daily import scheduler.
+
+    This disables automatic imports (manual imports still work).
+    """
+    try:
+        if not daily_import_scheduler.is_running():
+            return jsonify({
+                'success': True,
+                'message': 'Daily import scheduler is not running'
+            })
+
+        daily_import_scheduler.stop()
+        logger.info("Daily import scheduler stopped via API")
+
+        return jsonify({
+            'success': True,
+            'message': 'Daily import scheduler stopped successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error stopping daily import scheduler: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/daily-import/history')
+def get_import_history():
+    """
+    Get import history.
+
+    Returns list of recent imports (last 100).
+    """
+    try:
+        history = daily_import_scheduler.import_history
+
+        return jsonify({
+            'success': True,
+            'total_imports': len(history),
+            'imports': history
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting import history: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

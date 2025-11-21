@@ -1,3 +1,29 @@
+# ============================================================================
+# Docker Compose Configuration: Local Development with Redis
+# ============================================================================
+# This configuration is designed for local development environments where
+# both the Flask application and Redis run as Docker containers on the same
+# network. The Redis service is included in this setup for convenience.
+#
+# Key Features:
+# - Builds the application image locally from the Dockerfile
+# - Includes a dedicated Redis container for caching
+# - Uses Docker service names for inter-container networking
+# - REDIS_URL defaults to redis://redis:6379/0 (Docker service name)
+# - CACHE_ENABLED defaults to true to support OHLC data synchronization
+#
+# Important: .env file values will override these defaults
+# - If .env contains REDIS_URL=redis://localhost:6379/0, connectivity will fail
+# - Ensure .env uses redis://redis:6379/0 for Docker networking
+# - Ensure .env has CACHE_ENABLED=true for OHLC sync functionality
+#
+# Troubleshooting Redis Connectivity:
+# - Use 'redis' (service name) for Docker networking, not 'localhost'
+# - .env file values take precedence over docker-compose defaults
+# - Verify containers are on the same Docker network: docker network inspect
+# - Test Redis connectivity: docker exec futurestradinglog-dev redis-cli -h redis ping
+# ============================================================================
+
 services:
   web:
     # Build locally instead of using pre-built image
@@ -18,7 +44,12 @@ services:
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-key}
+      # Redis URL using Docker service name for container-to-container networking
+      # Must use 'redis' (service name) not 'localhost' for Docker networking
+      # .env file will override this default - ensure .env also uses 'redis'
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Cache must be enabled for OHLC data synchronization to function
+      # .env file will override this default - ensure .env has CACHE_ENABLED=true
       - CACHE_ENABLED=${CACHE_ENABLED:-true}
     restart: unless-stopped
     healthcheck:

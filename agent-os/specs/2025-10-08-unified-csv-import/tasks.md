@@ -1,0 +1,104 @@
+# Spec Tasks
+
+## Tasks
+
+- [ ] 1. Create Unified CSV Import Service
+  - [ ] 1.1 Write tests for unified CSV import service core functionality
+  - [ ] 1.2 Create `services/unified_csv_import_service.py` with CSV format detection
+  - [ ] 1.3 Implement `process_csv_file()` method with transaction support
+  - [ ] 1.4 Implement `detect_csv_format()` for NT Grid, TradeLog, and raw executions
+  - [ ] 1.5 Implement processed files registry and deduplication
+  - [ ] 1.6 Add automatic position rebuilding after successful imports
+  - [ ] 1.7 Implement file archiving with timestamps
+  - [ ] 1.8 Verify all tests pass
+
+- [ ] 2. Refactor File Watcher Service
+  - [ ] 2.1 Write tests for simplified file watcher integration
+  - [ ] 2.2 Update `services/csv_watcher_service.py` to delegate to unified service
+  - [ ] 2.3 Remove redundant processing code from file watcher
+  - [ ] 2.4 Maintain debouncing logic for NinjaTrader file writes
+  - [ ] 2.5 Verify all tests pass
+
+- [ ] 3. Consolidate Backend Routes and APIs
+  - [ ] 3.1 Write tests for new CSV management API endpoints
+  - [ ] 3.2 Update `routes/csv_management.py` with simplified API endpoints
+  - [ ] 3.3 Implement GET `/api/csv/status` endpoint
+  - [ ] 3.4 Implement POST `/api/csv/process-now` endpoint
+  - [ ] 3.5 Implement GET `/api/csv/history` endpoint
+  - [ ] 3.6 Remove manual upload endpoints from `routes/upload.py`
+  - [ ] 3.7 Remove position rebuild endpoints from `routes/positions.py`
+  - [ ] 3.8 Verify all tests pass
+
+- [ ] 4. Create CSV Manager Dashboard UI
+  - [ ] 4.1 Write frontend tests for CSV manager page
+  - [ ] 4.2 Create `templates/csv_manager.html` with status dashboard
+  - [ ] 4.3 Add import service status indicator
+  - [ ] 4.4 Add file watcher status display
+  - [ ] 4.5 Add recent processing history table
+  - [ ] 4.6 Implement "Process Now" button with API integration
+  - [ ] 4.7 Add auto-refresh every 30 seconds
+  - [ ] 4.8 Verify all tests pass
+
+- [ ] 5. Remove Redundant UI Elements (CRITICAL - See ui-cleanup-spec.md)
+  - [ ] 5.1 Position Dashboard - Remove entire "Position Management" section
+    - [ ] Remove HTML: lines 440-462 containing rebuild-section div
+    - [ ] Remove "Rebuild Positions" button and action group
+    - [ ] Remove "Re-import Deleted Trades" button and action group
+    - [ ] Remove CSV file selection dropdown (#csvFileSelect)
+    - [ ] Remove managementStatus div
+    - [ ] Remove rebuildPositions() JavaScript function (lines 622-655)
+    - [ ] Remove reimportTrades() JavaScript function (lines 657-703)
+    - [ ] Remove importSelectedFile() JavaScript function (lines 705-755)
+    - [ ] Add optional auto-import status badge with CSV Manager link
+  - [ ] 5.2 Upload Page - Remove manual upload functionality
+    - [ ] Remove entire uploadForm element (lines 40-54)
+    - [ ] Remove file input for CSV selection
+    - [ ] Remove "Upload" submit button
+    - [ ] Remove "Process NT Executions Export" button
+    - [ ] Remove upload form submission JavaScript handler (lines 67-101)
+    - [ ] Remove processNTButton click handler (lines 143-178)
+    - [ ] Keep "Automatic Import Active" status banner
+    - [ ] Keep "Process Now" and "Check Status" buttons
+    - [ ] Add recent import activity display
+    - [ ] Add link to CSV Manager page
+  - [ ] 5.3 Backend Routes - Remove redundant endpoints
+    - [ ] Remove /positions/rebuild_positions endpoint
+    - [ ] Remove /positions/list_csv_files endpoint
+    - [ ] Remove /positions/reimport_csv endpoint
+    - [ ] Remove /upload endpoint (manual upload)
+    - [ ] Remove /process-nt-executions endpoint
+    - [ ] Verify routes redirect appropriately
+  - [ ] 5.4 Navigation - Add CSV Manager access
+    - [ ] Add "CSV Manager" link to main navigation in base.html
+    - [ ] Update position dashboard header to include CSV Manager link
+    - [ ] Update upload page header to include CSV Manager link
+  - [ ] 5.5 Trades Page - Verify and clean (if applicable)
+    - [ ] Check if templates/trades/index.html exists
+    - [ ] If exists, remove "Step 1: Process NT Executions" section
+    - [ ] If exists, remove "Step 2: Import Trade Log" section
+    - [ ] Remove associated form elements and JavaScript
+  - [ ] 5.6 Final Verification - Ensure all removals complete
+    - [ ] No manual CSV upload forms exist anywhere
+    - [ ] No "Rebuild Positions" buttons exist
+    - [ ] No "Re-import Trades" functionality in UI
+    - [ ] No JavaScript console errors from removed functions
+    - [ ] All removed endpoints return 404 or redirect
+    - [ ] Only import methods are: auto-watch + CSV Manager "Process Now"
+
+- [ ] 6. Update Application Configuration and Startup
+  - [ ] 6.1 Write tests for application startup with unified service
+  - [ ] 6.2 Add CSV configuration settings to `config.py`
+  - [ ] 6.3 Update `app.py` to initialize unified CSV import service
+  - [ ] 6.4 Update app startup to use unified service with file watcher
+  - [ ] 6.5 Add proper service cleanup on shutdown
+  - [ ] 6.6 Verify all tests pass
+
+- [ ] 7. Integration Testing and Documentation
+  - [ ] 7.1 Test automatic import with NT Grid CSV files
+  - [ ] 7.2 Test automatic import with TradeLog CSV files
+  - [ ] 7.3 Test deduplication across different import methods
+  - [ ] 7.4 Test automatic position rebuilding after imports
+  - [ ] 7.5 Test manual "Process Now" trigger functionality
+  - [ ] 7.6 Test error handling and recovery scenarios
+  - [ ] 7.7 Update user documentation with new workflow
+  - [ ] 7.8 Verify complete end-to-end functionality

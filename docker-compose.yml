@@ -1,7 +1,41 @@
+# ============================================================================
+# Docker Compose Configuration: Local Build without Redis Container
+# ============================================================================
+# This configuration is designed for environments where users prefer to run
+# the application without a dedicated Redis container, either using an
+# external Redis instance or disabling caching entirely.
+#
+# Key Features:
+# - Builds the application image locally from the Dockerfile
+# - Does NOT include a Redis container
+# - REDIS_URL defaults to redis://localhost:6379/0 (external Redis)
+# - Includes Watchtower for automatic container updates
+#
+# Redis Strategy:
+# - Redis must be run separately (external instance or host machine)
+# - Alternatively, set CACHE_ENABLED=false in .env to disable caching
+# - If using external Redis, ensure it's accessible from the Docker container
+# - For container-to-host Redis: Use host.docker.internal instead of localhost
+#
+# Important: .env file values will override these defaults
+# - Configure REDIS_URL in .env to point to your Redis instance
+# - Set CACHE_ENABLED=false if not using Redis (OHLC sync will be affected)
+#
+# Troubleshooting Redis Connectivity:
+# - Use 'localhost' for host machine Redis (may not work on all platforms)
+# - Use 'host.docker.internal' for host machine Redis (works on Windows/Mac)
+# - Use external Redis IP/hostname for remote Redis instances
+# - .env file values take precedence over docker-compose defaults
+# ============================================================================
+
 services:
   web:
+    # Build from local Dockerfile for development
+    build:
+      context: .
+      dockerfile: Dockerfile
     # Use the pre-built image from GitHub Container Registry
-    image: ghcr.io/qsor27/futurestradinglog:latest
+    # image: ghcr.io/qsor27/futurestradinglog:latest
     container_name: futurestradinglog
     ports:
       - "${HOST_IP:-0.0.0.0}:${EXTERNAL_PORT:-5000}:5000"
@@ -16,7 +50,12 @@ services:
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-key}
+      # Redis URL pointing to external Redis instance (or host machine)
+      # Change to host.docker.internal:6379 for host machine Redis on Windows/Mac
+      # .env file will override this default - configure based on your setup
       - REDIS_URL=${REDIS_URL:-redis://localhost:6379/0}
+      # Cache enabled by default - set to false in .env if not using Redis
+      # Note: Disabling cache will affect OHLC data synchronization
       - CACHE_ENABLED=${CACHE_ENABLED:-true}
     restart: unless-stopped
     healthcheck:

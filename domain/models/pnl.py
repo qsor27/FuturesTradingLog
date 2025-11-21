@@ -111,74 +111,85 @@ class FIFOCalculator:
         """Calculate P&L using FIFO methodology"""
         if not entries or not exits:
             return PnLCalculation()
-        
+
         # Sort by time for chronological matching
         sorted_entries = sorted(entries, key=lambda x: x.get('entry_time', ''))
         sorted_exits = sorted(exits, key=lambda x: x.get('entry_time', ''))
-        
+
         matches = []
-        total_pnl = 0.0
+        total_points_pnl = 0.0  # Track points P&L separately
+        total_dollars_pnl = 0.0  # Track dollar P&L separately
         matched_quantity = 0
-        
+
         entry_idx = 0
         exit_idx = 0
         remaining_entry_qty = 0
         remaining_exit_qty = 0
-        
+
         while entry_idx < len(sorted_entries) and exit_idx < len(sorted_exits):
             entry = sorted_entries[entry_idx]
             exit = sorted_exits[exit_idx]
-            
+
             # Get remaining quantities
             if remaining_entry_qty == 0:
                 remaining_entry_qty = int(entry.get('quantity', 0))
             if remaining_exit_qty == 0:
                 remaining_exit_qty = int(exit.get('quantity', 0))
-            
+
             # Match the smaller quantity
             match_qty = min(remaining_entry_qty, remaining_exit_qty)
-            
+
             if match_qty > 0:
-                entry_price = float(entry.get('entry_price', 0))
+                entry_price = float(entry.get('entry_price') or 0)
                 # Handle None exit_price - use entry_price from exit trade as fallback
-                exit_price_value = exit.get('exit_price') or exit.get('entry_price', 0)
+                exit_price_value = exit.get('exit_price') or exit.get('entry_price') or 0
                 exit_price = float(exit_price_value) if exit_price_value is not None else 0.0
-                
-                # Create match
+
+                # Calculate points P&L (price difference)
+                if position_type.lower() == 'long':
+                    points_pnl_per_contract = exit_price - entry_price
+                else:  # short
+                    points_pnl_per_contract = entry_price - exit_price
+
+                # Calculate P&L for this match
+                match_points_pnl = points_pnl_per_contract * match_qty
+                match_dollars_pnl = match_points_pnl * multiplier
+
+                total_points_pnl += match_points_pnl
+                total_dollars_pnl += match_dollars_pnl
+                matched_quantity += match_qty
+
+                # Create match for record-keeping
+                entry_time_str = entry.get('entry_time') or ''
+                exit_time_str = exit.get('entry_time') or ''
                 match = FIFOMatch(
                     entry_price=entry_price,
                     exit_price=exit_price,
                     quantity=match_qty,
-                    entry_time=datetime.fromisoformat(entry.get('entry_time', '')),
-                    exit_time=datetime.fromisoformat(exit.get('entry_time', ''))
+                    entry_time=datetime.fromisoformat(entry_time_str) if entry_time_str else datetime.now(),
+                    exit_time=datetime.fromisoformat(exit_time_str) if exit_time_str else datetime.now()
                 )
-                
                 matches.append(match)
-                
-                # Calculate P&L for this match
-                match_pnl = match.calculate_pnl(position_type, multiplier)
-                total_pnl += match_pnl
-                matched_quantity += match_qty
-                
+
                 # Update remaining quantities
                 remaining_entry_qty -= match_qty
                 remaining_exit_qty -= match_qty
-                
+
                 # Move to next entry/exit if current one is fully matched
                 if remaining_entry_qty == 0:
                     entry_idx += 1
                 if remaining_exit_qty == 0:
                     exit_idx += 1
-        
+
         # Calculate averages
         total_entry_quantity = sum(int(e.get('quantity', 0)) for e in entries)
         total_exit_quantity = sum(int(e.get('quantity', 0)) for e in exits)
-        
+
         avg_entry_price = 0.0
         if total_entry_quantity > 0:
-            weighted_entry = sum(float(e.get('entry_price', 0)) * int(e.get('quantity', 0)) for e in entries)
+            weighted_entry = sum(float(e.get('entry_price') or 0) * int(e.get('quantity', 0)) for e in entries)
             avg_entry_price = weighted_entry / total_entry_quantity
-        
+
         avg_exit_price = 0.0
         if total_exit_quantity > 0:
             # Handle None exit_price - use entry_price from exit trade as fallback
@@ -188,10 +199,10 @@ class FIFOCalculator:
 
             weighted_exit = sum(get_exit_price(e) * int(e.get('quantity', 0)) for e in exits)
             avg_exit_price = weighted_exit / total_exit_quantity
-        
+
         return PnLCalculation(
-            points_pnl=total_pnl / multiplier,  # Points P&L
-            dollars_pnl=total_pnl,  # Dollar P&L
+            points_pnl=total_points_pnl,  # Total points P&L (price diff × quantity)
+            dollars_pnl=total_dollars_pnl,  # Total dollar P&L (points × multiplier)
             matched_quantity=matched_quantity,
             average_entry_price=avg_entry_price,
             average_exit_price=avg_exit_price,

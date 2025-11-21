@@ -1,68 +1,23 @@
-#!/usr/bin/env python3
-"""
-Rebuild positions from trades after fixing the schema
-"""
+"""Rebuild positions to populate position_executions table"""
+from services.enhanced_position_service_v2 import EnhancedPositionServiceV2 as PositionService
 
-import sys
-import os
+with PositionService() as pos_service:
+    # Clear existing positions
+    pos_service.cursor.execute("DELETE FROM position_executions")
+    pos_service.cursor.execute("DELETE FROM positions")
+    pos_service.conn.commit()
+    print("Cleared existing positions and position_executions")
 
-# Add the app directory to Python path
-sys.path.insert(0, '/app')
+    # Rebuild
+    result = pos_service.rebuild_positions_from_trades()
+    print(f"Rebuild complete: {result['positions_created']} positions from {result['trades_processed']} trades")
 
-from scripts.TradingLog_db import FuturesDB
-from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
+    # Check position_executions
+    pos_service.cursor.execute("SELECT COUNT(*) FROM position_executions")
+    pe_count = pos_service.cursor.fetchone()[0]
+    print(f"position_executions records: {pe_count}")
 
-def rebuild_positions():
-    """Rebuild all positions from existing trade data"""
-    
-    print("🔄 Starting position rebuild...")
-    
-    try:
-        # Use the position service to rebuild positions
-        with EnhancedPositionServiceV2() as position_service:
-            result = position_service.rebuild_positions_from_trades()
-            
-            if result:
-                positions_created = result.get('positions_created', 0)
-                trades_processed = result.get('trades_processed', 0)
-                
-                print(f"✅ Position rebuild completed successfully!")
-                print(f"   - Trades processed: {trades_processed}")
-                print(f"   - Positions created: {positions_created}")
-                
-                # Verify the positions were created
-                with FuturesDB() as db:
-                    cursor = db.cursor
-                    cursor.execute("SELECT COUNT(*) FROM positions WHERE soft_deleted = 0")
-                    total_positions = cursor.fetchone()[0]
-                    
-                    cursor.execute("""
-                        SELECT account, COUNT(*) as count, 
-                               MIN(entry_time) as earliest, 
-                               MAX(entry_time) as latest
-                        FROM positions 
-                        WHERE soft_deleted = 0
-                        GROUP BY account
-                    """)
-                    account_stats = cursor.fetchall()
-                    
-                    print(f"\n📊 Position Summary:")
-                    print(f"   Total Positions: {total_positions}")
-                    print(f"   Breakdown by Account:")
-                    for account, count, earliest, latest in account_stats:
-                        print(f"     {account}: {count} positions ({earliest} to {latest})")
-                
-                return True
-            else:
-                print("❌ Position rebuild failed - no result returned")
-                return False
-                
-    except Exception as e:
-        print(f"❌ Error rebuilding positions: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-if __name__ == "__main__":
-    success = rebuild_positions()
-    sys.exit(0 if success else 1)
+    # Check position 35 specifically
+    pos_service.cursor.execute("SELECT COUNT(*) FROM position_executions WHERE position_id = 35")
+    pos35_count = pos_service.cursor.fetchone()[0]
+    print(f"position_executions for position 35: {pos35_count}")

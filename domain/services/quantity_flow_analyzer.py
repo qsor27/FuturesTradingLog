@@ -36,34 +36,37 @@ class QuantityFlowAnalyzer:
     def analyze_quantity_flow(self, trades: List[Trade]) -> List[FlowEvent]:
         """
         Analyze quantity flow through trade executions
-        
+
         Returns a list of position lifecycle events that can be used
         to construct position records.
+
+        Positions are defined by quantity flow (0 → +/- → 0) per account.
+        No session boundaries - positions can span multiple days until quantity returns to 0.
         """
         if not trades:
             return []
-        
+
         # Sort trades by entry time for chronological processing
         sorted_trades = sorted(trades, key=lambda t: t.entry_time or datetime.min)
-        
+
         events = []
         running_quantity = 0
-        
+
         logger.info(f"Starting quantity flow analysis for {len(sorted_trades)} trades")
-        
+
         for i, trade in enumerate(sorted_trades):
             # Calculate signed quantity change
             signed_qty_change = self._get_signed_quantity_change(trade)
-            
+
             previous_quantity = running_quantity
             running_quantity += signed_qty_change
-            
-            logger.info(f"Trade {i+1}: {trade.side_of_market.value} {trade.quantity} | "
+
+            logger.info(f"Trade {i+1}: {trade.side_of_market.value} {trade.quantity} @ {trade.entry_time} | "
                        f"Running: {previous_quantity} → {running_quantity}")
-            
+
             # Determine event type based on position lifecycle
             event_type = self._determine_event_type(previous_quantity, running_quantity)
-            
+
             if event_type:
                 event = FlowEvent(
                     event_type=event_type,
@@ -73,9 +76,9 @@ class QuantityFlowAnalyzer:
                     timestamp=trade.entry_time or datetime.now()
                 )
                 events.append(event)
-                
+
                 logger.info(f"  → {event_type.upper()}")
-        
+
         logger.info(f"Quantity flow analysis complete: {len(events)} events generated")
         return events
     

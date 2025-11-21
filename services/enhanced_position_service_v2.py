@@ -374,13 +374,24 @@ class EnhancedPositionServiceV2:
                 # Add trade to current position
                 current_trade_ids.append(event.trade.id)
 
-            elif event.event_type in ['position_close', 'position_reversal']:
+            elif event.event_type == 'position_close':
                 # Close position and save mapping
                 current_trade_ids.append(event.trade.id)
                 if position_index < len(positions):
                     positions_with_trades.append((positions[position_index], current_trade_ids))
                     position_index += 1
+                # Clear trade IDs for next position (which will start with position_start event)
                 current_trade_ids = []
+
+            elif event.event_type == 'position_reversal':
+                # Position reversal: closes current position AND immediately starts a new one
+                # The reversal trade belongs to BOTH the closing and opening position
+                current_trade_ids.append(event.trade.id)
+                if position_index < len(positions):
+                    positions_with_trades.append((positions[position_index], current_trade_ids))
+                    position_index += 1
+                # Start new position with the reversal trade (it's the first trade of new position)
+                current_trade_ids = [event.trade.id]
 
         # Handle any remaining open position (no position_close event)
         if current_trade_ids and position_index < len(positions):

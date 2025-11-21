@@ -1,80 +1,15 @@
 {
-  "MNQ": {
-    "name": "Micro E-mini NASDAQ-100 Futures",
-    "yahoo_symbol": "NQ=F",
-    "multiplier": 2,
-    "tick_size": 0.25
-  },
-  "NQ": {
-    "name": "E-mini NASDAQ-100 Futures",
-    "yahoo_symbol": "NQ=F",
-    "multiplier": 20,
-    "tick_size": 0.25
-  },
-  "MES": {
-    "name": "Micro E-mini S&P 500 Futures",
-    "yahoo_symbol": "ES=F",
-    "multiplier": 5,
-    "tick_size": 0.25
-  },
-  "ES": {
-    "name": "E-mini S&P 500 Futures",
-    "yahoo_symbol": "ES=F",
-    "multiplier": 50,
-    "tick_size": 0.25
-  },
-  "MGC": {
-    "name": "Micro Gold Futures",
-    "yahoo_symbol": "GC=F",
-    "multiplier": 10,
-    "tick_size": 0.10
-  },
-  "GC": {
-    "name": "Gold Futures",
-    "yahoo_symbol": "GC=F",
-    "multiplier": 100,
-    "tick_size": 0.10
-  },
-  "CL": {
-    "name": "Crude Oil Futures",
-    "yahoo_symbol": "CL=F",
-    "multiplier": 1000,
-    "tick_size": 0.01
-  },
-  "ZB": {
-    "name": "30-Year T-Bond Futures",
-    "yahoo_symbol": "ZB=F",
-    "multiplier": 1000,
-    "tick_size": 0.03125
-  },
-  "6E": {
-    "name": "Euro FX Futures",
-    "yahoo_symbol": "6E=F",
-    "multiplier": 125000,
-    "tick_size": 0.00005
-  },
-  "RTY": {
-    "name": "E-mini Russell 2000 Futures",
-    "yahoo_symbol": "RTY=F",
-    "multiplier": 50,
-    "tick_size": 0.10
-  },
-  "M2K": {
-    "name": "Micro E-mini Russell 2000 Futures",
-    "yahoo_symbol": "RTY=F",
-    "multiplier": 5,
-    "tick_size": 0.10
-  },
-  "YM": {
-    "name": "E-mini Dow ($5) Futures",
-    "yahoo_symbol": "YM=F",
-    "multiplier": 5,
-    "tick_size": 1.00
-  },
-  "MYM": {
-    "name": "Micro E-mini Dow Futures",
-    "yahoo_symbol": "YM=F",
-    "multiplier": 0.50,
-    "tick_size": 1.00
-  }
+  "MNQ": 2,
+  "NQ": 20,
+  "MES": 5,
+  "ES": 50,
+  "MGC": 10,
+  "GC": 100,
+  "CL": 1000,
+  "ZB": 1000,
+  "6E": 125000,
+  "RTY": 50,
+  "M2K": 5,
+  "YM": 5,
+  "MYM": 0.5
 }

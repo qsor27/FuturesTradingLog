@@ -37,26 +37,11 @@
         </div>
     </div>
 
-    <form id="uploadForm" style="margin-top: 20px;">
-        <div class="form-field">
-            <label for="csvFile">Select CSV File</label>
-            <input type="file" id="csvFile" name="file" accept=".csv" style="width: 100%;">
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-            <button type="button" id="processNTButton" class="btn btn-success">
-                Process NT Executions Export
-            </button>
-            <button type="submit" class="btn btn-primary">
-                Upload
-            </button>
-        </div>
-    </form>
-
-    <div id="uploadStatus" class="hidden" style="margin-top: 20px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <div class="spinner"></div>
-            <span id="statusText">Uploading...</span>
+    <!-- Recent Import Activity -->
+    <div style="margin-top: 30px;">
+        <h3 style="color: var(--text-color); margin-bottom: 15px;">Recent Import Activity</h3>
+        <div id="recentActivity" style="color: var(--text-muted); padding: 20px; background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+            <p>Recent imports will be displayed here. Check the CSV Manager for detailed import history and file management.</p>
         </div>
     </div>
 </div>
@@ -64,42 +49,6 @@
 
 {% block scripts %}
 <script>
-document.getElementById('uploadForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    const formData = new FormData();
-    const fileInput = document.getElementById('csvFile');
-    const statusDiv = document.getElementById('uploadStatus');
-    const statusText = document.getElementById('statusText');
-    
-    if (fileInput.files.length === 0) {
-        alert('Please select a file');
-        return;
-    }
-    
-    formData.append('file', fileInput.files[0]);
-    statusDiv.classList.remove('hidden');
-    statusText.textContent = 'Uploading...';
-    
-    fetch('{{ url_for("main.upload_file") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => {
-        if (response.ok) {
-            window.location.href = '{{ url_for("main.index") }}';
-        } else {
-            return response.text().then(text => {
-                throw new Error(text);
-            });
-        }
-    })
-    .catch(error => {
-        alert('Error: ' + error.message);
-        statusDiv.classList.add('hidden');
-    });
-});
-
 // Auto-import status functions
 document.getElementById('triggerProcessBtn').addEventListener('click', function() {
     const btn = this;
@@ -140,41 +89,5 @@ document.getElementById('checkStatusBtn').addEventListener('click', function() {
     });
 });
 
-document.getElementById('processNTButton').addEventListener('click', function() {
-    const fileInput = document.getElementById('csvFile');
-    const statusDiv = document.getElementById('uploadStatus');
-    const statusText = document.getElementById('statusText');
-    
-    if (fileInput.files.length === 0) {
-        alert('Please select a NinjaTrader Grid CSV file');
-        return;
-    }
-    
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    
-    statusDiv.classList.remove('hidden');
-    statusText.textContent = 'Processing NT Executions...';
-    
-    fetch('{{ url_for("main.process_nt_executions") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => {
-        if (response.ok) {
-            statusText.textContent = 'Processing complete! You can now upload the processed TradeLog.csv';
-            // Clear the file input
-            fileInput.value = '';
-        } else {
-            return response.text().then(text => {
-                throw new Error(text);
-            });
-        }
-    })
-    .catch(error => {
-        alert('Error: ' + error.message);
-        statusDiv.classList.add('hidden');
-    });
-});
 </script>
 {% endblock %}

@@ -31,6 +31,7 @@ from typing import List, Dict, Set
 import threading
 import json
 import os
+import pytz
 from services.data_service import ohlc_service
 from scripts.TradingLog_db import FuturesDB
 
@@ -225,10 +226,10 @@ class AutomatedDataSyncer:
             else:
                 self.logger.info(f"  ✅ {instrument}: Data is current")
         
-        # Save sync timestamp
+        # Save sync timestamp (timezone-aware UTC)
         self.save_last_sync_info({
             'type': 'startup_check',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(pytz.UTC).isoformat(),
             'results': startup_summary
         })
         
@@ -249,10 +250,10 @@ class AutomatedDataSyncer:
                 timeframes=['5m', '15m', '1h']  # Focus on shorter timeframes
             )
             results[instrument] = sync_results
-        
+
         self.save_last_sync_info({
             'type': 'hourly_recent',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(pytz.UTC).isoformat(),
             'results': results
         })
         
@@ -273,10 +274,10 @@ class AutomatedDataSyncer:
                 timeframes=self.critical_timeframes
             )
             results[instrument] = sync_results
-        
+
         self.save_last_sync_info({
             'type': 'daily_full',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(pytz.UTC).isoformat(),
             'results': results
         })
         
@@ -297,10 +298,10 @@ class AutomatedDataSyncer:
                 timeframes=self.critical_timeframes + ['1m', '3m']  # Include all timeframes
             )
             results[instrument] = sync_results
-        
+
         self.save_last_sync_info({
             'type': 'weekly_deep',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(pytz.UTC).isoformat(),
             'results': results
         })
         
