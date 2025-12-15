@@ -171,7 +171,10 @@ class PnLCalculator:
 
             with open(config_path, 'r') as f:
                 multipliers = json.load(f)
-            return float(multipliers.get(instrument, 1.0))
+
+            # Extract base symbol (e.g., "MES 12-25" -> "MES", "MNQ SEP25" -> "MNQ")
+            base_symbol = instrument.split()[0] if instrument else instrument
+            return float(multipliers.get(base_symbol, 1.0))
         except Exception as e:
             logger.warning(f"Could not load multiplier for {instrument}: {e}")
             return 1.0
