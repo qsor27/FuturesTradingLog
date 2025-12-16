@@ -4,7 +4,7 @@ Notification Service
 Handles notifications for validation alerts and other system events.
 """
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import json
 
@@ -99,7 +99,7 @@ class NotificationService:
             channels = self.enabled_channels
 
         results = {}
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         for channel in channels:
             try:
@@ -231,7 +231,7 @@ class NotificationService:
         logger.info(f"Email notification would be sent: {subject}")
 
         # Placeholder for actual email implementation
-        email_config = self.config.get('email', {})
+        email_config = self.notification_config.get('email', {})
         to_addresses = email_config.get('to_addresses', [])
 
         if not to_addresses:
@@ -266,7 +266,7 @@ class NotificationService:
         """
         logger.info(f"Webhook notification would be sent: {subject}")
 
-        webhook_config = self.config.get('webhook', {})
+        webhook_config = self.notification_config.get('webhook', {})
         webhook_url = webhook_config.get('url')
 
         if not webhook_url:
@@ -410,10 +410,9 @@ class NotificationService:
         if self.discord_notifier:
             try:
                 discord_result = self.discord_notifier.send_repair_summary(
-                    total_repaired=total_repaired,
-                    total_failed=total_failed,
-                    position_count=len(position_ids),
-                    details=details or {}
+                    repaired=total_repaired,
+                    failed=total_failed,
+                    position_count=len(position_ids)
                 )
                 logger.info(f"Discord repair summary sent: {discord_result}")
             except Exception as e:
