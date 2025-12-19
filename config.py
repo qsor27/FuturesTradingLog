@@ -155,7 +155,11 @@ YAHOO_FINANCE_CONFIG = {
         'max_delay': 30.0,
         'success_window': 100,
         'failure_threshold': 0.1,
-        'batch_delay_multiplier': 0.3
+        'batch_delay_multiplier': 0.3,
+        # Progressive backoff delays (seconds) - less aggressive to allow all timeframes to sync
+        # Old default [5, 30, 120, 3600] was too aggressive - jumped to 60min after 3 requests
+        'backoff_delays': [2, 5, 10, 20, 30, 60],
+        'daily_quota_limit': 2000
     },
     'batch_processing': {
         'max_concurrent_instruments': 3,

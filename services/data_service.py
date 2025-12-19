@@ -4,7 +4,7 @@ Handles fetching, caching, and gap detection for market data
 """
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 from typing import List, Dict, Tuple, Optional
 import logging
@@ -74,7 +74,7 @@ class BatchOptimizedRateLimiter:
             # Set expiration to end of day (UTC) on first increment
             if current_count == 1:
                 # Calculate seconds until midnight UTC
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
                 seconds_until_midnight = int((midnight - now).total_seconds())
                 self.redis_client.expire(self.daily_quota_key, seconds_until_midnight)
@@ -262,18 +262,23 @@ class OHLCDataService:
         }
         
         self.maintenance_break = (21, 22)
-        
-        self._migrate_instrument_names()
+
+        # REMOVED: self._migrate_instrument_names()
+        # Contract-specific OHLC data must be preserved for accurate rollover handling.
+        # Different contract months (MNQ SEP25 vs MNQ DEC25) have completely different prices.
 
     def _migrate_instrument_names(self):
-        """Run database migration to normalize instrument names"""
-        try:
-            with FuturesDB() as db:
-                results = db.migrate_instrument_names_to_base_symbols()
-                if results:
-                    self.logger.info(f"Migrated instrument names: {results}")
-        except Exception as e:
-            self.logger.error(f"Error during instrument name migration: {e}")
+        """DEPRECATED: Do not call - destroys contract-specific data.
+
+        Previously normalized instrument names to base symbols, but this breaks
+        contract rollover handling where different months have different prices.
+        """
+        import warnings
+        warnings.warn(
+            "_migrate_instrument_names is deprecated - contract-specific OHLC data must be preserved",
+            DeprecationWarning
+        )
+        # Do nothing - preserve contract-specific data
 
     def _enforce_rate_limit(self):
         """Enforce rate limiting between API requests with progressive backoff (5s, 30s, 2m, 60m)"""
@@ -283,7 +288,16 @@ class OHLCDataService:
         return symbol_service.get_base_symbol(instrument)
 
     def _get_yfinance_symbol(self, instrument: str) -> str:
+        """Get continuous contract symbol (e.g., MNQ=F) - for backward compatibility"""
         return symbol_service.get_yfinance_symbol(instrument)
+
+    def _get_yfinance_contract_symbol(self, instrument: str) -> str:
+        """Get contract-specific symbol (e.g., MNQU25.CME) or continuous if no expiration"""
+        return symbol_service.get_yfinance_contract_symbol(instrument)
+
+    def _normalize_for_ohlc_storage(self, instrument: str) -> str:
+        """Normalize instrument for OHLC storage - preserves full contract name"""
+        return symbol_service.normalize_for_ohlc_storage(instrument)
 
     def _get_smart_cache_ttl(self, timeframe: str) -> int:
         """Calculate smart cache TTL based on timeframe to reduce API calls
@@ -361,7 +375,8 @@ class OHLCDataService:
     def _fetch_ohlc_data_internal(self, instrument: str, timeframe: str,
                                  start_date: datetime, end_date: datetime) -> List[Dict]:
         try:
-            yf_symbol = self._get_yfinance_symbol(instrument)
+            # Use contract-specific symbol (e.g., MNQU25.CME) if expiration present
+            yf_symbol = self._get_yfinance_contract_symbol(instrument)
             yf_interval = self._convert_timeframe_to_yfinance(timeframe)
 
             # Comprehensive API call logging
@@ -400,16 +415,19 @@ class OHLCDataService:
                 return []
             
             ohlc_records = []
+            # Store with full contract name (e.g., "MNQ SEP25") to keep contract-specific data separate
+            # This is critical for contract rollover - different months have different prices
+            storage_instrument = symbol_service.normalize_for_ohlc_storage(instrument)
             for timestamp, row in data.iterrows():
                 unix_timestamp = int(timestamp.timestamp())
                 record = {
-                    'instrument': self._get_base_instrument(instrument),
+                    'instrument': storage_instrument,
                     'timeframe': timeframe,
                     'timestamp': unix_timestamp,
-                    'open_price': float(row['Open']),
-                    'high_price': float(row['High']),
-                    'low_price': float(row['Low']),
-                    'close_price': float(row['Close']),
+                    'open': float(row['Open']),
+                    'high': float(row['High']),
+                    'low': float(row['Low']),
+                    'close': float(row['Close']),
                     'volume': int(row['Volume']) if pd.notna(row['Volume']) else None
                 }
                 ohlc_records.append(record)
@@ -700,10 +718,10 @@ class OHLCDataService:
             errors = []
 
             # Basic OHLC validation
-            open_price = record.get('open_price')
-            high_price = record.get('high_price')
-            low_price = record.get('low_price')
-            close_price = record.get('close_price')
+            open_price = record.get('open')
+            high_price = record.get('high')
+            low_price = record.get('low')
+            close_price = record.get('close')
             volume = record.get('volume')
 
             # Check for None or invalid prices
@@ -728,7 +746,7 @@ class OHLCDataService:
             # Price continuity check (if not first record)
             if i > 0 and valid_records:
                 prev_record = valid_records[-1]
-                prev_close = prev_record.get('close_price')
+                prev_close = prev_record.get('close')
 
                 if prev_close and open_price:
                     # Check for unrealistic price gaps (>20% change)
@@ -1024,7 +1042,9 @@ class OHLCDataService:
         return success_count > 0
 
     def get_optimal_timeframe_order(self, timeframes: List[str]) -> List[str]:
-        priority_order = {'1d': 1, '1h': 2, '4h': 3, '15m': 4, '5m': 5, '3m': 6, '1m': 7}
+        # Priority order: 1m FIRST since it has only 7 days of availability from Yahoo Finance
+        # If we don't fetch it early, aggressive backoff may prevent it from being fetched at all
+        priority_order = {'1m': 1, '5m': 2, '15m': 3, '1h': 4, '4h': 5, '1d': 6, '3m': 7}
         return sorted(timeframes, key=lambda tf: priority_order.get(tf, 999))
 
     def get_timeframe_specific_date_range(self, timeframe: str) -> Tuple[datetime, datetime]:
@@ -1037,13 +1057,19 @@ class OHLCDataService:
         start_date = end_date - timedelta(days=days_limit)
         return start_date, end_date
 
-    def batch_update_multiple_instruments(self, instruments: List[str], 
+    def batch_update_multiple_instruments(self, instruments: List[str],
                                         timeframes: List[str] = None) -> Dict[str, Dict[str, bool]]:
         if timeframes is None:
             timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d']
-        
+
+        # Filter out expired contracts
+        instruments = symbol_service.filter_active_contracts(instruments)
+        if not instruments:
+            self.logger.info("No active contracts to update after filtering expired ones")
+            return {}
+
         optimized_timeframes = self.get_optimal_timeframe_order(timeframes)
-        
+
         results = {}
         for instrument in instruments:
             results[instrument] = {}
@@ -1079,6 +1105,16 @@ class OHLCDataService:
             instruments = db.get_active_instruments_since(recent_date)
 
         if not instruments:
+            return {}
+
+        # Filter out expired contracts (batch_update also filters, but log here for visibility)
+        original_count = len(instruments)
+        instruments = symbol_service.filter_active_contracts(instruments)
+        if original_count > len(instruments):
+            self.logger.info(f"Filtered {original_count - len(instruments)} expired contracts from active instruments")
+
+        if not instruments:
+            self.logger.info("No active non-expired contracts to update")
             return {}
 
         return self.batch_update_multiple_instruments(instruments, timeframes)
@@ -1248,6 +1284,25 @@ class OHLCDataService:
         Returns:
             Dictionary with comprehensive sync statistics
         """
+        # Filter out expired contracts to avoid wasting API calls
+        original_count = len(instruments)
+        instruments = symbol_service.filter_active_contracts(instruments)
+        expired_count = original_count - len(instruments)
+
+        if expired_count > 0:
+            self.logger.info(f"Skipped {expired_count} expired contracts (keeping historical data, no new syncs)")
+
+        if not instruments:
+            self.logger.info("No active contracts to sync after filtering expired ones")
+            return {
+                'reason': reason,
+                'instruments_total': original_count,
+                'instruments_expired': expired_count,
+                'instruments_synced': 0,
+                'candles_added': 0,
+                'message': 'All contracts have expired'
+            }
+
         # Determine which timeframes to use
         if timeframes is None:
             # Use parameter if provided, otherwise fall back to config
@@ -1284,7 +1339,9 @@ class OHLCDataService:
         overall_stats = {
             'reason': reason,
             'start_time': sync_start.isoformat(),
-            'instruments_total': len(instruments),
+            'instruments_total': original_count,
+            'instruments_expired': expired_count,
+            'instruments_active': len(instruments),
             'instruments_synced': 0,
             'instruments_failed': 0,
             'timeframes_synced': 0,
