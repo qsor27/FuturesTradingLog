@@ -224,7 +224,7 @@ class DevelopmentConfig(BaseConfig):
     
     @property
     def auto_import_enabled(self) -> bool:
-        return os.getenv('AUTO_IMPORT_ENABLED', 'true').lower() == 'true'
+        return os.getenv('AUTO_IMPORT_ENABLED', 'false').lower() == 'true'
     
     @property
     def auto_import_interval(self) -> int:
@@ -346,7 +346,7 @@ class ProductionConfig(BaseConfig):
     
     @property
     def auto_import_enabled(self) -> bool:
-        return os.getenv('AUTO_IMPORT_ENABLED', 'true').lower() == 'true'
+        return os.getenv('AUTO_IMPORT_ENABLED', 'false').lower() == 'true'
     
     @property
     def auto_import_interval(self) -> int:

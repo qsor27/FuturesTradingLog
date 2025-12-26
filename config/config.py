@@ -87,8 +87,8 @@ class Config:
 
     @property
     def auto_import_enabled(self) -> bool:
-        """Return True if automatic import is enabled (default: true)"""
-        return os.getenv('AUTO_IMPORT_ENABLED', 'true').lower() == 'true'
+        """Return True if automatic import is enabled (default: false - use Daily Import Scheduler)"""
+        return os.getenv('AUTO_IMPORT_ENABLED', 'false').lower() == 'true'
 
     @property
     def auto_import_interval(self) -> int:
