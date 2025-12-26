@@ -292,14 +292,14 @@ def health_check():
     # Check background services
     services_status = get_services_status()
 
-    # Check data sync system
-    try:
-        data_sync_status = get_data_sync_status()
-        data_sync_healthy = data_sync_status.get('is_running', False)
-    except Exception as e:
-        logger.error(f"Data sync status check failed: {e}")
-        data_sync_healthy = False
-        data_sync_status = {'error': str(e)}
+    # Check data sync system (DEPRECATED - no longer started automatically)
+    # OHLC sync is now triggered after daily CSV imports
+    data_sync_status = {
+        'is_running': False,
+        'deprecated': True,
+        'note': 'OHLC sync now triggered by Daily Import Scheduler after CSV imports'
+    }
+    data_sync_healthy = True  # Not a health issue since it's intentionally disabled
 
     # Check NinjaTrader import service (Task 5.6)
     ninjatrader_import_status = {}
@@ -385,16 +385,15 @@ def detailed_health_check():
         except Exception as e:
             logger.debug(f"Cache status check failed: {e}")
 
-        # Data sync status
-        try:
-            data_sync_status = get_data_sync_status()
-            data_sync_healthy = data_sync_status.get('is_running', False)
-        except Exception as e:
-            logger.error(f"Data sync status check failed: {e}")
-            data_sync_healthy = False
-            data_sync_status = {'error': str(e)}
+        # Data sync status (DEPRECATED - no longer started automatically)
+        # OHLC sync is now triggered after daily CSV imports
+        data_sync_status = {
+            'is_running': False,
+            'deprecated': True,
+            'note': 'OHLC sync now triggered by Daily Import Scheduler after CSV imports'
+        }
 
-        # File watcher status
+        # File watcher status (DEPRECATED - prefer Daily Import Scheduler)
         file_watcher_running = file_watcher.is_running() if FILE_WATCHER_AVAILABLE else False
 
         # NinjaTrader import service status (Task 5.6)
@@ -428,7 +427,9 @@ def detailed_health_check():
                 'background_services': services_status,
                 'file_watcher': {
                     'running': file_watcher_running,
-                    'available': FILE_WATCHER_AVAILABLE
+                    'available': FILE_WATCHER_AVAILABLE,
+                    'deprecated': True,
+                    'note': 'Use Daily Import Scheduler (2:05pm PT) instead'
                 },
                 'ninjatrader_import': {
                     'running': ninjatrader_import_running,
@@ -436,7 +437,7 @@ def detailed_health_check():
                     'status': ninjatrader_import_status
                 },
                 'data_sync': {
-                    'running': data_sync_healthy,
+                    'deprecated': True,
                     'status': data_sync_status
                 }
             },
@@ -773,17 +774,22 @@ if __name__ == '__main__':
         print(f"❌ Database initialization failed: {e}")
         raise
 
-    # Start the file watcher service if auto-import is enabled and available
+    # DEPRECATED: File watcher continuous polling for CSV files
+    # Trade imports now happen via the Daily Import Scheduler at 2:05pm PT
+    # The file watcher is disabled by default to prevent duplicate imports
+    # To re-enable (not recommended): set AUTO_IMPORT_ENABLED=true
     if FILE_WATCHER_AVAILABLE and config.auto_import_enabled:
+        logger.warning("=" * 80)
+        logger.warning("DEPRECATION WARNING: File watcher auto-import is enabled")
+        logger.warning("Trade imports should use the Daily Import Scheduler (2:05pm PT)")
+        logger.warning("Consider setting AUTO_IMPORT_ENABLED=false")
+        logger.warning("=" * 80)
         file_watcher.start()
         logger.info(f"File watcher started - checking every {config.auto_import_interval} seconds")
-        print(f"File watcher started - checking every {config.auto_import_interval} seconds")
-    elif not FILE_WATCHER_AVAILABLE:
-        logger.warning("File watcher not available - skipping auto-import")
-        print("File watcher not available - skipping auto-import.")
+        print(f"⚠️  File watcher started (deprecated) - checking every {config.auto_import_interval} seconds")
     else:
-        logger.info("Auto-import is disabled")
-        print("Auto-import is disabled. Set AUTO_IMPORT_ENABLED=true to enable automatic file processing.")
+        logger.info("File watcher disabled (using Daily Import Scheduler at 2:05pm PT)")
+        print("File watcher disabled - trade imports scheduled for 2:05pm PT daily")
 
     # Task 5.4: Start NinjaTrader import background watcher
     # NOTE: This continuous watcher will be deprecated in favor of the daily import scheduler
@@ -842,19 +848,16 @@ if __name__ == '__main__':
         logger.warning(f"Legacy background services failed to start: {e}")
         print(f"Warning: Legacy background services failed to start: {e}")
 
-    # Start automated data sync system
-    try:
-        start_automated_data_sync()
-        logger.info("Automated data sync system started successfully")
-        print("Automated data sync system started (continuous OHLC data updates)")
-    except Exception as e:
-        logger.warning(f"Automated data sync system failed to start: {e}")
-        print(f"Warning: Automated data sync system failed to start: {e}")
+    # DEPRECATED: Automated data sync system
+    # OHLC sync is now triggered automatically after daily CSV imports at 2:05pm PT
+    # See: services/daily_import_scheduler.py
+    # The AutomatedDataSyncer is no longer started automatically
+    logger.info("AutomatedDataSyncer disabled (OHLC sync handled by Daily Import Scheduler)")
+    print("AutomatedDataSyncer disabled - OHLC sync triggered after daily imports")
 
     # Task 5.5: Register cleanup handlers for graceful shutdown
     atexit.register(lambda: background_data_manager.stop())
     atexit.register(stop_background_services)
-    atexit.register(stop_automated_data_sync)
 
     # Register NinjaTrader import service cleanup
     if NINJATRADER_IMPORT_AVAILABLE:

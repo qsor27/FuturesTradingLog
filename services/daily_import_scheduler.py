@@ -15,18 +15,22 @@ Task Group 4: Daily Import Strategy Implementation
 Task Group 2: APScheduler Refactoring for Timezone-Aware Scheduling
 """
 
+import json
 import logging
 from datetime import datetime, time as dt_time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
+import redis
 
 from config import config
-from services.ninjatrader_import_service import NinjaTraderImportService
+# Use the global singleton instance to avoid duplicate service instances
+from services.ninjatrader_import_service import ninjatrader_import_service
 from services.data_service import ohlc_service
 from services.instrument_mapper import InstrumentMapper
+from services.data_completeness_service import get_data_completeness_service
 
 logger = logging.getLogger('DailyImportScheduler')
 
@@ -54,7 +58,9 @@ class DailyImportScheduler:
             data_dir: Directory containing CSV files (default: config.data_dir)
         """
         self.data_dir = data_dir or config.data_dir
-        self.import_service = NinjaTraderImportService(data_dir=self.data_dir)
+        # Use the global singleton instance to ensure consistent Redis deduplication
+        # and prevent race conditions from multiple service instances
+        self.import_service = ninjatrader_import_service
 
         # OHLC sync services
         self.ohlc_service = ohlc_service
@@ -72,11 +78,15 @@ class DailyImportScheduler:
         # Timezone
         self.pacific_tz = pytz.timezone('America/Los_Angeles')
 
+        # Redis client for deduplication
+        self._redis_client: Optional[redis.Redis] = None
+
         logger.info("DailyImportScheduler initialized")
 
         # Validate configuration at startup
         self._validate_timezone_config()
         self._validate_redis_connection()
+        self._init_redis_client()
         logger.info(f"Scheduled import time: {self.IMPORT_TIME_PT} PT")
 
 
@@ -151,6 +161,100 @@ class DailyImportScheduler:
             logger.error(f"Timezone validation failed: {e}", exc_info=True)
             return False
 
+    def _init_redis_client(self) -> None:
+        """Initialize Redis client for deduplication tracking."""
+        try:
+            if not config.cache_enabled:
+                logger.warning("Redis deduplication disabled (CACHE_ENABLED=false)")
+                return
+
+            self._redis_client = redis.Redis.from_url(config.redis_url)
+            self._redis_client.ping()
+            logger.info("Redis client initialized for import deduplication")
+
+        except Exception as e:
+            logger.warning(f"Redis client initialization failed: {e}")
+            logger.warning("Scheduled imports will proceed without deduplication protection")
+            self._redis_client = None
+
+    def _should_run_scheduled_import(self) -> Tuple[bool, str]:
+        """
+        Check if scheduled import should run.
+
+        Checks:
+        1. Is it a weekend? (Skip Saturday/Sunday)
+        2. Has today's import already run? (Check Redis)
+
+        Returns:
+            (should_run, reason) tuple
+        """
+        now_pt = datetime.now(self.pacific_tz)
+        today_str = now_pt.strftime('%Y%m%d')
+
+        # Check 1: Skip weekends (futures markets closed Sat/Sun)
+        weekday = now_pt.weekday()
+        if weekday == 5:  # Saturday
+            return False, "market closed (Saturday)"
+        if weekday == 6:  # Sunday
+            return False, "market closed (Sunday)"
+
+        # Check 2: Has today's import already run?
+        if self._redis_client:
+            try:
+                redis_key = f'daily_import:last_scheduled:{today_str}'
+                if self._redis_client.exists(redis_key):
+                    # Get the existing record for logging
+                    existing = self._redis_client.get(redis_key)
+                    if existing:
+                        try:
+                            record = json.loads(existing)
+                            prev_time = record.get('timestamp', 'unknown time')
+                            return False, f"already completed for {today_str} at {prev_time}"
+                        except json.JSONDecodeError:
+                            pass
+                    return False, f"already completed for {today_str}"
+            except Exception as e:
+                logger.warning(f"Redis check failed, proceeding with import: {e}")
+
+        return True, "ready to run"
+
+    def _record_scheduled_import_complete(self, result: Dict[str, Any]) -> None:
+        """
+        Record successful scheduled import to Redis.
+
+        This prevents duplicate imports if the container restarts.
+
+        Args:
+            result: Import result dictionary
+        """
+        if not self._redis_client:
+            logger.debug("Redis not available, skipping import record")
+            return
+
+        try:
+            today_str = datetime.now(self.pacific_tz).strftime('%Y%m%d')
+            redis_key = f'daily_import:last_scheduled:{today_str}'
+
+            import_record = {
+                'timestamp': datetime.now(self.pacific_tz).isoformat(),
+                'success': result.get('success', False),
+                'executions_imported': result.get('total_executions', 0),
+                'files_processed': result.get('files_processed', 0),
+                'positions_rebuilt': result.get('positions_rebuilt', 0)
+            }
+
+            # Set with 7-day TTL for automatic cleanup
+            self._redis_client.setex(
+                redis_key,
+                7 * 24 * 60 * 60,  # 7 days in seconds
+                json.dumps(import_record)
+            )
+
+            logger.info(f"Recorded scheduled import completion to Redis: {redis_key}")
+
+        except Exception as e:
+            logger.warning(f"Failed to record import completion to Redis: {e}")
+
     def start(self):
         """
         Start the daily import scheduler.
@@ -212,11 +316,22 @@ class DailyImportScheduler:
         Callback for scheduled daily import.
 
         This is called automatically at 2:05pm PT each day.
+        Includes deduplication to prevent multiple imports on container restart.
         """
         logger.info("=" * 80)
         logger.info("SCHEDULED DAILY IMPORT TRIGGERED")
         logger.info(f"Time: {datetime.now(self.pacific_tz).strftime('%Y-%m-%d %H:%M:%S %Z')}")
         logger.info("=" * 80)
+
+        # Check if we should run (weekend/deduplication check)
+        should_run, reason = self._should_run_scheduled_import()
+
+        if not should_run:
+            logger.info(f"Skipping scheduled import: {reason}")
+            logger.info("=" * 80)
+            return
+
+        logger.info(f"Deduplication check passed: {reason}")
 
         try:
             result = self._perform_daily_import(is_manual=False)
@@ -230,6 +345,9 @@ class DailyImportScheduler:
                 logger.info(f"  - Files processed: {result.get('files_processed', 0)}")
                 logger.info(f"  - Executions imported: {result.get('total_executions', 0)}")
                 logger.info(f"  - Positions rebuilt: {result.get('positions_rebuilt', 0)}")
+
+                # Record to Redis to prevent duplicate runs
+                self._record_scheduled_import_complete(result)
             else:
                 logger.error(f"✗ Scheduled daily import failed: {result.get('error', 'Unknown error')}")
 
@@ -244,6 +362,10 @@ class DailyImportScheduler:
         """
         Trigger manual import.
 
+        Manual imports bypass the deduplication check and do NOT update the
+        scheduled import Redis key. This allows users to force reimport even
+        if the daily scheduled import has already run.
+
         Args:
             specific_date: Optional specific date to import (YYYYMMDD format)
                           If None, imports today's file
@@ -252,7 +374,7 @@ class DailyImportScheduler:
             Dict with import results
         """
         logger.info("=" * 80)
-        logger.info("MANUAL IMPORT TRIGGERED")
+        logger.info("MANUAL IMPORT TRIGGERED (bypasses deduplication)")
         logger.info(f"Time: {datetime.now(self.pacific_tz).strftime('%Y-%m-%d %H:%M:%S %Z')}")
         if specific_date:
             logger.info(f"Target date: {specific_date}")
@@ -316,6 +438,10 @@ class DailyImportScheduler:
             instruments: List of NinjaTrader instrument names (e.g., ['MNQ 12-24', 'MES 03-25'])
             reason: Reason for sync (for logging)
         """
+        sync_errors = []
+        yahoo_symbols = []
+        timeframes = []
+
         try:
             if not instruments:
                 logger.info("No instruments to sync - skipping OHLC sync")
@@ -345,9 +471,42 @@ class DailyImportScheduler:
             logger.info(f"OHLC sync completed: {sync_stats['candles_added']} candles added "
                        f"in {sync_stats['duration_seconds']:.1f}s")
 
+            # Record successful sync to completeness service
+            try:
+                completeness_service = get_data_completeness_service()
+                completeness_service.record_sync_result(
+                    trigger='scheduled' if reason == 'post_import' else reason,
+                    instruments_synced=yahoo_symbols,
+                    timeframes_synced=timeframes,
+                    total_records_added=sync_stats.get('candles_added', 0),
+                    duration_seconds=sync_stats.get('duration_seconds', 0),
+                    success=True,
+                    errors=[]
+                )
+                # Invalidate completeness matrix cache after sync
+                completeness_service.invalidate_cache()
+            except Exception as record_err:
+                logger.warning(f"Failed to record sync result: {record_err}")
+
         except Exception as e:
             # Log error but don't fail the import
             logger.error(f"OHLC sync failed (import still successful): {e}", exc_info=True)
+            sync_errors.append({'error': str(e), 'type': 'sync_failure'})
+
+            # Record failed sync to completeness service
+            try:
+                completeness_service = get_data_completeness_service()
+                completeness_service.record_sync_result(
+                    trigger='scheduled' if reason == 'post_import' else reason,
+                    instruments_synced=yahoo_symbols,
+                    timeframes_synced=timeframes,
+                    total_records_added=0,
+                    duration_seconds=0,
+                    success=False,
+                    errors=sync_errors
+                )
+            except Exception as record_err:
+                logger.warning(f"Failed to record sync failure: {record_err}")
 
     def _perform_daily_import(self, is_manual: bool = False,
                              specific_date: Optional[str] = None) -> Dict[str, Any]:
@@ -355,12 +514,13 @@ class DailyImportScheduler:
         Perform the daily import process.
 
         Steps:
-        1. Determine target date (today's market close or specific date)
-        2. Find CSV file matching the date
-        3. Validate file (correct date, closed positions only)
-        4. Import executions
-        5. Rebuild positions for affected accounts
-        6. Trigger OHLC sync for imported instruments
+        1. Check ALL CSV files for modifications (handles NinjaTrader backfilling)
+        2. Determine target date (today's market close or specific date)
+        3. Find CSV file matching the date
+        4. Validate file (correct date, closed positions only)
+        5. Import executions
+        6. Rebuild positions for affected accounts
+        7. Trigger OHLC sync for imported instruments
 
         Args:
             is_manual: Whether this is a manual import
@@ -369,7 +529,19 @@ class DailyImportScheduler:
         Returns:
             Dict with import results
         """
-        # Step 1: Determine target date
+        # Step 1: Check ALL CSV files for modifications first
+        # This handles the case where NinjaTrader backfills trades to previous day's file
+        # (e.g., morning trades added to previous day's file when session spans midnight)
+        logger.info("Step 1: Checking all CSV files for modifications...")
+        modified_result = self.import_service.process_all_modified_files()
+
+        if modified_result.get('files_processed', 0) > 0:
+            logger.info(
+                f"Processed {modified_result['files_processed']} modified files with "
+                f"{modified_result['total_executions']} new executions"
+            )
+
+        # Step 2: Determine target date
         if specific_date:
             target_date = specific_date
             logger.info(f"Importing specific date: {target_date}")
@@ -378,12 +550,25 @@ class DailyImportScheduler:
             target_date = datetime.now(self.pacific_tz).strftime('%Y%m%d')
             logger.info(f"Importing today's date: {target_date}")
 
-        # Step 2: Find CSV file
+        # Step 3: Find CSV file
         expected_filename = f"NinjaTrader_Executions_{target_date}.csv"
         file_path = self.data_dir / expected_filename
 
         if not file_path.exists():
             logger.warning(f"CSV file not found: {expected_filename}")
+            # If we processed modified files, return success with that info
+            if modified_result.get('files_processed', 0) > 0:
+                return {
+                    'success': True,
+                    'import_type': 'manual' if is_manual else 'scheduled',
+                    'target_date': target_date,
+                    'filename': None,
+                    'files_processed': modified_result.get('files_processed', 0),
+                    'total_executions': modified_result.get('total_executions', 0),
+                    'modified_files_processed': modified_result.get('files_processed', 0),
+                    'note': f"Today's file ({expected_filename}) not found, but processed modified files",
+                    'timestamp': datetime.now(self.pacific_tz).isoformat()
+                }
             return {
                 'success': False,
                 'error': f'CSV file not found: {expected_filename}',
@@ -393,7 +578,7 @@ class DailyImportScheduler:
 
         logger.info(f"Found CSV file: {expected_filename}")
 
-        # Step 3: Validate file
+        # Step 4: Validate file
         validation_result = self._validate_import_file(file_path, target_date)
         if not validation_result['valid']:
             logger.error(f"File validation failed: {validation_result['error']}")
@@ -405,7 +590,7 @@ class DailyImportScheduler:
 
         logger.info("✓ File validation passed")
 
-        # Step 4: Import executions
+        # Step 5: Import executions
         logger.info("Importing executions...")
         import_result = self.import_service.process_csv_file(file_path)
 
@@ -415,7 +600,7 @@ class DailyImportScheduler:
 
         logger.info(f"✓ Import successful: {import_result.get('executions_imported', 0)} executions")
 
-        # Step 5: Extract instruments and trigger OHLC sync
+        # Step 6: Extract instruments and trigger OHLC sync
         instruments = self._extract_instruments_from_csv(file_path)
         if instruments:
             self._trigger_ohlc_sync(
@@ -423,14 +608,22 @@ class DailyImportScheduler:
                 reason="post_import_scheduled" if not is_manual else "post_import_manual"
             )
 
-        # Step 6: Build summary
+        # Step 7: Build summary (include modified files info)
+        total_executions = (
+            import_result.get('executions_imported', 0) +
+            modified_result.get('total_executions', 0)
+        )
+        total_files = 1 + modified_result.get('files_processed', 0)
+
         return {
             'success': True,
             'import_type': 'manual' if is_manual else 'scheduled',
             'target_date': target_date,
             'filename': expected_filename,
-            'files_processed': 1,
-            'total_executions': import_result.get('executions_imported', 0),
+            'files_processed': total_files,
+            'total_executions': total_executions,
+            'modified_files_processed': modified_result.get('files_processed', 0),
+            'modified_files_executions': modified_result.get('total_executions', 0),
             'positions_rebuilt': import_result.get('positions_rebuilt', 0),
             'accounts_affected': import_result.get('accounts_affected', []),
             'instruments_affected': import_result.get('instruments_affected', []),
