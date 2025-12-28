@@ -97,8 +97,8 @@ class SQLiteRepository:
             realized_pnl=row['realized_pnl'],
             commission=row['commission'],
             link_group_id=str(row['link_group_id']) if row['link_group_id'] else None,
-            mae=row.get('mae'),
-            mfe=row.get('mfe')
+            mae=row['mae'] if 'mae' in row.keys() else None,
+            mfe=row['mfe'] if 'mfe' in row.keys() else None
         )
     
     def _row_to_ohlc(self, row: sqlite3.Row) -> OHLCRecord:

@@ -164,42 +164,45 @@ class PositionService(IPositionService):
         if not executions:
             return
         
-        # Calculate weighted average entry price
-        total_quantity = 0
-        total_value = 0
+        # Calculate totals and separate entry vs exit executions
         total_commission = 0
         total_pnl = 0
-        
-        for execution in executions:
+
+        # Entry executions are those that opened the position (first execution)
+        entry_executions = [executions[0]] if executions else []
+        exit_executions = executions[1:] if len(executions) > 1 else []
+
+        # Calculate weighted average entry price from entry executions only
+        entry_value = 0
+        entry_quantity = 0
+        for execution in entry_executions:
             quantity = abs(int(execution.get('quantity', 0)))
             price = float(execution.get('entry_price', 0))
-            commission = float(execution.get('commission', 0))
-            pnl = float(execution.get('dollars_gain_loss', 0))
-            
-            total_quantity += quantity
-            total_value += quantity * price
-            total_commission += commission
-            total_pnl += pnl
-        
-        position['entry_price'] = total_value / total_quantity if total_quantity > 0 else 0
-        position['exit_price'] = position['entry_price']  # Will be recalculated for closed positions
+            entry_value += quantity * price
+            entry_quantity += quantity
+
+        position['entry_price'] = entry_value / entry_quantity if entry_quantity > 0 else 0
+        position['exit_price'] = position['entry_price']  # Default, will be recalculated below
+
+        # Sum commission and PnL from all executions
+        for execution in executions:
+            total_commission += float(execution.get('commission', 0))
+            total_pnl += float(execution.get('dollars_gain_loss', 0))
+
         position['realized_pnl'] = total_pnl
         position['commission'] = total_commission
-        
-        # For closed positions, calculate proper exit price
-        if position['end_time'] and len(executions) > 1:
-            # Calculate weighted average exit price from closing executions
-            closing_executions = executions[1:]  # All except first (entry)
-            if closing_executions:
-                exit_value = 0
-                exit_quantity = 0
-                for execution in closing_executions:
-                    quantity = abs(int(execution.get('quantity', 0)))
-                    price = float(execution.get('exit_price', execution.get('entry_price', 0)))
-                    exit_value += quantity * price
-                    exit_quantity += quantity
-                
-                position['exit_price'] = exit_value / exit_quantity if exit_quantity > 0 else position['entry_price']
+
+        # For closed positions, calculate proper exit price from closing executions
+        if position['end_time'] and exit_executions:
+            exit_value = 0
+            exit_quantity = 0
+            for execution in exit_executions:
+                quantity = abs(int(execution.get('quantity', 0)))
+                price = float(execution.get('exit_price', execution.get('entry_price', 0)))
+                exit_value += quantity * price
+                exit_quantity += quantity
+
+            position['exit_price'] = exit_value / exit_quantity if exit_quantity > 0 else position['entry_price']
     
     def _dict_to_position_record(self, position_dict: Dict[str, Any]) -> PositionRecord:
         """Convert position dictionary to PositionRecord"""
