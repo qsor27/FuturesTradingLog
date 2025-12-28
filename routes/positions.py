@@ -12,13 +12,110 @@ import logging
 import os
 import glob
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import pytz
 
 # Import the chart execution extensions
 import scripts.TradingLog_db_extension
 
 positions_bp = Blueprint('positions', __name__)
 logger = logging.getLogger('positions')
+
+
+def calculate_position_chart_date_range(position):
+    """
+    Calculate optimal chart date range for a position with intelligent padding.
+
+    Position times are stored as local Pacific Time strings. This function converts
+    them to UTC for consistency with OHLC data which is stored with UTC timestamps.
+
+    Args:
+        position: Position dict with entry_time, exit_time, position_status
+
+    Returns:
+        Dict with chart_start_date and chart_end_date as UTC datetime objects,
+        or None if calculation fails
+    """
+    try:
+        # Handle missing entry_time
+        if not position.get('entry_time'):
+            logger.warning(f"Position missing entry_time, cannot calculate chart date range")
+            return None
+
+        # Define Pacific timezone (position times are stored in local PT)
+        pacific_tz = pytz.timezone('America/Los_Angeles')
+        utc_tz = pytz.UTC
+
+        def parse_time_to_utc(time_val):
+            """Parse a time value and convert to UTC datetime."""
+            if isinstance(time_val, datetime):
+                if time_val.tzinfo is None:
+                    # Naive datetime - assume Pacific Time
+                    return pacific_tz.localize(time_val).astimezone(utc_tz)
+                else:
+                    return time_val.astimezone(utc_tz)
+            elif isinstance(time_val, str):
+                # Check if it has timezone info
+                if '+' in time_val or time_val.endswith('Z'):
+                    time_val = time_val.replace('Z', '+00:00')
+                    dt = datetime.fromisoformat(time_val)
+                    return dt.astimezone(utc_tz)
+                else:
+                    # Naive string - parse and assume Pacific Time
+                    dt = datetime.fromisoformat(time_val)
+                    return pacific_tz.localize(dt).astimezone(utc_tz)
+            return None
+
+        # Parse entry_time to UTC
+        entry_time = parse_time_to_utc(position['entry_time'])
+        if entry_time is None:
+            logger.warning(f"Could not parse entry_time: {position['entry_time']}")
+            return None
+
+        # Parse exit_time for closed positions
+        exit_time_raw = position.get('exit_time')
+        if position.get('position_status') == 'closed' and exit_time_raw:
+            exit_time = parse_time_to_utc(exit_time_raw)
+            if exit_time is None:
+                logger.warning(f"Could not parse exit_time: {exit_time_raw}")
+                exit_time = datetime.now(utc_tz)
+        else:
+            # Open position: use current time as end (in UTC)
+            exit_time = datetime.now(utc_tz)
+
+        # Calculate position duration
+        duration = exit_time - entry_time
+
+        # Apply padding logic based on duration
+        if duration < timedelta(hours=1):
+            # Very short trades: Provide substantial context (4 hours before/after)
+            # This ensures scalpers can see market movement before and especially after the trade
+            padding = timedelta(hours=4)
+        elif duration > timedelta(days=30):
+            # Long trades: Use 20% padding
+            padding = duration * 0.20
+        else:
+            # Standard trades: Use 15% padding with minimum 1 hour
+            padding = max(timedelta(hours=1), duration * 0.15)
+
+        # Calculate final date range (all in UTC)
+        chart_start_date = entry_time - padding
+
+        if position.get('position_status') == 'closed':
+            chart_end_date = exit_time + padding
+        else:
+            # Open position: don't add padding to "now"
+            chart_end_date = exit_time
+
+        # Return naive UTC datetimes (remove tzinfo for compatibility with existing code)
+        return {
+            'chart_start_date': chart_start_date.replace(tzinfo=None),
+            'chart_end_date': chart_end_date.replace(tzinfo=None)
+        }
+
+    except Exception as e:
+        logger.error(f"Error calculating position chart date range: {e}")
+        return None
 
 
 @positions_bp.route('/')
@@ -30,7 +127,7 @@ def positions_dashboard():
     account_filter = request.args.get('account')
     instrument_filter = request.args.get('instrument')
     status_filter = request.args.get('status')  # 'open', 'closed', or None for all
-    
+
     # Get pagination parameters
     try:
         page = max(1, int(request.args.get('page', 1)))
@@ -38,12 +135,12 @@ def positions_dashboard():
     except (ValueError, TypeError):
         page = 1
         page_size = 50
-    
+
     # Validate page_size
     allowed_page_sizes = [10, 25, 50, 100]
     if page_size not in allowed_page_sizes:
         page_size = 50
-    
+
     with PositionService() as pos_service:
         # Get positions
         result = pos_service.get_positions(
@@ -53,19 +150,19 @@ def positions_dashboard():
             instrument=instrument_filter,
             status=status_filter
         )
-        
+
         positions = result['positions']
         total_count = result['total_count']
         total_pages = result['total_pages']
-        
+
         # Get statistics
         position_stats = pos_service.get_position_statistics(account=account_filter)
-    
+
     # Get unique values for filters
     with FuturesDB() as db:
         accounts = db.get_unique_accounts()
         instruments = db.get_unique_instruments()
-    
+
     # Ensure page is within valid range
     if page > total_pages and total_pages > 0:
         return redirect(url_for('positions.positions_dashboard',
@@ -77,7 +174,7 @@ def positions_dashboard():
             instrument=instrument_filter,
             status=status_filter
         ))
-    
+
     return render_template(
         'positions/dashboard.html',
         positions=positions,
@@ -104,26 +201,38 @@ def position_detail(position_id):
         result = pos_service.get_positions(page_size=1000)  # Get enough to find the position
         positions = result['positions']
         position = next((p for p in positions if p['id'] == position_id), None)
-        
+
         if not position:
-            return render_template('error.html', 
+            return render_template('error.html',
                                  error_message="Position not found",
                                  error_code=404), 404
-        
+
         # Get the executions that make up this position
         executions = pos_service.get_position_executions(position_id)
         position['executions'] = executions
 
         logger.debug(f"Position {position_id} details: execution_count={position.get('execution_count')}, actual_executions={len(executions)}")
-    
+
     # Calculate additional metrics for the detail view
     # Use existing position data for timing analysis
     position['first_execution'] = position['entry_time']
     position['last_execution'] = position.get('exit_time')
-    
+
+    # Calculate optimal chart date range for this position
+    date_range = calculate_position_chart_date_range(position)
+
+    # Format dates as ISO strings for JavaScript if calculation succeeded
+    chart_start_date = None
+    chart_end_date = None
+    if date_range:
+        chart_start_date = date_range['chart_start_date'].isoformat()
+        chart_end_date = date_range['chart_end_date'].isoformat()
+        logger.debug(f"Position {position_id} chart date range: {chart_start_date} to {chart_end_date}")
+    else:
+        logger.debug(f"Position {position_id} will use default chart view (date range calculation failed)")
+
     # Calculate position duration if closed
     if position['position_status'] == 'closed' and position['exit_time']:
-        from datetime import datetime
         try:
             entry_dt = datetime.fromisoformat(position['entry_time'].replace('Z', '+00:00'))
             exit_dt = datetime.fromisoformat(position['exit_time'].replace('Z', '+00:00'))
@@ -133,26 +242,29 @@ def position_detail(position_id):
         except:
             position['duration_minutes'] = 0
             position['duration_display'] = "Unknown"
-    
+
     # Calculate R:R ratio for closed positions
     if position['position_status'] == 'closed':
         total_pnl = position['total_dollars_pnl']
         commission = position['total_commission']
-        
+
         if total_pnl > 0 and commission > 0:
             # Winner: Reward / Risk
             position['reward_risk_ratio'] = round(total_pnl / commission, 2)
             position['rr_display'] = f"{position['reward_risk_ratio']}:1"
         elif total_pnl < 0 and commission > 0:
-            # Loser: Risk / Reward  
+            # Loser: Risk / Reward
             risk_ratio = abs(total_pnl) / commission
             position['reward_risk_ratio'] = round(1 / risk_ratio, 2) if risk_ratio > 0 else 0
             position['rr_display'] = f"1:{round(risk_ratio, 2)}"
         else:
             position['reward_risk_ratio'] = 0
             position['rr_display'] = "N/A"
-    
-    return render_template('positions/detail.html', position=position)
+
+    return render_template('positions/detail.html',
+                         position=position,
+                         chart_start_date=chart_start_date,
+                         chart_end_date=chart_end_date)
 
 
 @positions_bp.route('/rebuild', methods=['POST'])
@@ -161,14 +273,14 @@ def rebuild_positions():
     try:
         with PositionService() as pos_service:
             result = pos_service.rebuild_positions_from_trades()
-        
+
         return jsonify({
             'success': True,
             'message': f"Successfully rebuilt {result['positions_created']} positions from {result['trades_processed']} trades",
             'positions_created': result['positions_created'],
             'trades_processed': result['trades_processed']
         })
-        
+
     except Exception as e:
         logger.error(f"Error rebuilding positions: {e}")
         return jsonify({
@@ -182,7 +294,7 @@ def rebuild_positions_enhanced():
     """Rebuild all positions with comprehensive validation and overlap prevention"""
     try:
         result = rebuild_positions_with_overlap_prevention()
-        
+
         if result['success']:
             return jsonify({
                 'success': True,
@@ -198,7 +310,7 @@ def rebuild_positions_enhanced():
                 'message': f"Rebuild failed: {result.get('error', 'Unknown error')}",
                 'errors': result.get('errors', [])
             }), 500
-        
+
     except Exception as e:
         logger.error(f"Error rebuilding positions with enhanced validation: {e}")
         return jsonify({
@@ -211,16 +323,16 @@ def rebuild_positions_enhanced():
 def api_position_statistics():
     """API endpoint for position statistics"""
     account = request.args.get('account')
-    
+
     try:
         with PositionService() as pos_service:
             stats = pos_service.get_position_statistics(account=account)
-        
+
         return jsonify({
             'success': True,
             'statistics': stats
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting position statistics: {e}")
         return jsonify({
@@ -235,19 +347,19 @@ def api_position_executions(position_id):
     try:
         with PositionService() as pos_service:
             position = pos_service.get_position_by_id(position_id)
-        
+
         if not position:
             return jsonify({
                 'success': False,
                 'message': 'Position not found'
             }), 404
-        
+
         return jsonify({
             'success': True,
             'position': position,
             'executions': position.get('executions', [])
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting position executions: {e}")
         return jsonify({
@@ -264,7 +376,7 @@ def api_position_executions_chart(position_id):
         timeframe = request.args.get('timeframe', '1h')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
-        
+
         # Validate timeframe
         valid_timeframes = ['1m', '5m', '1h']
         if timeframe not in valid_timeframes:
@@ -272,21 +384,21 @@ def api_position_executions_chart(position_id):
                 'success': False,
                 'error': f'Invalid timeframe. Must be one of: {valid_timeframes}'
             }), 400
-        
+
         with FuturesDB() as db:
             chart_data = db.get_position_executions_for_chart_cached(position_id, timeframe, start_date, end_date)
-        
+
         if not chart_data:
             return jsonify({
                 'success': False,
                 'error': 'Position not found'
             }), 404
-        
+
         return jsonify({
             'success': True,
             **chart_data
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting position execution chart data: {e}")
         return jsonify({
@@ -299,26 +411,26 @@ def api_position_executions_chart(position_id):
 def debug_positions():
     """Debug page to examine position building logic"""
     from scripts.TradingLog_db import FuturesDB
-    
+
     # Get recent trades for debugging
     with FuturesDB() as db:
         db.cursor.execute("""
-            SELECT * FROM trades 
-            ORDER BY entry_time DESC 
+            SELECT * FROM trades
+            ORDER BY entry_time DESC
             LIMIT 20
         """)
         recent_trades = [dict(row) for row in db.cursor.fetchall()]
-        
+
         # Get unique account/instrument combinations
         db.cursor.execute("""
             SELECT DISTINCT account, instrument, COUNT(*) as trade_count
-            FROM trades 
+            FROM trades
             GROUP BY account, instrument
             ORDER BY trade_count DESC
         """)
         account_instruments = [dict(row) for row in db.cursor.fetchall()]
-    
-    return render_template('positions/debug.html', 
+
+    return render_template('positions/debug.html',
                          recent_trades=recent_trades,
                          account_instruments=account_instruments)
 
@@ -327,30 +439,30 @@ def debug_positions():
 def debug_account_instrument(account, instrument):
     """Debug specific account/instrument combination"""
     from scripts.TradingLog_db import FuturesDB
-    
+
     with FuturesDB() as db:
         # Get all trades for this account/instrument
         db.cursor.execute("""
-            SELECT * FROM trades 
+            SELECT * FROM trades
             WHERE account = ? AND instrument = ?
             ORDER BY entry_time, exit_time
         """, (account, instrument))
         trades = [dict(row) for row in db.cursor.fetchall()]
-    
+
     # Test position building with detailed logging
     with PositionService() as pos_service:
         # Enable debug logging
         import logging
         position_logger = logging.getLogger('position_service')
         position_logger.setLevel(logging.INFO)
-        
+
         # Add a handler to capture logs for display
         log_handler = logging.StreamHandler()
         position_logger.addHandler(log_handler)
-        
+
         # Build positions for this specific combination
         positions = pos_service._build_positions_from_execution_flow(trades, account, instrument)
-    
+
     return jsonify({
         'account': account,
         'instrument': instrument,
@@ -366,21 +478,21 @@ def delete_positions():
     """Delete selected positions and their associated executions"""
     try:
         data = request.get_json()
-        
+
         if not data or 'position_ids' not in data:
             return jsonify({
                 'success': False,
                 'message': 'No position IDs provided'
             }), 400
-        
+
         position_ids = data['position_ids']
-        
+
         if not position_ids:
             return jsonify({
                 'success': False,
                 'message': 'No position IDs provided'
             }), 400
-        
+
         # Convert to integers and validate
         try:
             position_ids = [int(pid) for pid in position_ids]
@@ -389,16 +501,16 @@ def delete_positions():
                 'success': False,
                 'message': 'Invalid position ID format'
             }), 400
-        
+
         with PositionService() as pos_service:
             deleted_count = pos_service.delete_positions(position_ids)
-        
+
         return jsonify({
             'success': True,
             'message': f'Successfully deleted {deleted_count} position{"s" if deleted_count != 1 else ""}',
             'deleted_count': deleted_count
         })
-        
+
     except Exception as e:
         logger.error(f"Error deleting positions: {e}")
         return jsonify({
@@ -414,21 +526,21 @@ def list_csv_files():
     try:
         from config import config
         data_dir = config.data_dir
-        
+
         # Look for CSV files in data directory
         csv_pattern = os.path.join(data_dir, "*.csv")
         csv_files = glob.glob(csv_pattern)
-        
+
         # Get just the filenames
         filenames = [os.path.basename(f) for f in csv_files]
         filenames.sort(reverse=True)  # Most recent first
-        
+
         return jsonify({
             'success': True,
             'files': filenames,
             'count': len(filenames)
         })
-        
+
     except Exception as e:
         logger.error(f"Error listing CSV files: {e}")
         return jsonify({
@@ -443,53 +555,53 @@ def reimport_csv():
     logger.warning("DEPRECATED: /positions/reimport-csv called. Use /api/csv/reprocess instead.")
     try:
         data = request.get_json()
-        
+
         if not data or 'filename' not in data:
             return jsonify({
                 'success': False,
                 'message': 'No filename provided'
             }), 400
-        
+
         filename = data['filename']
-        
+
         if not filename:
             return jsonify({
                 'success': False,
                 'message': 'No filename provided'
             }), 400
-        
+
         # Security check - ensure filename contains no path traversal
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify({
                 'success': False,
                 'message': 'Invalid filename'
             }), 400
-        
+
         from config import config
         data_dir = config.data_dir
         csv_path = os.path.join(data_dir, filename)
-        
+
         # Verify file exists
         if not os.path.exists(csv_path):
             return jsonify({
                 'success': False,
                 'message': f'File not found: {filename}'
             }), 404
-        
+
         # Import raw executions directly without pre-processing into completed trades
         import pandas as pd
-        
+
         # Read the raw CSV with robust parsing for malformed files
         try:
-            df = pd.read_csv(csv_path, 
-                           encoding='utf-8-sig',  # Handle BOM characters  
+            df = pd.read_csv(csv_path,
+                           encoding='utf-8-sig',  # Handle BOM characters
                            on_bad_lines='skip',   # Skip malformed lines
                            skipinitialspace=True) # Handle extra spaces
         except Exception as e:
             try:
                 # Fallback: use Python engine for more robust parsing
                 df = pd.read_csv(csv_path,
-                               encoding='utf-8-sig', 
+                               encoding='utf-8-sig',
                                engine='python',
                                on_bad_lines='skip')
             except Exception as e2:
@@ -498,16 +610,16 @@ def reimport_csv():
                     'message': f'Unable to parse CSV: {str(e2)}'
                 }), 400
         print(f"Read {len(df)} raw executions from {filename}")
-        
+
         # Import raw executions directly to database
         with FuturesDB() as db:
             success = db.import_raw_executions(csv_path)
-        
+
         if success:
             # Rebuild positions after successful import
             with PositionService() as pos_service:
                 result = pos_service.rebuild_positions_from_trades()
-            
+
             return jsonify({
                 'success': True,
                 'message': f'Successfully imported {len(df)} executions from {filename}. Rebuilt {result["positions_created"]} positions.',
@@ -520,7 +632,7 @@ def reimport_csv():
                 'success': False,
                 'message': f'Failed to import executions from {filename}'
             }), 500
-        
+
     except Exception as e:
         logger.error(f"Error re-importing CSV: {e}")
         return jsonify({
@@ -537,10 +649,10 @@ def get_prevention_report():
     try:
         account = request.args.get('account')
         instrument = request.args.get('instrument')
-        
+
         with PositionOverlapPrevention() as validator:
             report = validator.generate_prevention_report(account=account, instrument=instrument)
-            
+
         return jsonify({
             'success': True,
             'report': report,
@@ -550,7 +662,7 @@ def get_prevention_report():
                 'instrument': instrument
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error generating prevention report: {e}")
         return jsonify({
@@ -565,13 +677,13 @@ def get_overlap_analysis():
     try:
         with PositionOverlapAnalyzer() as analyzer:
             report = analyzer.generate_overlap_report()
-            
+
         return jsonify({
             'success': True,
             'report': report,
             'report_type': 'overlap_analysis'
         })
-        
+
     except Exception as e:
         logger.error(f"Error generating overlap analysis: {e}")
         return jsonify({
@@ -586,13 +698,13 @@ def get_current_positions_validation():
     try:
         with PositionOverlapAnalyzer() as analyzer:
             analysis = analyzer.analyze_current_positions()
-            
+
         return jsonify({
             'success': True,
             'analysis': analysis,
             'validation_type': 'current_positions'
         })
-        
+
     except Exception as e:
         logger.error(f"Error validating current positions: {e}")
         return jsonify({
@@ -607,13 +719,13 @@ def get_boundary_validation():
     try:
         with PositionOverlapAnalyzer() as analyzer:
             validation = analyzer.validate_position_boundaries()
-            
+
         return jsonify({
             'success': True,
             'validation': validation,
             'validation_type': 'boundary_validation'
         })
-        
+
     except Exception as e:
         logger.error(f"Error validating position boundaries: {e}")
         return jsonify({
@@ -628,15 +740,15 @@ def get_validation_summary():
     try:
         account = request.args.get('account')
         instrument = request.args.get('instrument')
-        
+
         with PositionOverlapAnalyzer() as analyzer:
             current_analysis = analyzer.analyze_current_positions()
             boundary_validation = analyzer.validate_position_boundaries()
-            
+
         with PositionOverlapPrevention() as validator:
             # Get basic validation data for summary
             pass
-            
+
         summary = {
             'total_positions': current_analysis.get('total_positions', 0),
             'groups_analyzed': current_analysis.get('groups_analyzed', 0),
@@ -645,7 +757,7 @@ def get_validation_summary():
             'has_issues': current_analysis.get('overlaps_found', 0) > 0 or boundary_validation.get('boundary_violations', 0) > 0,
             'validation_timestamp': datetime.now().isoformat()
         }
-        
+
         return jsonify({
             'success': True,
             'summary': summary,
@@ -654,7 +766,7 @@ def get_validation_summary():
                 'boundary_validation': boundary_validation
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error generating validation summary: {e}")
         return jsonify({
@@ -680,13 +792,13 @@ def get_validation_health():
                 '/api/validation/health'
             ]
         }
-        
+
         return jsonify({
             'success': True,
             'status': 'healthy',
             'health': health_status
         })
-        
+
     except Exception as e:
         logger.error(f"Error checking validation health: {e}")
         return jsonify({
@@ -694,4 +806,3 @@ def get_validation_health():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
-

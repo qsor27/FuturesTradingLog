@@ -160,8 +160,8 @@ class PnLCalculator:
             'commission': trade.commission,
         }
 
-    def _get_instrument_multiplier(self, instrument: str) -> float:
-        """Get instrument multiplier for P&L calculations"""
+    def _get_instrument_config(self, instrument: str) -> dict:
+        """Get instrument configuration (multiplier and commission) for P&L calculations"""
         try:
             # First try the configured path
             config_path = self.instrument_config_path
@@ -170,14 +170,36 @@ class PnLCalculator:
                 config_path = 'data/config/instrument_multipliers.json'
 
             with open(config_path, 'r') as f:
-                multipliers = json.load(f)
+                config = json.load(f)
 
             # Extract base symbol (e.g., "MES 12-25" -> "MES", "MNQ SEP25" -> "MNQ")
             base_symbol = instrument.split()[0] if instrument else instrument
-            return float(multipliers.get(base_symbol, 1.0))
+
+            value = config.get(base_symbol, {})
+
+            # Handle both old format (just number) and new format (dict)
+            if isinstance(value, dict):
+                return {
+                    'multiplier': float(value.get('multiplier', 1.0)),
+                    'commission': float(value.get('commission', 0.0))
+                }
+            else:
+                # Old format - just a multiplier number
+                return {
+                    'multiplier': float(value) if value else 1.0,
+                    'commission': 0.0
+                }
         except Exception as e:
-            logger.warning(f"Could not load multiplier for {instrument}: {e}")
-            return 1.0
+            logger.warning(f"Could not load config for {instrument}: {e}")
+            return {'multiplier': 1.0, 'commission': 0.0}
+
+    def _get_instrument_multiplier(self, instrument: str) -> float:
+        """Get instrument multiplier for P&L calculations"""
+        return self._get_instrument_config(instrument)['multiplier']
+
+    def _get_instrument_commission(self, instrument: str) -> float:
+        """Get instrument commission per contract per side"""
+        return self._get_instrument_config(instrument)['commission']
 
 
 class InstrumentMultiplierService:

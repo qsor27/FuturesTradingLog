@@ -1,0 +1,849 @@
+{% extends "base.html" %}
+
+{% block title %}OHLC Data Completeness{% endblock %}
+
+{% block extra_head %}
+<style>
+    .completeness-dashboard {
+        padding: 20px;
+    }
+
+    /* Summary Header */
+    .summary-header {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .summary-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+    }
+
+    .summary-card h4 {
+        margin: 0 0 10px 0;
+        font-size: 0.9em;
+        color: var(--text-muted);
+    }
+
+    .summary-value {
+        font-size: 2.5em;
+        font-weight: bold;
+        line-height: 1.2;
+    }
+
+    .summary-value.excellent { color: #4CAF50; }
+    .summary-value.good { color: #8BC34A; }
+    .summary-value.warning { color: #FFC107; }
+    .summary-value.critical { color: #F44336; }
+
+    .summary-label {
+        font-size: 0.85em;
+        color: var(--text-muted);
+        margin-top: 5px;
+    }
+
+    /* Completeness Matrix Table */
+    .matrix-container {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+        overflow-x: auto;
+    }
+
+    .matrix-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9em;
+    }
+
+    .matrix-table th,
+    .matrix-table td {
+        padding: 12px 15px;
+        text-align: center;
+        border: 1px solid var(--border-color);
+    }
+
+    .matrix-table th {
+        background: var(--header-bg, #f5f5f5);
+        font-weight: 600;
+    }
+
+    .matrix-table th:first-child {
+        text-align: left;
+    }
+
+    .matrix-table td:first-child {
+        font-weight: 600;
+        text-align: left;
+        background: var(--row-header-bg, #fafafa);
+    }
+
+    /* Cell status colors */
+    .cell-complete {
+        background-color: #c8e6c9 !important;
+        color: #2e7d32;
+        cursor: pointer;
+    }
+
+    .cell-partial {
+        background-color: #fff3e0 !important;
+        color: #e65100;
+        cursor: pointer;
+    }
+
+    .cell-missing {
+        background-color: #ffcdd2 !important;
+        color: #c62828;
+        cursor: pointer;
+    }
+
+    .cell-complete:hover,
+    .cell-partial:hover,
+    .cell-missing:hover {
+        opacity: 0.85;
+        box-shadow: inset 0 0 0 2px rgba(0,0,0,0.2);
+    }
+
+    .cell-count {
+        font-size: 0.85em;
+        font-weight: bold;
+    }
+
+    .cell-pct {
+        font-size: 0.75em;
+        opacity: 0.8;
+    }
+
+    /* Sync Health Timeline */
+    .sync-timeline {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+    }
+
+    .timeline-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+
+    .timeline-stats {
+        display: flex;
+        gap: 20px;
+    }
+
+    .timeline-stat {
+        text-align: center;
+    }
+
+    .timeline-stat-value {
+        font-size: 1.5em;
+        font-weight: bold;
+    }
+
+    .timeline-stat-label {
+        font-size: 0.8em;
+        color: var(--text-muted);
+    }
+
+    .timeline-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .timeline-item {
+        display: flex;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .timeline-item:last-child {
+        border-bottom: none;
+    }
+
+    .timeline-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 15px;
+        font-size: 0.9em;
+    }
+
+    .timeline-icon.success {
+        background: #c8e6c9;
+        color: #2e7d32;
+    }
+
+    .timeline-icon.failure {
+        background: #ffcdd2;
+        color: #c62828;
+    }
+
+    .timeline-content {
+        flex: 1;
+    }
+
+    .timeline-time {
+        font-size: 0.85em;
+        color: var(--text-muted);
+    }
+
+    .timeline-details {
+        font-size: 0.9em;
+    }
+
+    /* Gap Detail Modal */
+    .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        display: none;
+    }
+
+    .modal-backdrop.show {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .gap-modal {
+        background: var(--card-bg, white);
+        border-radius: 8px;
+        padding: 25px;
+        min-width: 400px;
+        max-width: 500px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+
+    .gap-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .gap-modal-header h3 {
+        margin: 0;
+    }
+
+    .gap-modal-close {
+        background: none;
+        border: none;
+        font-size: 1.5em;
+        cursor: pointer;
+        color: var(--text-muted);
+    }
+
+    .gap-detail-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .gap-detail-row:last-child {
+        border-bottom: none;
+    }
+
+    .gap-detail-label {
+        color: var(--text-muted);
+    }
+
+    .gap-detail-value {
+        font-weight: 600;
+    }
+
+    .repair-button {
+        width: 100%;
+        padding: 12px;
+        margin-top: 20px;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+    }
+
+    .repair-button:hover {
+        background: #45a049;
+    }
+
+    .repair-button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+
+    .repair-button.repairing {
+        background: #2196F3;
+    }
+
+    /* Toast Notifications */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 2000;
+    }
+
+    .toast {
+        padding: 15px 20px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    .toast.success {
+        background: #4CAF50;
+        color: white;
+    }
+
+    .toast.error {
+        background: #F44336;
+        color: white;
+    }
+
+    .toast.info {
+        background: #2196F3;
+        color: white;
+    }
+
+    /* Auto-refresh indicator */
+    .refresh-controls {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .last-updated {
+        font-size: 0.85em;
+        color: var(--text-muted);
+    }
+
+    /* Loading state */
+    .loading {
+        opacity: 0.6;
+        pointer-events: none;
+    }
+
+    .loading-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Legend */
+    .matrix-legend {
+        display: flex;
+        gap: 20px;
+        margin-top: 15px;
+        justify-content: center;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85em;
+    }
+
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        border-radius: 3px;
+    }
+
+    .legend-color.complete { background: #c8e6c9; }
+    .legend-color.partial { background: #fff3e0; }
+    .legend-color.missing { background: #ffcdd2; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="completeness-dashboard">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>OHLC Data Completeness Monitor</h1>
+        <div class="refresh-controls">
+            <span class="last-updated" id="lastUpdated">Loading...</span>
+            <label style="display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" id="autoRefresh" checked> Auto-refresh (60s)
+            </label>
+            <button class="btn btn-primary btn-sm" id="refreshBtn">
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Header -->
+    <div class="summary-header" id="summaryHeader">
+        <div class="summary-card">
+            <h4>Health Score</h4>
+            <div class="summary-value" id="healthScore">--</div>
+            <div class="summary-label" id="healthLabel">Loading...</div>
+        </div>
+        <div class="summary-card">
+            <h4>Complete</h4>
+            <div class="summary-value excellent" id="completeCount">--</div>
+            <div class="summary-label">instrument/timeframes</div>
+        </div>
+        <div class="summary-card">
+            <h4>Partial</h4>
+            <div class="summary-value warning" id="partialCount">--</div>
+            <div class="summary-label">need attention</div>
+        </div>
+        <div class="summary-card">
+            <h4>Missing</h4>
+            <div class="summary-value critical" id="missingCount">--</div>
+            <div class="summary-label">require repair</div>
+        </div>
+    </div>
+
+    <!-- Completeness Matrix -->
+    <div class="matrix-container">
+        <h3>Data Completeness Matrix</h3>
+        <p class="text-muted">Click any cell for details and repair options</p>
+        <table class="matrix-table" id="completenessMatrix">
+            <thead>
+                <tr>
+                    <th>Instrument</th>
+                    <th>1m</th>
+                    <th>5m</th>
+                    <th>15m</th>
+                    <th>1h</th>
+                    <th>4h</th>
+                    <th>1d</th>
+                </tr>
+            </thead>
+            <tbody id="matrixBody">
+                <tr>
+                    <td colspan="7" class="text-center">Loading matrix data...</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="matrix-legend">
+            <div class="legend-item">
+                <div class="legend-color complete"></div>
+                <span>Complete (>=100%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color partial"></div>
+                <span>Partial (1-99%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color missing"></div>
+                <span>Missing (0%)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Health Timeline -->
+    <div class="sync-timeline">
+        <div class="timeline-header">
+            <h3>Sync Health (Last 7 Days)</h3>
+            <div class="timeline-stats" id="timelineStats">
+                <div class="timeline-stat">
+                    <div class="timeline-stat-value" id="totalSyncs">--</div>
+                    <div class="timeline-stat-label">Total Syncs</div>
+                </div>
+                <div class="timeline-stat">
+                    <div class="timeline-stat-value" id="successRate">--%</div>
+                    <div class="timeline-stat-label">Success Rate</div>
+                </div>
+                <div class="timeline-stat">
+                    <div class="timeline-stat-value" id="avgRecords">--</div>
+                    <div class="timeline-stat-label">Avg Records/Sync</div>
+                </div>
+            </div>
+        </div>
+        <div class="timeline-list" id="timelineList">
+            <div class="text-center">Loading sync history...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Gap Detail Modal -->
+<div class="modal-backdrop" id="gapModal">
+    <div class="gap-modal">
+        <div class="gap-modal-header">
+            <h3 id="modalTitle">Gap Details</h3>
+            <button class="gap-modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div id="modalContent">
+            <!-- Populated dynamically -->
+        </div>
+        <button class="repair-button" id="repairBtn" onclick="repairGap()">
+            Repair Now
+        </button>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let autoRefreshInterval;
+let isLoading = false;
+let currentGap = null;
+
+// Priority timeframes in display order
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadAllData();
+    setupAutoRefresh();
+
+    document.getElementById('refreshBtn').addEventListener('click', loadAllData);
+
+    // Close modal on backdrop click
+    document.getElementById('gapModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
+});
+
+function setupAutoRefresh() {
+    const checkbox = document.getElementById('autoRefresh');
+
+    function startAutoRefresh() {
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+        autoRefreshInterval = setInterval(loadAllData, 60000); // 60 seconds
+    }
+
+    function stopAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
+        }
+    }
+
+    checkbox.addEventListener('change', function() {
+        if (this.checked) {
+            startAutoRefresh();
+        } else {
+            stopAutoRefresh();
+        }
+    });
+
+    if (checkbox.checked) {
+        startAutoRefresh();
+    }
+}
+
+async function loadAllData() {
+    if (isLoading) return;
+    isLoading = true;
+
+    document.querySelector('.completeness-dashboard').classList.add('loading');
+
+    try {
+        const [matrixData, healthData] = await Promise.all([
+            fetch('/api/monitoring/completeness-matrix').then(r => r.json()),
+            fetch('/api/monitoring/sync-health').then(r => r.json())
+        ]);
+
+        updateMatrix(matrixData);
+        updateSyncHealth(healthData);
+        updateLastUpdated();
+
+    } catch (error) {
+        console.error('Error loading data:', error);
+        showToast('Failed to load data', 'error');
+    } finally {
+        document.querySelector('.completeness-dashboard').classList.remove('loading');
+        isLoading = false;
+    }
+}
+
+function updateMatrix(response) {
+    if (!response.success) {
+        showToast('Failed to load completeness matrix', 'error');
+        return;
+    }
+
+    const data = response.data;
+    const matrix = data.matrix;
+    const summary = data.summary;
+
+    // Update summary cards
+    const healthScore = summary.health_score || 0;
+    document.getElementById('healthScore').textContent = healthScore.toFixed(1) + '%';
+    document.getElementById('healthScore').className = 'summary-value ' + getHealthClass(healthScore);
+    document.getElementById('healthLabel').textContent = getHealthLabel(healthScore);
+
+    document.getElementById('completeCount').textContent = summary.complete_cells || 0;
+    document.getElementById('partialCount').textContent = summary.partial_cells || 0;
+    document.getElementById('missingCount').textContent = summary.missing_cells || 0;
+
+    // Build matrix table
+    const tbody = document.getElementById('matrixBody');
+    const instruments = Object.keys(matrix).sort();
+
+    if (instruments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center">No data available</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = instruments.map(instrument => {
+        const cells = TIMEFRAMES.map(tf => {
+            const cellData = matrix[instrument][tf] || { status: 'missing', record_count: 0, completeness_pct: 0 };
+            const cellClass = 'cell-' + cellData.status;
+            const pct = cellData.completeness_pct || 0;
+
+            return `
+                <td class="${cellClass}" onclick="showGapDetails('${instrument}', '${tf}')">
+                    <div class="cell-count">${formatNumber(cellData.record_count || 0)}</div>
+                    <div class="cell-pct">${pct.toFixed(0)}%</div>
+                </td>
+            `;
+        }).join('');
+
+        return `<tr><td>${instrument}</td>${cells}</tr>`;
+    }).join('');
+}
+
+function updateSyncHealth(response) {
+    if (!response.success) {
+        console.error('Failed to load sync health');
+        return;
+    }
+
+    const data = response.data;
+    const summary = data.summary;
+    const history = data.history || [];
+
+    // Update stats
+    document.getElementById('totalSyncs').textContent = summary.total_syncs || 0;
+    document.getElementById('successRate').textContent = (summary.success_rate || 0).toFixed(0) + '%';
+
+    // Calculate average records per sync
+    const totalRecords = history.reduce((sum, h) => sum + (h.total_records_added || 0), 0);
+    const avgRecords = history.length > 0 ? Math.round(totalRecords / history.length) : 0;
+    document.getElementById('avgRecords').textContent = formatNumber(avgRecords);
+
+    // Build timeline
+    const timelineList = document.getElementById('timelineList');
+
+    if (history.length === 0) {
+        timelineList.innerHTML = '<div class="text-center text-muted">No sync history available</div>';
+        return;
+    }
+
+    timelineList.innerHTML = history.slice(0, 20).map(sync => {
+        const success = sync.success !== false;
+        const iconClass = success ? 'success' : 'failure';
+        const icon = success ? '&#10003;' : '&#10007;';
+        const time = formatTimestamp(sync.timestamp);
+        const records = sync.total_records_added || 0;
+        const instruments = sync.instruments_synced || 0;
+
+        return `
+            <div class="timeline-item">
+                <div class="timeline-icon ${iconClass}">${icon}</div>
+                <div class="timeline-content">
+                    <div class="timeline-time">${time}</div>
+                    <div class="timeline-details">
+                        ${success ? `Added ${formatNumber(records)} records across ${instruments} instruments` : `Sync failed: ${sync.error || 'Unknown error'}`}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function showGapDetails(instrument, timeframe) {
+    try {
+        const response = await fetch(`/api/monitoring/gap-details/${instrument}/${timeframe}`);
+        const result = await response.json();
+
+        if (!result.success) {
+            showToast('Failed to load gap details', 'error');
+            return;
+        }
+
+        const details = result.data;
+        currentGap = { instrument, timeframe };
+
+        document.getElementById('modalTitle').textContent = `${instrument} - ${timeframe}`;
+
+        const statusClass = details.status === 'complete' ? 'excellent' :
+                           details.status === 'partial' ? 'warning' : 'critical';
+
+        document.getElementById('modalContent').innerHTML = `
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Status</span>
+                <span class="gap-detail-value ${statusClass}">${details.status.toUpperCase()}</span>
+            </div>
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Record Count</span>
+                <span class="gap-detail-value">${formatNumber(details.record_count)}</span>
+            </div>
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Expected Minimum</span>
+                <span class="gap-detail-value">${formatNumber(details.expected_minimum)}</span>
+            </div>
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Completeness</span>
+                <span class="gap-detail-value">${(details.completeness_pct || 0).toFixed(1)}%</span>
+            </div>
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Freshness</span>
+                <span class="gap-detail-value">${details.freshness_status || 'unknown'}</span>
+            </div>
+            ${details.date_range ? `
+            <div class="gap-detail-row">
+                <span class="gap-detail-label">Date Range</span>
+                <span class="gap-detail-value">${details.date_range.earliest || 'N/A'} to ${details.date_range.latest || 'N/A'}</span>
+            </div>
+            ` : ''}
+        `;
+
+        const repairBtn = document.getElementById('repairBtn');
+        repairBtn.disabled = details.status === 'complete';
+        repairBtn.textContent = details.status === 'complete' ? 'Data Complete' : 'Repair Now';
+
+        document.getElementById('gapModal').classList.add('show');
+
+    } catch (error) {
+        console.error('Error loading gap details:', error);
+        showToast('Failed to load gap details', 'error');
+    }
+}
+
+function closeModal() {
+    document.getElementById('gapModal').classList.remove('show');
+    currentGap = null;
+}
+
+async function repairGap() {
+    if (!currentGap) return;
+
+    const repairBtn = document.getElementById('repairBtn');
+    repairBtn.disabled = true;
+    repairBtn.textContent = 'Repairing...';
+    repairBtn.classList.add('repairing');
+
+    try {
+        const response = await fetch('/api/monitoring/repair-gap', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                instrument: currentGap.instrument,
+                timeframe: currentGap.timeframe
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(`Repair complete! Added ${result.data.records_added} records`, 'success');
+            closeModal();
+            setTimeout(loadAllData, 1000);
+        } else {
+            showToast(`Repair failed: ${result.error}`, 'error');
+        }
+
+    } catch (error) {
+        console.error('Error repairing gap:', error);
+        showToast('Repair failed: Network error', 'error');
+    } finally {
+        repairBtn.disabled = false;
+        repairBtn.textContent = 'Repair Now';
+        repairBtn.classList.remove('repairing');
+    }
+}
+
+function updateLastUpdated() {
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent = 'Updated: ' + now.toLocaleTimeString();
+}
+
+function getHealthClass(score) {
+    if (score >= 90) return 'excellent';
+    if (score >= 70) return 'good';
+    if (score >= 50) return 'warning';
+    return 'critical';
+}
+
+function getHealthLabel(score) {
+    if (score >= 90) return 'Excellent';
+    if (score >= 70) return 'Good';
+    if (score >= 50) return 'Needs Attention';
+    return 'Critical';
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+}
+
+function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' min ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' hours ago';
+
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+}
+
+function showToast(message, type) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = message;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => container.removeChild(toast), 300);
+    }, 4000);
+}
+</script>
+{% endblock %}

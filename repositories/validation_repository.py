@@ -4,7 +4,7 @@ Repository for persisting validation results and integrity issues
 import sqlite3
 import json
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from domain.validation_result import ValidationResult, ValidationStatus
 from domain.integrity_issue import (
@@ -320,7 +320,7 @@ class ValidationRepository:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
 
-                resolved_at = datetime.utcnow().isoformat() if resolution_status in (
+                resolved_at = datetime.now(timezone.utc).isoformat() if resolution_status in (
                     ResolutionStatus.RESOLVED, ResolutionStatus.IGNORED
                 ) else None
 

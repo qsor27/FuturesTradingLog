@@ -103,7 +103,7 @@ class TradeRepository(BaseRepository):
         """Add a new trade to the database"""
         try:
             query = """
-                INSERT INTO trades (
+                INSERT OR IGNORE INTO trades (
                     instrument, side_of_market, quantity, entry_price, entry_time,
                     exit_time, exit_price, points_gain_loss, dollars_gain_loss,
                     commission, account, chart_url, notes, validated, reviewed,

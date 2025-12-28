@@ -5,7 +5,7 @@ Celery tasks for automated position-execution integrity validation.
 """
 from celery import Task
 from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sqlite3
 
 from celery_app import app
@@ -102,7 +102,7 @@ def validate_position_task(self, position_id: int, auto_repair: bool = False) ->
             'repair_results': {
                 issue_id: res.to_dict() for issue_id, res in repair_results.items()
             } if repair_results else None,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
     except Exception as e:
@@ -116,7 +116,7 @@ def validate_position_task(self, position_id: int, auto_repair: bool = False) ->
             'position_id': position_id,
             'status': 'error',
             'message': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
 
@@ -157,7 +157,7 @@ def validate_all_positions_task(
             params.append(position_status)
 
         if days_back:
-            cutoff_date = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
+            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
             query += " AND (entry_time >= ? OR exit_time >= ?)"
             params.extend([cutoff_date, cutoff_date])
 
@@ -279,7 +279,7 @@ def validate_all_positions_task(
                 position_ids=repaired_positions
             )
 
-        results['timestamp'] = datetime.utcnow().isoformat()
+        results['timestamp'] = datetime.now(timezone.utc).isoformat()
         return results
 
     except Exception as e:
@@ -287,7 +287,7 @@ def validate_all_positions_task(
         return {
             'status': 'error',
             'message': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
 
@@ -330,12 +330,12 @@ def get_validation_statistics_task(self) -> Dict:
     """
     try:
         stats = self.service.get_validation_statistics()
-        stats['timestamp'] = datetime.utcnow().isoformat()
+        stats['timestamp'] = datetime.now(timezone.utc).isoformat()
         return stats
     except Exception as e:
         logger.error(f"Error getting validation statistics: {e}")
         return {
             'status': 'error',
             'message': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }

@@ -216,9 +216,16 @@ class PositionBuilder:
         position.average_exit_price = trade.exit_price
         position.total_points_pnl = trade.points_gain_loss
         position.total_dollars_pnl = trade.dollars_gain_loss
-        position.total_commission = trade.commission
         position.execution_count = 1
-        
+
+        # Calculate commission: either from trade or from config (per contract per side)
+        if trade.commission and trade.commission > 0:
+            position.total_commission = trade.commission
+        else:
+            # Calculate commission from config: commission_per_side × quantity
+            commission_per_side = self.pnl_calculator._get_instrument_commission(position.instrument)
+            position.total_commission = commission_per_side * abs(trade.quantity)
+
         # Calculate risk/reward ratio
         if position.total_dollars_pnl != 0 and position.total_commission > 0:
             if position.total_dollars_pnl > 0:
@@ -254,7 +261,17 @@ class PositionBuilder:
 
         position.total_points_pnl = pnl_result.points_pnl
         position.total_dollars_pnl = pnl_result.dollars_pnl
-        position.total_commission = sum(t.commission for t in executions)
+
+        # Calculate commission: either from executions or from config (per contract per side)
+        csv_commission = sum(t.commission for t in executions)
+        if csv_commission > 0:
+            # Use commission from CSV if available
+            position.total_commission = csv_commission
+        else:
+            # Calculate commission from config: commission_per_side × total_contracts_traded
+            commission_per_side = self.pnl_calculator._get_instrument_commission(position.instrument)
+            total_contracts = sum(abs(t.quantity) for t in executions)
+            position.total_commission = commission_per_side * total_contracts
 
         # Calculate risk/reward ratio
         if position.total_dollars_pnl != 0 and position.total_commission > 0:

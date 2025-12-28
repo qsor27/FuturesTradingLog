@@ -38,34 +38,45 @@ def settings():
 
 @settings_bp.route('/settings/multipliers', methods=['POST'])
 def update_multipliers():
-    """Update instrument multipliers"""
+    """Update instrument multipliers and commission"""
     try:
         # Get the JSON data from the request
         data = request.get_json()
-        
+
         if not data or 'multipliers' not in data:
             return jsonify({'success': False, 'error': 'Invalid data format'}), 400
-        
-        multipliers = data['multipliers']
-        
-        # Validate multipliers
-        for instrument, multiplier in multipliers.items():
-            try:
-                float(multiplier)
-            except ValueError:
-                return jsonify({'success': False, 'error': f'Invalid multiplier for {instrument}: {multiplier}'}), 400
-        
+
+        instruments = data['multipliers']
+
+        # Validate instrument settings
+        for instrument, config_value in instruments.items():
+            # Handle both old format (number) and new format (dict with multiplier/commission)
+            if isinstance(config_value, dict):
+                multiplier = config_value.get('multiplier')
+                commission = config_value.get('commission', 0)
+                try:
+                    float(multiplier)
+                    float(commission)
+                except (ValueError, TypeError):
+                    return jsonify({'success': False, 'error': f'Invalid values for {instrument}'}), 400
+            else:
+                # Old format - just a multiplier number
+                try:
+                    float(config_value)
+                except (ValueError, TypeError):
+                    return jsonify({'success': False, 'error': f'Invalid multiplier for {instrument}: {config_value}'}), 400
+
         # Ensure config directory exists
         config_dir = config.data_dir / 'config'
         config_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save multipliers to file
+
+        # Save to file
         multipliers_file = config_dir / 'instrument_multipliers.json'
         with open(multipliers_file, 'w') as f:
-            json.dump(multipliers, f, indent=2)
-        
-        return jsonify({'success': True, 'message': 'Multipliers updated successfully'})
-    
+            json.dump(instruments, f, indent=2)
+
+        return jsonify({'success': True, 'message': 'Settings updated successfully'})
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

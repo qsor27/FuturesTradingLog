@@ -5,7 +5,7 @@ Application service layer for orchestrating position-execution validation workfl
 managing validation results, and coordinating automated repairs.
 """
 from typing import List, Optional, Dict, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from domain.models.position import Position
 from domain.models.execution import Execution
@@ -89,7 +89,7 @@ class PositionExecutionIntegrityService:
             error_result = ValidationResult(
                 position_id=position.id or 0,
                 status=ValidationStatus.ERROR,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 error_message=str(e)
             )
             error_result.mark_error(str(e))
@@ -355,7 +355,7 @@ class PositionExecutionIntegrityService:
             system_result = ValidationResult(
                 position_id=1,  # Placeholder for system-level validation
                 status=ValidationStatus.FAILED,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 issue_count=len(issues),
                 validation_type="orphan_detection"
             )
@@ -404,7 +404,7 @@ class PositionExecutionIntegrityService:
             system_result = ValidationResult(
                 position_id=1,  # Placeholder for system-level validation
                 status=ValidationStatus.FAILED,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 issue_count=len(issues),
                 validation_type="missing_executions_detection"
             )
@@ -473,7 +473,7 @@ class PositionExecutionIntegrityService:
             issue.repair_attempted = True
             issue.repair_method = repair_result.method.value
             issue.repair_successful = repair_result.is_successful()
-            issue.repair_timestamp = datetime.utcnow()
+            issue.repair_timestamp = datetime.now(timezone.utc)
             issue.repair_details = repair_result.metadata
 
             # If repair was successful, mark issue as resolved
@@ -572,7 +572,7 @@ class PositionExecutionIntegrityService:
         issues: List[IntegrityIssue]
     ) -> None:
         """Update position model with validation status"""
-        position.last_validated_at = datetime.utcnow()
+        position.last_validated_at = datetime.now(timezone.utc)
         position.validation_status = result.status.value
         position.integrity_score = self.get_position_integrity_score(position.id or 0)
 

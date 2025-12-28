@@ -5,7 +5,7 @@ Sends formatted notifications to Discord channels via webhooks.
 """
 import requests
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from utils.logging_config import get_logger
@@ -208,7 +208,7 @@ class DiscordNotifier:
             color=color,
             fields=fields,
             footer="Futures Trading Log - Automated Validation",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         return self.send_message(embeds=[embed])
@@ -271,7 +271,7 @@ class DiscordNotifier:
             color=color,
             fields=fields,
             footer="Futures Trading Log - Auto-Repair",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         return self.send_message(embeds=[embed])
@@ -342,7 +342,7 @@ class DiscordNotifier:
             color=color,
             fields=fields,
             footer="Futures Trading Log - Batch Validation",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         return self.send_message(embeds=[embed])
@@ -366,7 +366,7 @@ class DiscordNotifier:
                 }
             ],
             footer="Futures Trading Log",
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
 
         return self.send_message(embeds=[embed])

@@ -44,6 +44,7 @@ services:
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-dev-secret-key}
+      - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1450362643725549638/O1-l0q6x_zGyohxSEsVzZ_qMr2wN32zgljyH_Mj45OxhrsKrzhYKufDR_AuR1eFvBLT6
       # Redis URL using Docker service name for container-to-container networking
       # Must use 'redis' (service name) not 'localhost' for Docker networking
       # .env file will override this default - ensure .env also uses 'redis'

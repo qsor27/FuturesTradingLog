@@ -4,7 +4,7 @@ ValidationResult Domain Model
 Represents the result of a position-execution integrity validation check.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
 
@@ -64,7 +64,7 @@ class ValidationResult:
     def mark_passed(self) -> None:
         """Mark validation as passed"""
         self.status = ValidationStatus.PASSED
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
 
     def mark_failed(self, issue_count: int) -> None:
         """Mark validation as failed with issue count"""
@@ -72,7 +72,7 @@ class ValidationResult:
             raise ValueError("issue_count must be positive when marking failed")
         self.status = ValidationStatus.FAILED
         self.issue_count = issue_count
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
 
     def mark_error(self, error_message: str) -> None:
         """Mark validation as errored"""
@@ -80,7 +80,7 @@ class ValidationResult:
             raise ValueError("error_message required when marking error")
         self.status = ValidationStatus.ERROR
         self.error_message = error_message
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(timezone.utc)
 
     def is_completed(self) -> bool:
         """Check if validation is completed"""

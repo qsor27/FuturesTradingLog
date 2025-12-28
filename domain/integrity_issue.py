@@ -4,7 +4,7 @@ IntegrityIssue Domain Model
 Represents a specific integrity issue found during position-execution validation.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from enum import Enum
 
@@ -73,7 +73,7 @@ class IntegrityIssue:
     issue_id: Optional[int] = None
     position_id: Optional[int] = None
     execution_id: Optional[int] = None
-    detected_at: datetime = field(default_factory=datetime.utcnow)
+    detected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_at: Optional[datetime] = None
     resolution_method: Optional[str] = None
     resolution_details: dict = field(default_factory=dict)
@@ -124,7 +124,7 @@ class IntegrityIssue:
 
         self.resolution_status = ResolutionStatus.RESOLVED
         self.resolution_method = method
-        self.resolved_at = datetime.utcnow()
+        self.resolved_at = datetime.now(timezone.utc)
 
         if details:
             self.resolution_details.update(details)
@@ -135,7 +135,7 @@ class IntegrityIssue:
             raise ValueError("reason is required when ignoring an issue")
 
         self.resolution_status = ResolutionStatus.IGNORED
-        self.resolved_at = datetime.utcnow()
+        self.resolved_at = datetime.now(timezone.utc)
         self.resolution_details['ignore_reason'] = reason
 
     def mark_failed(self, error: str) -> None:

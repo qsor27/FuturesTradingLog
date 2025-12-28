@@ -1,64 +1,22 @@
-# Version control
+# Prevent .env from being copied into Docker image
+.env
+.env.local
+.env.*.local
+
+# Git files
 .git
 .gitignore
 
-# Python
-__pycache__/
+# IDE files
+.vscode
+.idea
+
+# Python cache
+__pycache__
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
-# Virtual environment
-venv/
-ENV/
+# Testing
+.pytest_cache
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Local development
-data/
-*.db
-.env
-*.log
-
-# Docker
-Dockerfile
-docker-compose.yml
-.docker/
-
-# Documentation (keep README.md for image metadata)
-*.md
-!README.md
-docs/
-
-# Test coverage artifacts
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Local data
-*.csv
-charts/
-logs/vdev/
-gap_fill_env/
+# Development files
+agent-os/

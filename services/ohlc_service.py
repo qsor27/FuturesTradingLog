@@ -24,13 +24,15 @@ class OHLCOnDemandService:
         """
         Fetches OHLC data for all supported timeframes for a given instrument,
         normalizes its symbol, and stores the data in the database.
-        
+
         Returns True if any data was successfully fetched and stored.
         """
-        root_symbol = get_root_symbol(instrument)
-        yf_symbol = symbol_service.get_yfinance_symbol(root_symbol)
-        
-        self.logger.info(f"Starting OHLC data fetch for instrument '{instrument}' -> '{root_symbol}' (yfinance: '{yf_symbol}')")
+        # Use contract-specific symbol if expiration is present
+        storage_instrument = symbol_service.normalize_for_ohlc_storage(instrument)
+        yf_symbol = symbol_service.get_yfinance_contract_symbol(instrument)
+        root_symbol = symbol_service.get_base_symbol(instrument)
+
+        self.logger.info(f"Starting OHLC data fetch for instrument '{instrument}' -> '{storage_instrument}' (yfinance: '{yf_symbol}')")
         
         success_count = 0
         total_records = 0
@@ -80,8 +82,8 @@ class OHLCOnDemandService:
                 # Convert timestamp to unix timestamp
                 data['timestamp'] = data['timestamp'].astype(int) // 10**9
                 
-                # Add instrument and timeframe
-                data['instrument'] = root_symbol  # Store by root symbol
+                # Add instrument and timeframe - store with full contract name
+                data['instrument'] = storage_instrument
                 data['timeframe'] = timeframe
                 
                 # Select only required columns
@@ -94,19 +96,19 @@ class OHLCOnDemandService:
                 if self.db.insert_ohlc_batch(records_dict):
                     success_count += 1
                     total_records += len(records_dict)
-                    self.logger.info(f"Successfully stored {len(records_dict)} OHLC records for {root_symbol} {timeframe}")
+                    self.logger.info(f"Successfully stored {len(records_dict)} OHLC records for {storage_instrument} {timeframe}")
                 else:
-                    self.logger.error(f"Failed to store OHLC data for {root_symbol} {timeframe}")
+                    self.logger.error(f"Failed to store OHLC data for {storage_instrument} {timeframe}")
 
             except Exception as e:
                 self.logger.error(f"Failed to fetch or store OHLC for {yf_symbol} {timeframe}: {e}")
                 continue
         
         if success_count > 0:
-            self.logger.info(f"Successfully fetched {success_count}/{len(SUPPORTED_TIMEFRAMES)} timeframes for {root_symbol}, total {total_records} records")
+            self.logger.info(f"Successfully fetched {success_count}/{len(SUPPORTED_TIMEFRAMES)} timeframes for {storage_instrument}, total {total_records} records")
             return True
         else:
-            self.logger.warning(f"No data could be fetched for {root_symbol}")
+            self.logger.warning(f"No data could be fetched for {storage_instrument} ({yf_symbol})")
             return False
 
     def check_data_availability(self, instrument: str) -> Dict[str, int]:

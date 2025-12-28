@@ -1,9 +1,12 @@
 {% set chart_id = chart_id or 'priceChart' %}
 {% set chart_height = chart_height or '400px' %}
 {% set chart_instrument = chart_instrument or 'MNQ' %}
-{% set chart_timeframe = chart_timeframe or '1m' %}
-{% set chart_days = chart_days or 1 %}
+{# chart_timeframe and chart_days default to none - will be loaded from ChartSettingsAPI if not provided #}
+{% set chart_timeframe = chart_timeframe|default(none, true) %}
+{% set chart_days = chart_days|default(none, true) %}
 {% set chart_trade_id = chart_trade_id or '' %}
+{% set chart_start_date = chart_start_date or none %}
+{% set chart_end_date = chart_end_date or none %}
 
 <!-- Chart Component CSS -->
 <style>
@@ -49,6 +52,13 @@
 .chart-component .chart-body {
     position: relative;
     height: {{ chart_height }};
+    width: 100%;
+}
+
+/* Ensure chart container takes full width */
+.chart-component .chart-body > div[data-chart] {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 .chart-component .chart-loading {
@@ -82,6 +92,52 @@
     text-align: center;
     font-size: 14px;
 }
+
+/* Contract fallback warning banner */
+.chart-contract-warning {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 193, 7, 0.95);
+    color: #000;
+    padding: 6px 30px 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 90%;
+}
+
+.chart-contract-warning .warning-icon {
+    font-size: 14px;
+}
+
+.chart-contract-warning .warning-text {
+    flex: 1;
+}
+
+.chart-contract-warning .warning-dismiss {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #000;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    opacity: 0.6;
+}
+
+.chart-contract-warning .warning-dismiss:hover {
+    opacity: 1;
+}
 </style>
 
 <!-- Chart Component HTML -->
@@ -97,36 +153,68 @@
                 <option value="4h" {{ 'selected' if chart_timeframe == '4h' else '' }}>4h</option>
                 <option value="1d" {{ 'selected' if chart_timeframe == '1d' else '' }}>1d</option>
             </select>
-            
+
             <select class="days-select" data-chart-id="{{ chart_id }}">
                 <option value="1" {{ 'selected' if chart_days == 1 else '' }}>1 Day</option>
                 <option value="3" {{ 'selected' if chart_days == 3 else '' }}>3 Days</option>
                 <option value="7" {{ 'selected' if chart_days == 7 else '' }}>1 Week</option>
+                <option value="14" {{ 'selected' if chart_days == 14 else '' }}>2 Weeks</option>
                 <option value="30" {{ 'selected' if chart_days == 30 else '' }}>1 Month</option>
             </select>
         </div>
     </div>
-    
+
     <div class="chart-body">
-        <div id="{{ chart_id }}" 
-             data-chart 
-             data-instrument="{{ chart_instrument }}" 
-             data-timeframe="{{ chart_timeframe }}" 
-             data-days="{{ chart_days }}"
-             {% if chart_trade_id %}data-trade-id="{{ chart_trade_id }}"{% endif %}>
+        <div id="{{ chart_id }}"
+             data-chart
+             data-instrument="{{ chart_instrument }}"
+             {% if chart_timeframe %}data-timeframe="{{ chart_timeframe }}"{% endif %}
+             {% if chart_days %}data-days="{{ chart_days }}"{% endif %}
+             {% if chart_trade_id %}data-trade-id="{{ chart_trade_id }}"{% endif %}
+             {% if chart_start_date %}data-start-date="{{ chart_start_date }}"{% endif %}
+             {% if chart_end_date %}data-end-date="{{ chart_end_date }}"{% endif %}>
         </div>
-        
+
         <div class="chart-loading">
             Loading chart data...
         </div>
-        
+
         <div class="chart-error"></div>
     </div>
 </div>
 
 <script>
 // Chart component controls handler
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // Initialize dropdowns from user settings if not explicitly set by server
+    if (typeof window.chartSettingsAPI !== 'undefined') {
+        try {
+            const settings = await window.chartSettingsAPI.getSettings();
+            console.log('📋 Initializing chart controls from user settings:', settings);
+
+            // Initialize each chart's controls from settings
+            document.querySelectorAll('[data-chart]').forEach(container => {
+                const chartId = container.id;
+                const timeframeSelect = document.querySelector(`[data-chart-id="${chartId}"].timeframe-select`);
+                const daysSelect = document.querySelector(`[data-chart-id="${chartId}"].days-select`);
+
+                // Only set from settings if container doesn't have explicit data attributes
+                if (timeframeSelect && !container.dataset.timeframe && settings.default_timeframe) {
+                    timeframeSelect.value = settings.default_timeframe;
+                    console.log(`🎯 Set timeframe dropdown to user setting: ${settings.default_timeframe}`);
+                }
+
+                if (daysSelect && !container.dataset.days && settings.default_data_range) {
+                    const days = window.chartSettingsAPI.convertDataRangeToDays(settings.default_data_range);
+                    daysSelect.value = days.toString();
+                    console.log(`📅 Set days dropdown to user setting: ${settings.default_data_range} (${days} days)`);
+                }
+            });
+        } catch (error) {
+            console.warn('⚠️ Could not load user settings for chart controls:', error);
+        }
+    }
+
     // Handle timeframe changes
     document.querySelectorAll('.timeframe-select').forEach(select => {
         select.addEventListener('change', function() {
@@ -137,7 +225,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    
+
     // Handle days changes
     document.querySelectorAll('.days-select').forEach(select => {
         select.addEventListener('change', function() {
@@ -148,29 +236,29 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    
+
     // Update timeframe availability for each chart
     document.querySelectorAll('[data-chart]').forEach(async (container) => {
         const instrument = container.dataset.instrument;
         if (!instrument) return;
-        
+
         try {
             const response = await fetch(`/api/available-timeframes/${encodeURIComponent(instrument)}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
                     console.log(`📊 Available timeframes for ${instrument}:`, data.available_timeframes);
-                    
+
                     // Find the timeframe select for this chart
                     const chartId = container.id;
                     const timeframeSelect = document.querySelector(`[data-chart-id="${chartId}"].timeframe-select`);
-                    
+
                     if (timeframeSelect) {
                         // Mark unavailable timeframes
                         Array.from(timeframeSelect.options).forEach(option => {
                             const tf = option.value;
                             const isAvailable = data.available_timeframes.hasOwnProperty(tf);
-                            
+
                             if (!isAvailable) {
                                 option.disabled = true;
                                 option.textContent = `${tf} (no data)`;
@@ -181,11 +269,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                 option.style.color = '';
                             }
                         });
-                        
-                        // If current selection is not available, switch to best timeframe
+
+                        // If current selection is not available, switch to best timeframe and reload data
                         if (data.best_timeframe && !data.available_timeframes[timeframeSelect.value]) {
+                            console.log(`🔄 Current timeframe ${timeframeSelect.value} not available, switching to: ${data.best_timeframe}`);
                             timeframeSelect.value = data.best_timeframe;
-                            console.log(`🔄 Switched to best available timeframe: ${data.best_timeframe}`);
+
+                            // Trigger chart data reload with the new timeframe
+                            if (container.chartInstance && container.chartInstance.updateTimeframe) {
+                                console.log(`📊 Reloading chart data with available timeframe: ${data.best_timeframe}`);
+                                container.chartInstance.updateTimeframe(data.best_timeframe);
+                            }
                         }
                     }
                 }
@@ -194,12 +288,12 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(`Error checking timeframes for ${instrument}:`, error);
         }
     });
-    
+
     // Load execution arrows for charts with trade-id
     document.querySelectorAll('[data-chart][data-trade-id]').forEach(async (container) => {
         const tradeId = container.dataset.tradeId;
         if (!tradeId) return;
-        
+
         // Wait for chart to be initialized
         const waitForChart = () => {
             return new Promise((resolve) => {
@@ -213,17 +307,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 checkChart();
             });
         };
-        
+
         try {
             await waitForChart();
-            
+
             // Fetch execution data for this position
             const response = await fetch(`/api/executions/${encodeURIComponent(tradeId)}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.success && data.executions) {
                     console.log(`🎯 Loading ${data.executions.length} execution arrows for position ${tradeId}`);
-                    
+
                     // Load execution arrows into the chart
                     container.chartInstance.loadExecutionArrows(data.executions);
                 } else {

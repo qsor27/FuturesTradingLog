@@ -10,24 +10,6 @@
 
 {% block extra_head %}
 <style>
-    .import-section, .import-step {
-        background-color: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 20px;
-    }
-    
-    .import-steps {
-        display: flex;
-        gap: 20px;
-        justify-content: flex-start;
-    }
-    
-    .import-step {
-        flex: 0 1 auto;
-    }
-    
     .page-header {
         background-color: var(--section-bg);
         color: var(--text-color);
@@ -38,7 +20,7 @@
         justify-content: space-between;
         align-items: center;
     }
-    
+
     .header-buttons {
         display: flex;
         gap: 10px;
@@ -56,96 +38,9 @@
             <a href="{{ url_for('settings.settings') }}" class="btn settings-btn">Settings</a>
         </div>
     </div>
-    
-    <!-- Import Section -->
-    <div class="import-section">
-        <div class="import-steps" style="display: flex; gap: 20px; justify-content: flex-start;">
-            <div class="import-step" style="flex: 0 1 auto;">
-                <h2>Step 1: Process NT Executions</h2>
-                <p>Process your NinjaTrader execution exports into a trade log.</p>
-                <form id="processForm" class="space-y-4">
-                    <div>
-                        <label for="ntFile" class="block text-sm font-medium text-gray-700">Select NT Grid CSV</label>
-                        <input type="file" id="ntFile" name="file" accept=".csv" 
-                            class="mt-1 block w-full text-sm text-gray-500
-                            file:mr-4 file:py-2 file:px-4
-                            file:rounded-md file:border-0
-                            file:text-sm file:font-semibold
-                            file:bg-blue-50 file:text-blue-700
-                            hover:file:bg-blue-100">
-                    </div>
-                    <button type="button" onclick="processNTExport()" class="btn process-btn">Process NT Executions</button>
-                </form>
-            </div>
-            
-            <div class="import-step" style="flex: 0 1 auto;">
-                <h2>Step 2: Import Trade Log</h2>
-                <p>Import your processed trade log into the database.</p>
-                <form action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data" class="space-y-4">
-                    <div>
-                        <label for="csvFile" class="block text-sm font-medium text-gray-700">Select Trade Log CSV</label>
-                        <input type="file" id="csvFile" name="file" accept=".csv" 
-                            class="mt-1 block w-full text-sm text-gray-500
-                            file:mr-4 file:py-2 file:px-4
-                            file:rounded-md file:border-0
-                            file:text-sm file:font-semibold
-                            file:bg-blue-50 file:text-blue-700
-                            hover:file:bg-blue-100">
-                    </div>
-                    <button type="submit" class="btn">Upload Trade Log</button>
-                </form>
-            </div>
-        </div>
-        
-        <div id="processStatus" class="mt-4 hidden" style="margin-left: 20px;">
-            <div class="flex items-center">
-                <div class="spinner mr-3"></div>
-                <span id="statusText">Processing...</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- Rest of the template content remains the same -->
+    <!-- Trade data sections -->
     {% include 'partials/filters.html' %}
     {% include 'partials/trade_table.html' %}
     {% include 'partials/pagination.html' %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-function processNTExport() {
-    const fileInput = document.getElementById('ntFile');
-    const statusDiv = document.getElementById('processStatus');
-    const statusText = document.getElementById('statusText');
-    
-    if (fileInput.files.length === 0) {
-        alert('Please select a NinjaTrader Grid CSV file');
-        return;
-    }
-    
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    
-    statusDiv.classList.remove('hidden');
-    statusText.textContent = 'Processing NT Executions...';
-    
-    fetch('{{ url_for("main.process_nt_executions") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            statusText.textContent = 'Processing complete! You can now upload the processed TradeLog.csv';
-            fileInput.value = '';
-        } else {
-            throw new Error(data.message || 'Error processing NT Export');
-        }
-    })
-    .catch(error => {
-        alert('Error: ' + error.message);
-        statusDiv.classList.add('hidden');
-    });
-}
-</script>
 {% endblock %}

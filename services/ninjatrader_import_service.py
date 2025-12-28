@@ -362,9 +362,54 @@ class NinjaTraderImportService:
     # Execution ID Deduplication with Redis (Task 2.5)
     # ========================================================================
 
+    def _try_claim_execution(self, execution_id: str, date_str: str) -> bool:
+        """
+        Atomically try to claim an execution ID for processing.
+
+        Uses Redis SADD which is atomic - returns 1 if newly added, 0 if exists.
+        This prevents race conditions where two processes might both think
+        an execution is unprocessed.
+
+        Args:
+            execution_id: Execution ID from CSV
+            date_str: Date string in YYYYMMDD format
+
+        Returns:
+            True if successfully claimed (new), False if already processed
+        """
+        if not self.redis_client:
+            # Without Redis, rely on database UNIQUE constraint as fallback
+            # The INSERT OR IGNORE will handle duplicates
+            return True
+
+        try:
+            redis_key = f'processed_executions:{date_str}'
+            ttl_seconds = 14 * 24 * 60 * 60  # 14 days
+
+            # SADD is atomic: returns 1 if element was added, 0 if already existed
+            added = self.redis_client.sadd(redis_key, execution_id)
+
+            # Set TTL on the key (14 days) - this is idempotent
+            self.redis_client.expire(redis_key, ttl_seconds)
+
+            if added == 1:
+                self.logger.debug(f"Claimed execution {execution_id} for processing")
+                return True
+            else:
+                self.logger.debug(f"Execution {execution_id} already claimed by another process")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error claiming execution in Redis: {e}")
+            # On Redis error, allow processing - DB constraint is backup
+            return True
+
     def _is_execution_processed(self, execution_id: str, date_str: str) -> bool:
         """
         Check if execution ID has already been processed.
+
+        DEPRECATED: Use _try_claim_execution() instead for atomic check+claim.
+        Kept for backwards compatibility.
 
         Args:
             execution_id: Execution ID from CSV
@@ -375,7 +420,7 @@ class NinjaTraderImportService:
         """
         if not self.redis_client:
             # Without Redis, cannot track processed executions
-            # Fall back to allowing all (may cause duplicates)
+            # Fall back to allowing all (DB constraint is backup)
             return False
 
         try:
@@ -390,6 +435,9 @@ class NinjaTraderImportService:
     def _mark_execution_processed(self, execution_id: str, date_str: str):
         """
         Mark execution ID as processed in Redis with 14-day TTL.
+
+        DEPRECATED: Use _try_claim_execution() instead which combines
+        check and mark atomically.
 
         Args:
             execution_id: Execution ID to mark
@@ -412,6 +460,177 @@ class NinjaTraderImportService:
 
         except Exception as e:
             self.logger.error(f"Error marking execution as processed: {e}")
+
+    # ========================================================================
+    # File Mtime Tracking with Redis Persistence
+    # ========================================================================
+
+    def _get_file_mtime_from_redis(self, file_path: str) -> Optional[float]:
+        """
+        Get stored file modification time from Redis.
+
+        Args:
+            file_path: Full path to file
+
+        Returns:
+            Stored mtime as float, or None if not found
+        """
+        if not self.redis_client:
+            return self.file_mtimes.get(file_path)
+
+        try:
+            redis_key = f'file_mtime:{Path(file_path).name}'
+            stored_mtime = self.redis_client.get(redis_key)
+            if stored_mtime:
+                return float(stored_mtime)
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting file mtime from Redis: {e}")
+            return self.file_mtimes.get(file_path)
+
+    def _save_file_mtime_to_redis(self, file_path: str, mtime: float):
+        """
+        Save file modification time to Redis with 30-day TTL.
+
+        Args:
+            file_path: Full path to file
+            mtime: File modification time as float
+        """
+        # Always update in-memory cache
+        self.file_mtimes[file_path] = mtime
+
+        if not self.redis_client:
+            return
+
+        try:
+            redis_key = f'file_mtime:{Path(file_path).name}'
+            ttl_seconds = 30 * 24 * 60 * 60  # 30 days
+
+            self.redis_client.setex(redis_key, ttl_seconds, str(mtime))
+            self.logger.debug(f"Saved mtime {mtime} for {Path(file_path).name} to Redis")
+
+        except Exception as e:
+            self.logger.error(f"Error saving file mtime to Redis: {e}")
+
+    def get_modified_files(self) -> List[Path]:
+        """
+        Get list of CSV files that have been modified since last processing.
+
+        This checks ALL CSV files in the data directory against stored mtimes
+        in Redis, allowing detection of modifications to any file regardless
+        of when it was originally dated.
+
+        Returns:
+            List of Path objects for files needing processing
+        """
+        modified_files = []
+
+        try:
+            csv_files = self._watch_for_csv_files()
+
+            for csv_file in csv_files:
+                try:
+                    current_mtime = csv_file.stat().st_mtime
+                    file_key = str(csv_file)
+                    stored_mtime = self._get_file_mtime_from_redis(file_key)
+
+                    if stored_mtime is None or current_mtime > stored_mtime:
+                        self.logger.info(
+                            f"File {csv_file.name} needs processing "
+                            f"(current mtime: {current_mtime}, stored: {stored_mtime})"
+                        )
+                        modified_files.append(csv_file)
+                    else:
+                        self.logger.debug(
+                            f"File {csv_file.name} unchanged (mtime: {current_mtime})"
+                        )
+
+                except Exception as e:
+                    self.logger.error(f"Error checking mtime for {csv_file.name}: {e}")
+
+            if modified_files:
+                self.logger.info(f"Found {len(modified_files)} modified files to process")
+            else:
+                self.logger.debug("No modified files found")
+
+            return modified_files
+
+        except Exception as e:
+            self.logger.error(f"Error getting modified files: {e}")
+            return []
+
+    def process_all_modified_files(self) -> Dict[str, Any]:
+        """
+        Process all CSV files that have been modified since last processing.
+
+        This is the main entry point for detecting and processing files that
+        NinjaTrader may have updated after initial import (e.g., trades added
+        to previous day's file when session spans midnight).
+
+        Returns:
+            Dict with processing results including files processed and executions imported
+        """
+        self.logger.info("Checking all CSV files for modifications...")
+
+        modified_files = self.get_modified_files()
+
+        if not modified_files:
+            return {
+                'success': True,
+                'files_checked': len(self._watch_for_csv_files()),
+                'files_modified': 0,
+                'files_processed': 0,
+                'total_executions': 0
+            }
+
+        total_executions = 0
+        files_processed = 0
+        errors = []
+
+        for file_path in modified_files:
+            try:
+                self.logger.info(f"Processing modified file: {file_path.name}")
+
+                # Capture mtime BEFORE processing (file may be archived after)
+                current_mtime = file_path.stat().st_mtime
+
+                result = self.process_csv_file(file_path)
+
+                if result['success']:
+                    files_processed += 1
+                    total_executions += result.get('executions_imported', 0)
+
+                    # Save mtime to Redis after successful processing
+                    # Use captured mtime since file may have been archived
+                    self._save_file_mtime_to_redis(str(file_path), current_mtime)
+
+                    self.logger.info(
+                        f"Successfully processed {file_path.name}: "
+                        f"{result.get('executions_imported', 0)} new executions"
+                    )
+                else:
+                    errors.append({
+                        'file': file_path.name,
+                        'error': result.get('error', 'Unknown error')
+                    })
+                    self.logger.error(f"Failed to process {file_path.name}: {result.get('error')}")
+
+            except Exception as e:
+                errors.append({
+                    'file': file_path.name,
+                    'error': str(e)
+                })
+                self.logger.error(f"Error processing {file_path.name}: {e}", exc_info=True)
+
+        return {
+            'success': len(errors) == 0,
+            'files_checked': len(self._watch_for_csv_files()),
+            'files_modified': len(modified_files),
+            'files_processed': files_processed,
+            'total_executions': total_executions,
+            'errors': errors if errors else None
+        }
 
     def _generate_fallback_key(self, row: Dict) -> str:
         """
@@ -706,17 +925,17 @@ class NinjaTraderImportService:
                 if not execution_id or pd.isna(row.get('ID')):
                     execution_id = self._generate_fallback_key(row)
 
-                # Check if already processed
-                if self._is_execution_processed(execution_id, date_str):
+                # Atomically try to claim this execution ID
+                # Uses SADD which is atomic - prevents race conditions
+                if not self._try_claim_execution(execution_id, date_str):
                     skipped_executions += 1
                     continue
 
                 # Insert execution into database
+                # Uses INSERT OR IGNORE as backup for any Redis failures
                 trade_id = self._insert_execution(row)
 
                 if trade_id:
-                    # Mark as processed
-                    self._mark_execution_processed(execution_id, date_str)
                     new_executions += 1
 
                     # Track affected account+instrument
@@ -828,7 +1047,7 @@ class NinjaTraderImportService:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO trades (
+                INSERT OR IGNORE INTO trades (
                     instrument, account, side_of_market, quantity,
                     entry_price, exit_price, entry_time, exit_time,
                     entry_execution_id, commission, points_gain_loss, dollars_gain_loss
@@ -848,6 +1067,12 @@ class NinjaTraderImportService:
                 trade_data['dollars_gain_loss']
             ))
 
+            # Check if insert actually happened (rowcount=0 means duplicate was ignored)
+            if cursor.rowcount == 0:
+                conn.close()
+                self.logger.debug(f"Execution {trade_data['entry_execution_id']} already exists (DB constraint), skipped")
+                return None
+
             trade_id = cursor.lastrowid
             conn.commit()
             conn.close()
@@ -863,11 +1088,16 @@ class NinjaTraderImportService:
         """
         Parse NinjaTrader timestamp format: "M/d/yyyy h:mm:ss tt"
 
+        TIMEZONE NOTE: NinjaTrader exports timestamps in local time (Pacific Time).
+        These are stored as-is in the database (naive strings implicitly in PT).
+        The positions.py route handles conversion to UTC when aligning with
+        OHLC chart data (which is stored as UTC Unix timestamps).
+
         Args:
-            timestamp_str: Timestamp string from CSV
+            timestamp_str: Timestamp string from CSV (in local Pacific Time)
 
         Returns:
-            ISO format timestamp string or None
+            ISO format timestamp string (naive, implicitly Pacific Time) or None
         """
         try:
             # Try common NinjaTrader format with AM/PM
@@ -965,11 +1195,11 @@ class NinjaTraderImportService:
                     if self._stop_event.is_set():
                         break
 
-                    # Get file modification time
+                    # Get file modification time (using Redis-backed storage)
                     try:
                         current_mtime = csv_file.stat().st_mtime
                         file_key = str(csv_file)
-                        last_mtime = self.file_mtimes.get(file_key, 0)
+                        last_mtime = self._get_file_mtime_from_redis(file_key) or 0
 
                         # Skip if file hasn't been modified since last processing
                         if current_mtime <= last_mtime:
@@ -997,8 +1227,8 @@ class NinjaTraderImportService:
                         result = self.process_csv_file(csv_file)
 
                         if result['success']:
-                            # Update modification time tracking
-                            self.file_mtimes[file_key] = current_mtime
+                            # Update modification time tracking (persisted to Redis)
+                            self._save_file_mtime_to_redis(file_key, current_mtime)
 
                             self.logger.info(
                                 f"Successfully processed {csv_file.name}: "

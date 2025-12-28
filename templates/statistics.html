@@ -1,123 +1,767 @@
 {% extends "base.html" %}
 
 {% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/enhanced_statistics.css') }}">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="{{ url_for('static', filename='js/enhanced_statistics.js') }}"></script>
 <script>
-// Initialize statistics data
+// Initialize statistics data for historical charts
 const allStats = {{ stats|tojson|safe }};
-console.log('Available stats:', allStats);
-</script>
 
-<script>
-let statsChart;
+// Current date state for each tab
+let currentDates = {
+    daily: new Date(),
+    weekly: getWeekStart(new Date()),
+    monthly: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 }
+};
 
-function createChart(period) {
-    const data = allStats[period];
-    if (!data || !data.length) {
-        console.log('No data available for period:', period);
+// Account filter from URL
+const accountFilter = '{{ selected_accounts|join(",") }}';
+
+function getWeekStart(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(d.setDate(diff));
+}
+
+function formatDate(date) {
+    return date.toISOString().split('T')[0];
+}
+
+function formatDateDisplay(date) {
+    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatWeekDisplay(date) {
+    const weekEnd = new Date(date);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+function formatMonthDisplay(year, month) {
+    const date = new Date(year, month - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// Date navigation functions
+function navigateDate(period, direction) {
+    if (period === 'daily') {
+        currentDates.daily.setDate(currentDates.daily.getDate() + direction);
+        document.getElementById('daily-date-label').textContent = formatDateDisplay(currentDates.daily);
+        loadEnhancedStats('daily');
+    } else if (period === 'weekly') {
+        currentDates.weekly.setDate(currentDates.weekly.getDate() + (direction * 7));
+        document.getElementById('weekly-date-label').textContent = formatWeekDisplay(currentDates.weekly);
+        loadEnhancedStats('weekly');
+    } else if (period === 'monthly') {
+        currentDates.monthly.month += direction;
+        if (currentDates.monthly.month < 1) {
+            currentDates.monthly.month = 12;
+            currentDates.monthly.year--;
+        } else if (currentDates.monthly.month > 12) {
+            currentDates.monthly.month = 1;
+            currentDates.monthly.year++;
+        }
+        document.getElementById('monthly-date-label').textContent = formatMonthDisplay(currentDates.monthly.year, currentDates.monthly.month);
+        loadEnhancedStats('monthly');
+    }
+}
+
+// Load enhanced statistics from API
+async function loadEnhancedStats(period) {
+    const container = document.getElementById(`${period}-enhanced-stats`);
+    if (!container) return;
+
+    let url;
+    if (period === 'daily') {
+        url = `/statistics/api/daily?date=${formatDate(currentDates.daily)}`;
+    } else if (period === 'weekly') {
+        url = `/statistics/api/weekly?week_start=${formatDate(currentDates.weekly)}`;
+    } else if (period === 'monthly') {
+        url = `/statistics/api/monthly?year=${currentDates.monthly.year}&month=${currentDates.monthly.month}`;
+    }
+
+    if (accountFilter) {
+        url += `&accounts=${accountFilter}`;
+    }
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        renderEnhancedStats(period, data);
+    } catch (error) {
+        console.error(`Error loading ${period} stats:`, error);
+        container.innerHTML = '<p class="stats-no-data">Error loading statistics</p>';
+    }
+}
+
+// Render enhanced statistics cards
+function renderEnhancedStats(period, data) {
+    const container = document.getElementById(`${period}-enhanced-stats`);
+    if (!container) return;
+
+    if (!data || data.position_count === 0) {
+        container.innerHTML = '<div class="stats-no-data"><div class="stats-no-data-icon">📊</div><div class="stats-no-data-text">No positions for this period</div></div>';
         return;
     }
 
-    // Sort data chronologically and reverse it
-    const sortedData = [...data].reverse();
+    const getTrend = (value) => value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral';
+    const formatCurrency = (val) => `$${(val || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    const formatPercent = (val) => `${(val || 0).toFixed(1)}%`;
 
+    let html = '<div class="stats-grid">';
+
+    // Total P&L Card
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value ${getTrend(data.total_pnl)}">${formatCurrency(data.total_pnl)}</div>
+                    <div class="stat-label">Total P&L</div>
+                </div>
+            </div>
+            <div class="stat-breakdown">
+                <div class="breakdown-item"><span class="breakdown-label">Positions:</span><span class="breakdown-value">${data.position_count}</span></div>
+                <div class="breakdown-item"><span class="breakdown-label">Profit Factor:</span><span class="breakdown-value">${(data.profit_factor || 0).toFixed(2)}</span></div>
+            </div>
+        </div>`;
+
+    // Win Rate Card
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value">${formatPercent(data.win_rate)}</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+                <button type="button" class="chart-toggle-btn" onclick="toggleWinRateChart('${period}')" title="Toggle chart">
+                    <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M3 13h2v8H3v-8zm4-3h2v11H7V10zm4-4h2v15h-2V6zm4 6h2v9h-2v-9zm4-8h2v17h-2V4z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="chart-container" id="${period}-winrate-chart-container" style="display: none;">
+                <canvas id="${period}-winrate-chart"></canvas>
+            </div>
+        </div>`;
+
+    // Long/Short Distribution Card
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value">${data.long_count} / ${data.short_count}</div>
+                    <div class="stat-label">Long / Short</div>
+                </div>
+                <button type="button" class="chart-toggle-btn" onclick="toggleLongShortChart('${period}')" title="Toggle chart">
+                    <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                        <path d="M12 4v8l6 3"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="stat-breakdown">
+                <div class="breakdown-item"><span class="breakdown-label">Long:</span><span class="breakdown-value">${formatPercent(data.long_percentage)}</span></div>
+                <div class="breakdown-item"><span class="breakdown-label">Short:</span><span class="breakdown-value">${formatPercent(data.short_percentage)}</span></div>
+            </div>
+            <div class="chart-container" id="${period}-longshort-chart-container" style="display: none;">
+                <canvas id="${period}-longshort-chart"></canvas>
+            </div>
+        </div>`;
+
+    // Direction Win Rates Card
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value">${formatPercent(data.long_win_rate)} / ${formatPercent(data.short_win_rate)}</div>
+                    <div class="stat-label">Long / Short Win Rate</div>
+                </div>
+            </div>
+            <div class="stat-breakdown">
+                <div class="breakdown-item"><span class="breakdown-label">Long WR:</span><span class="breakdown-value ${getTrend(data.long_win_rate - 50)}">${formatPercent(data.long_win_rate)}</span></div>
+                <div class="breakdown-item"><span class="breakdown-label">Short WR:</span><span class="breakdown-value ${getTrend(data.short_win_rate - 50)}">${formatPercent(data.short_win_rate)}</span></div>
+            </div>
+        </div>`;
+
+    html += '</div>';
+
+    // Second row of stats
+    html += '<div class="stats-grid">';
+
+    // Best Position
+    html += `
+        <div class="enhanced-stat-card highlight-card best">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value pnl-positive">${formatCurrency(data.best_position_pnl)}</div>
+                    <div class="stat-label">Best Position</div>
+                </div>
+            </div>
+        </div>`;
+
+    // Worst Position
+    html += `
+        <div class="enhanced-stat-card highlight-card worst">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value pnl-negative">${formatCurrency(data.worst_position_pnl)}</div>
+                    <div class="stat-label">Worst Position</div>
+                </div>
+            </div>
+        </div>`;
+
+    // Avg Points
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value ${getTrend(data.avg_points_per_position)}">${(data.avg_points_per_position || 0).toFixed(2)}</div>
+                    <div class="stat-label">Avg Points/Position</div>
+                </div>
+            </div>
+        </div>`;
+
+    // Commission
+    html += `
+        <div class="enhanced-stat-card">
+            <div class="stat-card-header">
+                <div class="stat-card-main">
+                    <div class="stat-value pnl-negative">${formatCurrency(data.total_commission)}</div>
+                    <div class="stat-label">Total Commission</div>
+                </div>
+            </div>
+        </div>`;
+
+    html += '</div>';
+
+    // Period-specific sections
+    if (period === 'weekly' && data.day_breakdown) {
+        html += renderDayBreakdown(data, period);
+    }
+
+    if (period === 'weekly' && data.instrument_breakdown) {
+        html += renderInstrumentBreakdown(data, period);
+    }
+
+    if (period === 'monthly' && data.week_breakdown) {
+        html += renderWeekBreakdown(data, period);
+    }
+
+    if (period === 'monthly' && data.vs_previous_month) {
+        html += renderMonthComparison(data);
+    }
+
+    container.innerHTML = html;
+
+    // Store data for chart rendering
+    window[`${period}StatsData`] = data;
+}
+
+function renderDayBreakdown(data, period) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    let html = `
+        <div class="stats-section">
+            <div class="stats-section-header">
+                <h3 class="stats-section-title">Day of Week Performance</h3>
+                <button type="button" class="chart-toggle-btn" onclick="toggleDayChart('${period}')" title="Toggle chart">
+                    <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M3 13h2v8H3v-8zm4-3h2v11H7V10zm4-4h2v15h-2V6zm4 6h2v9h-2v-9zm4-8h2v17h-2V4z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="stats-grid-3">`;
+
+    days.forEach(day => {
+        const dayData = data.day_breakdown[day] || { position_count: 0, win_rate: 0, pnl: 0 };
+        const isBest = data.best_day && data.best_day.day === day;
+        const isWorst = data.worst_day && data.worst_day.day === day;
+
+        html += `
+            <div class="enhanced-stat-card${isBest ? ' highlight-card best' : ''}${isWorst ? ' highlight-card worst' : ''}">
+                <div class="stat-card-header">
+                    <div class="stat-card-main">
+                        <div class="stat-value ${dayData.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${(dayData.pnl || 0).toFixed(2)}</div>
+                        <div class="stat-label">${day}</div>
+                    </div>
+                </div>
+                <div class="stat-breakdown">
+                    <div class="breakdown-item"><span class="breakdown-label">Positions:</span><span class="breakdown-value">${dayData.position_count}</span></div>
+                    <div class="breakdown-item"><span class="breakdown-label">Win Rate:</span><span class="breakdown-value">${(dayData.win_rate || 0).toFixed(1)}%</span></div>
+                </div>
+            </div>`;
+    });
+
+    html += `</div>
+        <div class="chart-container" id="${period}-day-chart-container" style="display: none; height: 250px;">
+            <canvas id="${period}-day-chart"></canvas>
+        </div>
+    </div>`;
+
+    return html;
+}
+
+function renderInstrumentBreakdown(data, period) {
+    const instruments = Object.keys(data.instrument_breakdown || {});
+    if (instruments.length === 0) return '';
+
+    let html = `
+        <div class="stats-section">
+            <div class="stats-section-header">
+                <h3 class="stats-section-title">Instrument Performance</h3>
+                <button type="button" class="chart-toggle-btn" onclick="toggleInstrumentChart('${period}')" title="Toggle chart">
+                    <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M3 13h2v8H3v-8zm4-3h2v11H7V10zm4-4h2v15h-2V6zm4 6h2v9h-2v-9zm4-8h2v17h-2V4z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="stats-grid">`;
+
+    instruments.forEach(instrument => {
+        const instData = data.instrument_breakdown[instrument];
+        html += `
+            <div class="enhanced-stat-card">
+                <div class="stat-card-header">
+                    <div class="stat-card-main">
+                        <div class="stat-value ${instData.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${(instData.pnl || 0).toFixed(2)}</div>
+                        <div class="stat-label">${instrument}</div>
+                    </div>
+                </div>
+                <div class="stat-breakdown">
+                    <div class="breakdown-item"><span class="breakdown-label">Positions:</span><span class="breakdown-value">${instData.position_count}</span></div>
+                    <div class="breakdown-item"><span class="breakdown-label">Win Rate:</span><span class="breakdown-value">${(instData.win_rate || 0).toFixed(1)}%</span></div>
+                </div>
+            </div>`;
+    });
+
+    html += `</div>
+        <div class="chart-container" id="${period}-instrument-chart-container" style="display: none; height: 250px;">
+            <canvas id="${period}-instrument-chart"></canvas>
+        </div>
+    </div>`;
+
+    return html;
+}
+
+function renderWeekBreakdown(data, period) {
+    const weeks = data.week_breakdown || [];
+    if (weeks.length === 0) return '';
+
+    let html = `
+        <div class="stats-section">
+            <div class="stats-section-header">
+                <h3 class="stats-section-title">Week-over-Week Performance</h3>
+                <button type="button" class="chart-toggle-btn" onclick="toggleWeekChart('${period}')" title="Toggle chart">
+                    <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M3 13h2v8H3v-8zm4-3h2v11H7V10zm4-4h2v15h-2V6zm4 6h2v9h-2v-9zm4-8h2v17h-2V4z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="stats-grid-4">`;
+
+    weeks.forEach(week => {
+        const weekNum = week.week_number || week.week;
+        const isBest = data.best_week && data.best_week.week_number === weekNum;
+        const isWorst = data.worst_week && data.worst_week.week_number === weekNum;
+
+        html += `
+            <div class="enhanced-stat-card${isBest ? ' highlight-card best' : ''}${isWorst ? ' highlight-card worst' : ''}">
+                <div class="stat-card-header">
+                    <div class="stat-card-main">
+                        <div class="stat-value ${week.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">$${(week.pnl || 0).toFixed(2)}</div>
+                        <div class="stat-label">Week ${weekNum}</div>
+                    </div>
+                </div>
+                <div class="stat-breakdown">
+                    <div class="breakdown-item"><span class="breakdown-label">Positions:</span><span class="breakdown-value">${week.position_count}</span></div>
+                    <div class="breakdown-item"><span class="breakdown-label">Win Rate:</span><span class="breakdown-value">${(week.win_rate || 0).toFixed(1)}%</span></div>
+                </div>
+            </div>`;
+    });
+
+    html += `</div>
+        <div class="chart-container" id="${period}-week-chart-container" style="display: none; height: 250px;">
+            <canvas id="${period}-week-chart"></canvas>
+        </div>
+    </div>`;
+
+    return html;
+}
+
+function renderMonthComparison(data) {
+    const comparison = data.vs_previous_month || {};
+    const pnlChange = comparison.pnl_difference || comparison.pnl_change || 0;
+    const pnlChangePercent = comparison.pnl_percentage_change || comparison.pnl_change_percent || 0;
+    const winRateChange = comparison.win_rate_difference || comparison.win_rate_change || 0;
+
+    return `
+        <div class="stats-section">
+            <div class="stats-section-header">
+                <h3 class="stats-section-title">vs Previous Month</h3>
+            </div>
+            <div class="stats-grid-3">
+                <div class="enhanced-stat-card">
+                    <div class="stat-card-header">
+                        <div class="stat-card-main">
+                            <div class="stat-value ${pnlChange >= 0 ? 'pnl-positive' : 'pnl-negative'}">${pnlChange >= 0 ? '+' : ''}$${pnlChange.toFixed(2)}</div>
+                            <div class="stat-label">P&L Change</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="enhanced-stat-card">
+                    <div class="stat-card-header">
+                        <div class="stat-card-main">
+                            <div class="stat-value ${pnlChangePercent >= 0 ? 'pnl-positive' : 'pnl-negative'}">${pnlChangePercent >= 0 ? '+' : ''}${pnlChangePercent.toFixed(1)}%</div>
+                            <div class="stat-label">P&L Change %</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="enhanced-stat-card">
+                    <div class="stat-card-header">
+                        <div class="stat-card-main">
+                            <div class="stat-value ${winRateChange >= 0 ? 'pnl-positive' : 'pnl-negative'}">${winRateChange >= 0 ? '+' : ''}${winRateChange.toFixed(1)}%</div>
+                            <div class="stat-label">Win Rate Change</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            ${data.avg_positions_per_day ? `
+            <div class="stats-grid" style="margin-top: 16px;">
+                <div class="enhanced-stat-card">
+                    <div class="stat-card-header">
+                        <div class="stat-card-main">
+                            <div class="stat-value">${data.avg_positions_per_day.toFixed(1)}</div>
+                            <div class="stat-label">Avg Positions/Day</div>
+                        </div>
+                    </div>
+                </div>
+            </div>` : ''}
+        </div>`;
+}
+
+// Chart toggle functions
+const chartInstances = {};
+
+function toggleWinRateChart(period) {
+    const container = document.getElementById(`${period}-winrate-chart-container`);
+    const btn = container.previousElementSibling.querySelector('.chart-toggle-btn');
+
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.classList.add('active');
+        renderWinRateChart(period);
+    } else {
+        container.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+function toggleLongShortChart(period) {
+    const container = document.getElementById(`${period}-longshort-chart-container`);
+    const card = container.closest('.enhanced-stat-card');
+    const btn = card.querySelector('.chart-toggle-btn');
+
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.classList.add('active');
+        renderLongShortChart(period);
+    } else {
+        container.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+function toggleDayChart(period) {
+    const container = document.getElementById(`${period}-day-chart-container`);
+    const section = container.closest('.stats-section');
+    const btn = section.querySelector('.chart-toggle-btn');
+
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.classList.add('active');
+        renderDayChart(period);
+    } else {
+        container.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+function toggleInstrumentChart(period) {
+    const container = document.getElementById(`${period}-instrument-chart-container`);
+    const section = container.closest('.stats-section');
+    const btn = section.querySelector('.chart-toggle-btn');
+
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.classList.add('active');
+        renderInstrumentChart(period);
+    } else {
+        container.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+function toggleWeekChart(period) {
+    const container = document.getElementById(`${period}-week-chart-container`);
+    const section = container.closest('.stats-section');
+    const btn = section.querySelector('.chart-toggle-btn');
+
+    if (container.style.display === 'none') {
+        container.style.display = 'block';
+        btn.classList.add('active');
+        renderWeekChart(period);
+    } else {
+        container.style.display = 'none';
+        btn.classList.remove('active');
+    }
+}
+
+// Chart rendering functions
+function renderWinRateChart(period) {
+    const data = window[`${period}StatsData`];
+    if (!data) return;
+
+    const chartId = `${period}-winrate-chart`;
+    if (chartInstances[chartId]) chartInstances[chartId].destroy();
+
+    const ctx = document.getElementById(chartId).getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Long', 'Short', 'Overall'],
+            datasets: [{
+                label: 'Win Rate (%)',
+                data: [data.long_win_rate, data.short_win_rate, data.win_rate],
+                backgroundColor: ['#4ade80', '#f87171', '#60a5fa']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, max: 100, ticks: { color: '#e5e5e5' }, grid: { color: 'rgba(64,64,64,0.5)' } },
+                x: { ticks: { color: '#e5e5e5' }, grid: { display: false } }
+            }
+        }
+    });
+}
+
+function renderLongShortChart(period) {
+    const data = window[`${period}StatsData`];
+    if (!data) return;
+
+    const chartId = `${period}-longshort-chart`;
+    if (chartInstances[chartId]) chartInstances[chartId].destroy();
+
+    const ctx = document.getElementById(chartId).getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Long', 'Short'],
+            datasets: [{
+                data: [data.long_count, data.short_count],
+                backgroundColor: ['#4ade80', '#f87171']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: '#e5e5e5' } } }
+        }
+    });
+}
+
+function renderDayChart(period) {
+    const data = window[`${period}StatsData`];
+    if (!data || !data.day_breakdown) return;
+
+    const chartId = `${period}-day-chart`;
+    if (chartInstances[chartId]) chartInstances[chartId].destroy();
+
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const pnlData = days.map(d => (data.day_breakdown[d]?.pnl || 0));
+    const winRateData = days.map(d => (data.day_breakdown[d]?.win_rate || 0));
+
+    const ctx = document.getElementById(chartId).getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: days.map(d => d.slice(0, 3)),
+            datasets: [
+                {
+                    label: 'P&L ($)',
+                    data: pnlData,
+                    backgroundColor: pnlData.map(v => v >= 0 ? '#4ade80' : '#f87171'),
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Win Rate (%)',
+                    data: winRateData,
+                    type: 'line',
+                    borderColor: '#60a5fa',
+                    backgroundColor: 'transparent',
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: '#e5e5e5' } } },
+            scales: {
+                y: { position: 'left', ticks: { color: '#e5e5e5' }, grid: { color: 'rgba(64,64,64,0.5)' }, title: { display: true, text: 'P&L ($)', color: '#e5e5e5' } },
+                y1: { position: 'right', min: 0, max: 100, ticks: { color: '#e5e5e5' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'Win Rate (%)', color: '#e5e5e5' } },
+                x: { ticks: { color: '#e5e5e5' }, grid: { display: false } }
+            }
+        }
+    });
+}
+
+function renderInstrumentChart(period) {
+    const data = window[`${period}StatsData`];
+    if (!data || !data.instrument_breakdown) return;
+
+    const chartId = `${period}-instrument-chart`;
+    if (chartInstances[chartId]) chartInstances[chartId].destroy();
+
+    const instruments = Object.keys(data.instrument_breakdown);
+    const pnlData = instruments.map(i => data.instrument_breakdown[i].pnl || 0);
+
+    const ctx = document.getElementById(chartId).getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: instruments,
+            datasets: [{
+                label: 'P&L ($)',
+                data: pnlData,
+                backgroundColor: pnlData.map(v => v >= 0 ? '#4ade80' : '#f87171')
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { ticks: { color: '#e5e5e5' }, grid: { color: 'rgba(64,64,64,0.5)' } },
+                x: { ticks: { color: '#e5e5e5' }, grid: { display: false } }
+            }
+        }
+    });
+}
+
+function renderWeekChart(period) {
+    const data = window[`${period}StatsData`];
+    if (!data || !data.week_breakdown) return;
+
+    const chartId = `${period}-week-chart`;
+    if (chartInstances[chartId]) chartInstances[chartId].destroy();
+
+    const weeks = data.week_breakdown.map(w => `Week ${w.week_number || w.week}`);
+    const pnlData = data.week_breakdown.map(w => w.pnl || 0);
+    const winRateData = data.week_breakdown.map(w => w.win_rate || 0);
+
+    const ctx = document.getElementById(chartId).getContext('2d');
+    chartInstances[chartId] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: weeks,
+            datasets: [
+                {
+                    label: 'P&L ($)',
+                    data: pnlData,
+                    borderColor: '#4ade80',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    fill: true,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Win Rate (%)',
+                    data: winRateData,
+                    borderColor: '#60a5fa',
+                    backgroundColor: 'transparent',
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: '#e5e5e5' } } },
+            scales: {
+                y: { position: 'left', ticks: { color: '#e5e5e5' }, grid: { color: 'rgba(64,64,64,0.5)' }, title: { display: true, text: 'P&L ($)', color: '#e5e5e5' } },
+                y1: { position: 'right', min: 0, max: 100, ticks: { color: '#e5e5e5' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'Win Rate (%)', color: '#e5e5e5' } },
+                x: { ticks: { color: '#e5e5e5' }, grid: { display: false } }
+            }
+        }
+    });
+}
+
+let statsChart;
+
+function createHistoricalChart(period) {
+    const data = allStats[period];
+    if (!data || !data.length) return;
+
+    const sortedData = [...data].reverse();
     const chartData = {
         labels: sortedData.map(d => d.period_display),
         datasets: [
-            {
-                label: 'Net Profit',
-                data: sortedData.map(d => parseFloat(d.net_profit)),
-                borderColor: '#2563eb',
-                yAxisID: 'profit'
-            },
-            {
-                label: 'Win Rate',
-                data: sortedData.map(d => parseFloat(d.win_rate)),
-                borderColor: '#16a34a',
-                yAxisID: 'winRate'
-            }
+            { label: 'Net Profit', data: sortedData.map(d => parseFloat(d.net_profit)), borderColor: '#2563eb', yAxisID: 'profit' },
+            { label: 'Win Rate', data: sortedData.map(d => parseFloat(d.win_rate)), borderColor: '#16a34a', yAxisID: 'winRate' }
         ]
     };
 
-    const config = {
+    const ctx = document.getElementById('stats-chart').getContext('2d');
+    if (statsChart) statsChart.destroy();
+    statsChart = new Chart(ctx, {
         type: 'line',
         data: chartData,
         options: {
             responsive: true,
-            interaction: {
-                mode: 'index',
-                intersect: false,
-            },
+            interaction: { mode: 'index', intersect: false },
             scales: {
-                profit: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    title: {
-                        display: true,
-                        text: 'Net Profit ($)'
-                    }
-                },
-                winRate: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    title: {
-                        display: true,
-                        text: 'Win Rate (%)'
-                    },
-                    grid: {
-                        drawOnChartArea: false
-                    }
-                }
-            }
+                profit: { type: 'linear', position: 'left', title: { display: true, text: 'Net Profit ($)', color: '#e5e5e5' }, ticks: { color: '#e5e5e5' }, grid: { color: 'rgba(64,64,64,0.5)' } },
+                winRate: { type: 'linear', position: 'right', title: { display: true, text: 'Win Rate (%)', color: '#e5e5e5' }, ticks: { color: '#e5e5e5' }, grid: { drawOnChartArea: false } }
+            },
+            plugins: { legend: { labels: { color: '#e5e5e5' } } }
         }
-    };
-
-    const ctx = document.getElementById('stats-chart').getContext('2d');
-    
-    // Destroy existing chart if it exists
-    if (statsChart) {
-        statsChart.destroy();
-    }
-    
-    // Create new chart
-    statsChart = new Chart(ctx, config);
+    });
 }
 
 function switchView(period) {
-    console.log('Switching to period:', period);
-    
-    // Update chart
-    createChart(period);
-    // Hide all views
-    var views = document.querySelectorAll('[id$="-stats"]');
-    views.forEach(function(view) {
-        view.style.display = 'none';
+    // Update historical chart
+    createHistoricalChart(period);
+
+    // Hide all main view containers (not nested enhanced-stats)
+    ['daily-stats', 'weekly-stats', 'monthly-stats'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
     });
-    
+
     // Show selected view
-    var selectedView = document.getElementById(period + '-stats');
-    if (selectedView) {
-        selectedView.style.display = 'block';
-    }
-    
+    const selectedView = document.getElementById(period + '-stats');
+    if (selectedView) selectedView.style.display = 'block';
+
     // Update button states
-    var buttons = document.querySelectorAll('.tab-button');
-    buttons.forEach(function(button) {
-        if (button.getAttribute('data-period') === period) {
-            button.classList.add('active');
-        } else {
-            button.classList.remove('active');
-        }
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.toggle('active', button.getAttribute('data-period') === period);
     });
+
+    // Load enhanced stats
+    loadEnhancedStats(period);
 }
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Page loaded, initializing...');
-    // Initialize chart and set initial view
-    switchView('daily');
+    // Set initial date labels
+    document.getElementById('daily-date-label').textContent = formatDateDisplay(currentDates.daily);
+    document.getElementById('weekly-date-label').textContent = formatWeekDisplay(currentDates.weekly);
+    document.getElementById('monthly-date-label').textContent = formatMonthDisplay(currentDates.monthly.year, currentDates.monthly.month);
+
+    // Initialize with daily view
     switchView('daily');
 });
 </script>
@@ -129,11 +773,11 @@ document.addEventListener('DOMContentLoaded', function() {
     <div style="display: flex; gap: 20px; margin-bottom: 20px;">
         <!-- Chart Section -->
         <div style="flex: 1;">
-            <div class="rounded-lg bg-white p-4 shadow-sm" style="height: 400px;">
+            <div class="rounded-lg bg-white p-4 shadow-sm" style="height: 350px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px;">
                 <canvas id="stats-chart"></canvas>
             </div>
         </div>
-        
+
         <!-- Side Panel with Navigation and Filters -->
         <div style="flex: 0 0 250px;">
             <div class="navigation-link" style="margin-bottom: 20px;">
@@ -161,176 +805,165 @@ document.addEventListener('DOMContentLoaded', function() {
         <button type="button" class="tab-button" data-period="monthly" onclick="switchView('monthly')">Monthly</button>
     </div>
 
+    <!-- Daily Statistics -->
     <div id="daily-stats" style="display: none;">
-        <h2>Daily Statistics</h2>
+        <div class="date-navigator">
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('daily', -1)">← Prev</button>
+            <span class="date-navigator-label" id="daily-date-label">Loading...</span>
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('daily', 1)">Next →</button>
+        </div>
+
+        <div id="daily-enhanced-stats">
+            <div class="stats-no-data"><div class="stats-no-data-text">Loading statistics...</div></div>
+        </div>
+
+        <h3 style="margin-top: 32px; color: var(--text-color);">Historical Daily Data</h3>
         {% if stats.daily %}
         <div class="statistics-table-container">
             <table class="statistics-table">
                 <thead>
                     <tr>
                         <th>Period</th>
-                        <th>Total Trades</th>
-                        <th>Valid Trades</th>
-                        <th>Valid %</th>
+                        <th>Trades</th>
                         <th>Win Rate</th>
-                        <th>Total Points</th>
                         <th>Net Profit</th>
                         <th>Avg Win</th>
                         <th>Avg Loss</th>
-                        <th>R:R Ratio</th>
-                        <th>Commission</th>
-                        <th>Instruments</th>
+                        <th>R:R</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for stat in stats.daily %}
+                    {% for stat in stats.daily[:10] %}
                     <tr>
                         <td>{{ stat.period_display }}</td>
-                        <td>{{ stat.total_trades }}</td>
                         <td>{{ stat.valid_trades }}</td>
-                        <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
                         <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
-                        <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
-                        <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                        <td class="{{ 'pnl-positive' if stat.net_profit >= 0 else 'pnl-negative' }}">${{ "%.2f"|format(stat.net_profit) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
-                        <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <p class="no-data">No trading data available for this period.</p>
+        <p class="no-data">No historical data available.</p>
         {% endif %}
     </div>
 
+    <!-- Weekly Statistics -->
     <div id="weekly-stats" style="display: none;">
-        <h2>Weekly Statistics</h2>
+        <div class="date-navigator">
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('weekly', -1)">← Prev</button>
+            <span class="date-navigator-label" id="weekly-date-label">Loading...</span>
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('weekly', 1)">Next →</button>
+        </div>
+
+        <div id="weekly-enhanced-stats">
+            <div class="stats-no-data"><div class="stats-no-data-text">Loading statistics...</div></div>
+        </div>
+
+        <h3 style="margin-top: 32px; color: var(--text-color);">Historical Weekly Data</h3>
         {% if stats.weekly %}
         <div class="statistics-table-container">
             <table class="statistics-table">
                 <thead>
                     <tr>
                         <th>Period</th>
-                        <th>Total Trades</th>
-                        <th>Valid Trades</th>
-                        <th>Valid %</th>
+                        <th>Trades</th>
                         <th>Win Rate</th>
-                        <th>Total Points</th>
                         <th>Net Profit</th>
                         <th>Avg Win</th>
                         <th>Avg Loss</th>
-                        <th>R:R Ratio</th>
-                        <th>Commission</th>
-                        <th>Instruments</th>
+                        <th>R:R</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for stat in stats.weekly %}
+                    {% for stat in stats.weekly[:10] %}
                     <tr>
                         <td>{{ stat.period_display }}</td>
-                        <td>{{ stat.total_trades }}</td>
                         <td>{{ stat.valid_trades }}</td>
-                        <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
                         <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
-                        <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
-                        <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                        <td class="{{ 'pnl-positive' if stat.net_profit >= 0 else 'pnl-negative' }}">${{ "%.2f"|format(stat.net_profit) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
-                        <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <p class="no-data">No trading data available for this period.</p>
+        <p class="no-data">No historical data available.</p>
         {% endif %}
     </div>
 
+    <!-- Monthly Statistics -->
     <div id="monthly-stats" style="display: none;">
-        <h2>Monthly Statistics</h2>
+        <div class="date-navigator">
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('monthly', -1)">← Prev</button>
+            <span class="date-navigator-label" id="monthly-date-label">Loading...</span>
+            <button type="button" class="date-navigator-btn" onclick="navigateDate('monthly', 1)">Next →</button>
+        </div>
+
+        <div id="monthly-enhanced-stats">
+            <div class="stats-no-data"><div class="stats-no-data-text">Loading statistics...</div></div>
+        </div>
+
+        <h3 style="margin-top: 32px; color: var(--text-color);">Historical Monthly Data</h3>
         {% if stats.monthly %}
         <div class="statistics-table-container">
             <table class="statistics-table">
                 <thead>
                     <tr>
                         <th>Period</th>
-                        <th>Total Trades</th>
-                        <th>Valid Trades</th>
-                        <th>Valid %</th>
+                        <th>Trades</th>
                         <th>Win Rate</th>
-                        <th>Total Points</th>
                         <th>Net Profit</th>
                         <th>Avg Win</th>
                         <th>Avg Loss</th>
-                        <th>R:R Ratio</th>
-                        <th>Commission</th>
-                        <th>Instruments</th>
+                        <th>R:R</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for stat in stats.monthly %}
+                    {% for stat in stats.monthly[:12] %}
                     <tr>
                         <td>{{ stat.period_display }}</td>
-                        <td>{{ stat.total_trades }}</td>
                         <td>{{ stat.valid_trades }}</td>
-                        <td>{{ "%.1f"|format(stat.valid_trade_percentage) }}%</td>
                         <td>{{ "%.1f"|format(stat.win_rate) }}%</td>
-                        <td>{{ "%.2f"|format(stat.total_points_all_trades) }}</td>
-                        <td>${{ "%.2f"|format(stat.net_profit) }}</td>
+                        <td class="{{ 'pnl-positive' if stat.net_profit >= 0 else 'pnl-negative' }}">${{ "%.2f"|format(stat.net_profit) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_win or 0) }}</td>
                         <td>${{ "%.2f"|format(stat.avg_loss or 0) }}</td>
                         <td>{{ "%.2f"|format(stat.reward_risk_ratio or 0) }}</td>
-                        <td>${{ "%.2f"|format(stat.total_commission or 0) }}</td>
-                        <td>{{ stat.instruments_traded }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <p class="no-data">No trading data available for this period.</p>
+        <p class="no-data">No historical data available.</p>
         {% endif %}
     </div>
 </div>
 
 <style>
 :root {
-    --bg-color: #ffffff;
-    --text-color: #000000;
-    --border-color: #ddd;
-    --table-header-bg: #f2f2f2;
-    --table-even-row-bg: #f8f9fa;
-    --link-color: #007bff;
-    --link-hover-color: #0056b3;
-    --tab-bg: #f8f9fa;
-    --tab-hover-bg: #e9ecef;
-    --tab-active-bg: #007bff;
-    --tab-active-hover-bg: #0056b3;
-    --no-data-color: #666;
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg-color: #1a1a1a;
-        --text-color: #e0e0e0;
-        --border-color: #404040;
-        --table-header-bg: #2d2d2d;
-        --table-even-row-bg: #262626;
-        --link-color: #66b3ff;
-        --link-hover-color: #3399ff;
-        --tab-bg: #2d2d2d;
-        --tab-hover-bg: #363636;
-        --tab-active-bg: #1a4b8c;
-        --tab-active-hover-bg: #1d569e;
-        --no-data-color: #999;
-    }
+    --bg-color: #1a1a1a;
+    --text-color: #e0e0e0;
+    --border-color: #404040;
+    --table-header-bg: #2d2d2d;
+    --table-even-row-bg: #262626;
+    --link-color: #66b3ff;
+    --link-hover-color: #3399ff;
+    --tab-bg: #2d2d2d;
+    --tab-hover-bg: #363636;
+    --tab-active-bg: #1a4b8c;
+    --tab-active-hover-bg: #1d569e;
+    --no-data-color: #999;
+    --card-bg: #2a2a2a;
+    --positive-text: #4ade80;
+    --negative-text: #f87171;
 }
 
 .statistics-container {
@@ -339,9 +972,7 @@ document.addEventListener('DOMContentLoaded', function() {
     color: var(--text-color);
 }
 
-.navigation-link {
-    margin-bottom: 20px;
-}
+.navigation-link { margin-bottom: 20px; }
 
 .back-link {
     display: inline-block;
@@ -358,14 +989,8 @@ document.addEventListener('DOMContentLoaded', function() {
     color: var(--bg-color);
 }
 
-.filters {
-    margin-bottom: 20px;
-}
-
-.account-select {
-    margin-bottom: 10px;
-}
-
+.filters { margin-bottom: 20px; }
+.account-select { margin-bottom: 10px; }
 .account-select select {
     width: 100%;
     min-width: 200px;
@@ -376,9 +1001,7 @@ document.addEventListener('DOMContentLoaded', function() {
     border-radius: 4px;
 }
 
-.statistics-tabs {
-    margin-bottom: 20px;
-}
+.statistics-tabs { margin-bottom: 20px; }
 
 .tab-button {
     padding: 8px 16px;
@@ -391,60 +1014,25 @@ document.addEventListener('DOMContentLoaded', function() {
     transition: all 0.2s ease;
 }
 
-.tab-button:hover {
-    background: var(--tab-hover-bg);
-}
-
-.tab-button.active {
-    background: var(--tab-active-bg);
-    color: white;
-    border-color: var(--tab-active-hover-bg);
-}
-
-.tab-button.active:hover {
-    background: var(--tab-active-hover-bg);
-}
+.tab-button:hover { background: var(--tab-hover-bg); }
+.tab-button.active { background: var(--tab-active-bg); color: white; border-color: var(--tab-active-hover-bg); }
+.tab-button.active:hover { background: var(--tab-active-hover-bg); }
 
 .statistics-table-container {
     overflow-x: auto;
-    margin-top: 20px;
+    margin-top: 16px;
     background-color: var(--bg-color);
     border: 1px solid var(--border-color);
     border-radius: 4px;
 }
 
-.statistics-table {
-    width: 100%;
-    border-collapse: collapse;
-}
+.statistics-table { width: 100%; border-collapse: collapse; }
+.statistics-table th, .statistics-table td { padding: 10px 8px; border: 1px solid var(--border-color); text-align: left; }
+.statistics-table th { background: var(--table-header-bg); white-space: nowrap; font-weight: bold; }
+.statistics-table tr:nth-child(even) { background: var(--table-even-row-bg); }
 
-.statistics-table th,
-.statistics-table td {
-    padding: 12px 8px;
-    border: 1px solid var(--border-color);
-    text-align: left;
-}
-
-.statistics-table th {
-    background: var(--table-header-bg);
-    color: var(--text-color);
-    white-space: nowrap;
-    font-weight: bold;
-}
-
-.statistics-table tr:nth-child(even) {
-    background: var(--table-even-row-bg);
-}
-
-.no-data {
-    color: var(--no-data-color);
-    font-style: italic;
-}
-
-h2 {
-    color: var(--text-color);
-    margin-top: 20px;
-    margin-bottom: 15px;
-}
+.no-data { color: var(--no-data-color); font-style: italic; }
+.pnl-positive { color: var(--positive-text); }
+.pnl-negative { color: var(--negative-text); }
 </style>
 {% endblock %}

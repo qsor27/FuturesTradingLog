@@ -10,8 +10,8 @@
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h3>Instrument Multipliers</h3>
-                    <p class="text-muted">Configure the dollar value per point for each futures instrument</p>
+                    <h3>Instrument Settings</h3>
+                    <p class="text-muted">Configure multiplier ($/point) and commission ($/contract/side) for each instrument</p>
                 </div>
                 <div class="card-body">
                     <div id="multipliers-section">
@@ -20,23 +20,32 @@
                                 <tr>
                                     <th>Instrument</th>
                                     <th>Multiplier ($/point)</th>
+                                    <th>Commission ($/side)</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="multipliers-tbody">
-                                {% for instrument, multiplier in multipliers.items() %}
+                                {% for instrument, config in multipliers.items() %}
                                 <tr data-instrument="{{ instrument }}">
                                     <td>{{ instrument }}</td>
                                     <td>
-                                        <input type="number" 
-                                               class="form-control multiplier-input" 
-                                               value="{{ multiplier }}" 
-                                               step="0.01" 
+                                        <input type="number"
+                                               class="form-control multiplier-input"
+                                               value="{{ config.multiplier if config is mapping else config }}"
+                                               step="0.01"
                                                min="0"
                                                data-instrument="{{ instrument }}">
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-danger delete-multiplier" 
+                                        <input type="number"
+                                               class="form-control commission-input"
+                                               value="{{ config.commission if config is mapping else 0 }}"
+                                               step="0.01"
+                                               min="0"
+                                               data-instrument="{{ instrument }}">
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger delete-multiplier"
                                                 data-instrument="{{ instrument }}">
                                             Delete
                                         </button>
@@ -45,21 +54,30 @@
                                 {% endfor %}
                             </tbody>
                         </table>
-                        
+
                         <div class="row mt-3">
-                            <div class="col-md-6">
-                                <input type="text" 
-                                       id="new-instrument" 
-                                       class="form-control" 
-                                       placeholder="New instrument symbol (e.g., ES MAR25)">
-                            </div>
                             <div class="col-md-4">
-                                <input type="number" 
-                                       id="new-multiplier" 
-                                       class="form-control" 
-                                       placeholder="Multiplier" 
-                                       step="0.01" 
+                                <input type="text"
+                                       id="new-instrument"
+                                       class="form-control"
+                                       placeholder="Symbol (e.g., MNQ)">
+                            </div>
+                            <div class="col-md-3">
+                                <input type="number"
+                                       id="new-multiplier"
+                                       class="form-control"
+                                       placeholder="Multiplier"
+                                       step="0.01"
                                        min="0">
+                            </div>
+                            <div class="col-md-3">
+                                <input type="number"
+                                       id="new-commission"
+                                       class="form-control"
+                                       placeholder="Commission"
+                                       step="0.01"
+                                       min="0"
+                                       value="0.57">
                             </div>
                             <div class="col-md-2">
                                 <button class="btn btn-primary" id="add-multiplier">Add</button>
@@ -203,7 +221,11 @@
 
 <style>
 #multipliers-table input {
-    width: 120px;
+    width: 100px;
+}
+
+#multipliers-table th:first-child {
+    width: 100px;
 }
 
 .card {
@@ -228,114 +250,142 @@ document.addEventListener('DOMContentLoaded', function() {
     const cancelButton = document.getElementById('cancel-changes');
     const newInstrumentInput = document.getElementById('new-instrument');
     const newMultiplierInput = document.getElementById('new-multiplier');
+    const newCommissionInput = document.getElementById('new-commission');
     const tableBody = document.getElementById('multipliers-tbody');
-    
+
     // Store original values for cancel functionality
     let originalData = {};
     document.querySelectorAll('.multiplier-input').forEach(input => {
-        originalData[input.dataset.instrument] = input.value;
+        const instrument = input.dataset.instrument;
+        const commissionInput = document.querySelector(`.commission-input[data-instrument="${instrument}"]`);
+        originalData[instrument] = {
+            multiplier: input.value,
+            commission: commissionInput ? commissionInput.value : 0
+        };
     });
-    
-    // Add new multiplier
+
+    // Add new instrument
     addButton.addEventListener('click', function() {
         const instrument = newInstrumentInput.value.trim().toUpperCase();
         const multiplier = newMultiplierInput.value.trim();
-        
+        const commission = newCommissionInput.value.trim() || '0.57';
+
         if (!instrument || !multiplier) {
             alert('Please enter both instrument and multiplier');
             return;
         }
-        
+
         if (parseFloat(multiplier) <= 0) {
             alert('Multiplier must be greater than 0');
             return;
         }
-        
+
         // Check if instrument already exists
         if (document.querySelector(`tr[data-instrument="${instrument}"]`)) {
             alert('Instrument already exists');
             return;
         }
-        
+
         // Add new row
         const row = document.createElement('tr');
         row.dataset.instrument = instrument;
         row.innerHTML = `
             <td>${instrument}</td>
             <td>
-                <input type="number" 
-                       class="form-control multiplier-input" 
-                       value="${multiplier}" 
-                       step="0.01" 
+                <input type="number"
+                       class="form-control multiplier-input"
+                       value="${multiplier}"
+                       step="0.01"
                        min="0"
                        data-instrument="${instrument}">
             </td>
             <td>
-                <button class="btn btn-sm btn-danger delete-multiplier" 
+                <input type="number"
+                       class="form-control commission-input"
+                       value="${commission}"
+                       step="0.01"
+                       min="0"
+                       data-instrument="${instrument}">
+            </td>
+            <td>
+                <button class="btn btn-sm btn-danger delete-multiplier"
                         data-instrument="${instrument}">
                     Delete
                 </button>
             </td>
         `;
-        
+
         tableBody.appendChild(row);
-        
+
         // Clear inputs
         newInstrumentInput.value = '';
         newMultiplierInput.value = '';
-        
+        newCommissionInput.value = '0.57';
+
         // Add event listener to delete button
         row.querySelector('.delete-multiplier').addEventListener('click', deleteMultiplier);
     });
-    
+
     // Delete multiplier function
     function deleteMultiplier(event) {
         const instrument = event.target.dataset.instrument;
-        if (confirm(`Are you sure you want to delete the multiplier for ${instrument}?`)) {
+        if (confirm(`Are you sure you want to delete ${instrument}?`)) {
             event.target.closest('tr').remove();
         }
     }
-    
+
     // Add event listeners to existing delete buttons
     document.querySelectorAll('.delete-multiplier').forEach(button => {
         button.addEventListener('click', deleteMultiplier);
     });
-    
+
     // Save all changes
     saveButton.addEventListener('click', function() {
-        const multipliers = {};
+        const instruments = {};
+        let hasError = false;
+
         document.querySelectorAll('.multiplier-input').forEach(input => {
+            if (hasError) return;
+
             const instrument = input.dataset.instrument;
-            const value = parseFloat(input.value);
-            
-            if (value <= 0) {
+            const multiplier = parseFloat(input.value);
+            const commissionInput = document.querySelector(`.commission-input[data-instrument="${instrument}"]`);
+            const commission = commissionInput ? parseFloat(commissionInput.value) : 0;
+
+            if (multiplier <= 0) {
                 alert(`Invalid multiplier for ${instrument}: must be greater than 0`);
+                hasError = true;
                 return;
             }
-            
-            multipliers[instrument] = value;
+
+            instruments[instrument] = {
+                multiplier: multiplier,
+                commission: commission
+            };
         });
-        
+
+        if (hasError) return;
+
         // Send to server
         fetch('/settings/multipliers', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ multipliers: multipliers })
+            body: JSON.stringify({ multipliers: instruments })
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert('Multipliers saved successfully!');
+                alert('Settings saved successfully!');
                 // Update original data
-                originalData = { ...multipliers };
+                originalData = { ...instruments };
             } else {
-                alert('Error saving multipliers: ' + data.error);
+                alert('Error saving settings: ' + data.error);
             }
         })
         .catch(error => {
-            alert('Error saving multipliers: ' + error);
+            alert('Error saving settings: ' + error);
         });
     });
     

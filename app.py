@@ -9,7 +9,6 @@ from utils.logging_config import setup_application_logging, get_logger, log_syst
 from services.symbol_service import symbol_service
 from routes.main import main_bp
 from routes.trades import trades_bp
-from routes.upload import upload_bp
 from routes.statistics import statistics_bp
 from routes.trade_details import trade_details_bp
 from routes.trade_links import trade_links_bp
@@ -198,7 +197,6 @@ metrics_thread.start()
 # Blueprint registration
 app.register_blueprint(main_bp)  # Main routes (no prefix)
 app.register_blueprint(trades_bp, url_prefix='/trades')
-app.register_blueprint(upload_bp)
 app.register_blueprint(statistics_bp)  # Changed from stats_bp to statistics_bp
 app.register_blueprint(trade_details_bp, url_prefix='/trade')
 app.register_blueprint(trade_links_bp)

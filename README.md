@@ -67,11 +67,14 @@ Run with: `docker-compose up -d`
 
 ### Option 2: Windows Native Install
 
-#### Prerequisites
-- Python 3.11+
-- Redis for Windows (or WSL2 with Redis)
+> **Full Guide:** See [`docs/WINDOWS_INSTALL.md`](docs/WINDOWS_INSTALL.md) for detailed instructions including Redis setup, running as a Windows service, and troubleshooting.
 
-#### Installation
+#### Prerequisites
+- Python 3.11+ (`winget install Python.Python.3.11`)
+- Redis for Windows: [Memurai](https://www.memurai.com/) (recommended) or WSL2 Redis
+- Git (`winget install Git.Git`)
+
+#### Quick Start
 ```powershell
 # Clone repository
 git clone https://github.com/qsor27/FuturesTradingLog.git
@@ -84,13 +87,22 @@ python -m venv venv
 # Install dependencies
 pip install -r requirements.txt
 
+# Create data directory
+mkdir C:\ProgramData\FuturesTradingLog\db, C:\ProgramData\FuturesTradingLog\logs, C:\ProgramData\FuturesTradingLog\config
+
 # Set environment variables
 $env:FLASK_ENV = "production"
-$env:FLASK_SECRET_KEY = "your-secure-random-key"
+$env:FLASK_SECRET_KEY = (python -c "import secrets; print(secrets.token_hex(32))")
 $env:DATA_DIR = "C:\ProgramData\FuturesTradingLog"
 $env:REDIS_URL = "redis://localhost:6379/0"
 
 # Run application
+python app.py
+```
+
+#### Run Without Redis (Optional)
+```powershell
+$env:CACHE_ENABLED = "false"
 python app.py
 ```
 
@@ -259,6 +271,7 @@ pytest tests/ -v
 ---
 
 ## Documentation
+- [`docs/WINDOWS_INSTALL.md`](docs/WINDOWS_INSTALL.md): Complete Windows installation guide
 - [`CLAUDE.md`](docs/CLAUDE.md): Development guide and critical algorithms
 - [`docs/ai-context/project-structure.md`](docs/ai-context/project-structure.md): Complete project architecture
 - [`NINJATRADER_EXPORT_SETUP.md`](NINJATRADER_EXPORT_SETUP.md): NinjaTrader indicator setup

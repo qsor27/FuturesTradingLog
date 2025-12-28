@@ -4,7 +4,7 @@ Handles OHLC data requests for interactive charts
 NOW USING CACHE-ONLY APPROACH - NO API CALLS DURING PAGE LOADS
 """
 from flask import Blueprint, request, jsonify, render_template
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import List, Dict, Any
 from services.data_service import ohlc_service
@@ -14,6 +14,7 @@ from scripts.TradingLog_db import FuturesDB
 from config import SUPPORTED_TIMEFRAMES, PAGE_LOAD_CONFIG
 from utils.instrument_utils import get_root_symbol
 from services.ohlc_service import OHLCOnDemandService
+from services.symbol_service import symbol_service
 
 # Import the chart execution extensions
 import scripts.TradingLog_db_extension
@@ -154,7 +155,7 @@ def get_chart_data(instrument):
             response = cache_only_chart_service.get_chart_data(
                 instrument, timeframe, start_date, end_date
             )
-            
+
             # Add execution overlay if position_id is provided
             if position_id and response.get('success'):
                 try:
@@ -162,7 +163,49 @@ def get_chart_data(instrument):
                 except Exception as e:
                     logger.warning(f"Failed to add execution overlay for position {position_id}: {e}")
                     response['executions'] = []
-            
+
+            # Add available_timeframes when no data is returned (for frontend fallback)
+            if response.get('count', 0) == 0 or not response.get('data'):
+                available_timeframes = {}
+                date_range_timeframes = {}  # Timeframes with data in requested date range
+                best_timeframe = None
+                preferred_order = ['1h', '15m', '5m', '1m', '4h', '1d']  # Prefer 1h for position charts
+
+                # Convert dates to timestamps for query
+                start_ts = int(start_date.timestamp()) if start_date else None
+                end_ts = int(end_date.timestamp()) if end_date else None
+
+                with FuturesDB() as db:
+                    for tf in preferred_order:
+                        # First check total count (for available_timeframes display)
+                        db.cursor.execute(
+                            'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                            (instrument, tf)
+                        )
+                        total_count = db.cursor.fetchone()[0]
+                        if total_count > 0:
+                            available_timeframes[tf] = total_count
+
+                            # Then check count within date range (for best_timeframe selection)
+                            if start_ts and end_ts:
+                                db.cursor.execute(
+                                    'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?',
+                                    (instrument, tf, start_ts, end_ts)
+                                )
+                                range_count = db.cursor.fetchone()[0]
+                                if range_count > 0:
+                                    date_range_timeframes[tf] = range_count
+                                    if best_timeframe is None:
+                                        best_timeframe = tf
+                            else:
+                                # No date range specified, use total count
+                                if best_timeframe is None:
+                                    best_timeframe = tf
+
+                response['available_timeframes'] = available_timeframes
+                response['best_timeframe'] = best_timeframe
+                logger.info(f"No data for {instrument}/{timeframe}, available timeframes: {available_timeframes}, date-range timeframes: {date_range_timeframes}")
+
             # Add cache status headers for debugging
             if response.get('cache_status'):
                 response_headers = {}
@@ -170,9 +213,9 @@ def get_chart_data(instrument):
                 response_headers['X-Cache-Status'] = 'fresh' if cache_status.get('is_fresh') else 'stale'
                 response_headers['X-Data-Source'] = response['metadata'].get('data_source', 'unknown')
                 response_headers['X-Processing-Time'] = str(response['metadata'].get('processing_time_ms', 0))
-                
+
                 return jsonify(response), 200, response_headers
-            
+
             return jsonify(response)
         
         # Fallback to direct database query (legacy mode)

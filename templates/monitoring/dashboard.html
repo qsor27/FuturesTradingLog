@@ -141,12 +141,17 @@
 {% block content %}
 <div class="monitoring-dashboard">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>📊 Data Monitoring Dashboard</h1>
+        <div>
+            <h1>Data Monitoring Dashboard</h1>
+            <div style="margin-top: 10px;">
+                <a href="/monitoring/data-completeness" class="btn btn-outline-primary btn-sm">OHLC Data Completeness</a>
+            </div>
+        </div>
         <div class="auto-refresh">
             <label>
                 <input type="checkbox" id="autoRefresh" checked> Auto-refresh (30s)
             </label>
-            <button class="btn btn-primary btn-sm" id="refreshNow">🔄 Refresh</button>
+            <button class="btn btn-primary btn-sm" id="refreshNow">Refresh</button>
         </div>
     </div>
     

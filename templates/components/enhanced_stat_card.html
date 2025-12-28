@@ -1,0 +1,72 @@
+{#
+    Enhanced Statistics Card Component with Chart Toggle
+
+    Usage:
+    {% include 'components/enhanced_stat_card.html' with context %}
+
+    Parameters:
+    - card_id: Required unique ID for the card (used for chart canvas)
+    - value: Required statistic value to display
+    - label: Required label for the statistic
+    - secondary_value: Optional secondary value to display
+    - secondary_label: Optional label for secondary value
+    - trend: Optional trend indicator ('positive', 'negative', 'neutral')
+    - chart_type: Optional chart type ('pie', 'bar', 'line') - enables chart toggle
+    - chart_endpoint: API endpoint for chart data (required if chart_type is set)
+    - chart_params: Query parameters for chart API (optional)
+    - class: Optional additional CSS classes
+    - details: Optional additional details text
+    - breakdown: Optional dict of breakdown values to display inline
+#}
+<div class="enhanced-stat-card{% if class %} {{ class }}{% endif %}" id="{{ card_id }}-card">
+    <div class="stat-card-header">
+        <div class="stat-card-main">
+            <div class="stat-value{% if trend %} pnl-{{ trend }}{% endif %}">
+                {{ value }}
+            </div>
+            <div class="stat-label">{{ label }}</div>
+        </div>
+        {% if secondary_value is defined and secondary_value is not none %}
+        <div class="stat-card-secondary">
+            <div class="stat-value-secondary{% if trend %} pnl-{{ trend }}{% endif %}">
+                {{ secondary_value }}
+            </div>
+            {% if secondary_label %}
+            <div class="stat-label-secondary">{{ secondary_label }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% if chart_type %}
+        <button type="button"
+                class="chart-toggle-btn"
+                onclick="toggleStatChart('{{ card_id }}', '{{ chart_type }}', '{{ chart_endpoint }}', '{{ chart_params|default('') }}')"
+                title="Toggle chart visualization">
+            <svg class="chart-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M3 13h2v8H3v-8zm4-3h2v11H7V10zm4-4h2v15h-2V6zm4 6h2v9h-2v-9zm4-8h2v17h-2V4z"/>
+            </svg>
+        </button>
+        {% endif %}
+    </div>
+
+    {% if details %}
+    <div class="stat-details">{{ details }}</div>
+    {% endif %}
+
+    {% if breakdown %}
+    <div class="stat-breakdown">
+        {% for key, val in breakdown.items() %}
+        <div class="breakdown-item">
+            <span class="breakdown-label">{{ key }}:</span>
+            <span class="breakdown-value">{{ val }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if chart_type %}
+    <div class="chart-container" id="{{ card_id }}-chart-container" style="display: none;">
+        <canvas id="{{ card_id }}-chart"></canvas>
+        <div class="chart-loading" id="{{ card_id }}-loading">Loading chart...</div>
+    </div>
+    {% endif %}
+</div>

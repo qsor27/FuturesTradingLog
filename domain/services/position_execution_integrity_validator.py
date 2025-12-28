@@ -5,7 +5,7 @@ Validates the integrity between positions and their constituent executions,
 detecting missing data, orphans, and consistency issues.
 """
 from typing import List, Optional, Set, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from domain.models.position import Position
 from domain.models.execution import Execution
 from domain.validation_result import ValidationResult, ValidationStatus
@@ -52,7 +52,7 @@ class PositionExecutionIntegrityValidator:
         self.issues = []
         self.validation_id = validation_id or 0
 
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(timezone.utc)
 
         # Run all validation checks
         self._check_completeness(position, executions)
@@ -360,7 +360,7 @@ class PositionExecutionIntegrityValidator:
                 continue
 
             # Check if execution is too far in the future
-            if execution.execution_time > datetime.utcnow() + timedelta(hours=1):
+            if execution.execution_time > datetime.now(timezone.utc) + timedelta(hours=1):
                 self._add_issue(
                     issue_type=IssueType.TIMESTAMP_ANOMALY,
                     severity=IssueSeverity.MEDIUM,

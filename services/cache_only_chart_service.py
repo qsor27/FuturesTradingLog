@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from services.redis_cache_service import get_cache_service
 from services.background_data_manager import background_data_manager
+from services.symbol_service import symbol_service
 from scripts.TradingLog_db import FuturesDB
 from config import config
 
@@ -33,55 +34,75 @@ class CacheOnlyChartService:
         else:
             self.logger.warning("Cache-Only Chart Service: Cache service disabled, using database only")
     
-    def get_chart_data(self, instrument: str, timeframe: str, 
+    def get_chart_data(self, instrument: str, timeframe: str,
                       start_date: datetime, end_date: datetime) -> Dict[str, Any]:
         """
         Get chart data from cache only - NEVER triggers downloads
-        
+
         Returns:
             Dict containing:
             - success: bool
             - data: List[Dict] - OHLC data points
             - cache_status: Dict - Information about data freshness
-            - metadata: Dict - Additional information
+            - metadata: Dict - Additional information including fallback info
         """
         try:
             start_time = datetime.now()
-            
+
             # Track user access for prioritization
             if background_data_manager and hasattr(background_data_manager, 'track_user_access'):
                 background_data_manager.track_user_access(instrument, timeframe)
-            
+
             # Try cache first if available
             cache_data = None
             cache_hit = False
-            
+            actual_instrument = instrument  # Track which instrument data came from
+            is_fallback = False
+
             if self.cache_service:
                 start_timestamp = int(start_date.timestamp())
                 end_timestamp = int(end_date.timestamp())
-                
+
+                # Try full contract name first (e.g., "MNQ SEP25")
                 cache_data = self.cache_service.get_cached_ohlc_data(
                     instrument, timeframe, start_timestamp, end_timestamp
                 )
-                
+
+                # If no cache data, try base instrument as fallback (e.g., "MNQ")
+                if not cache_data:
+                    base_instrument = self._get_base_instrument(instrument)
+                    if base_instrument != instrument:
+                        self.logger.debug(f"No cache for {instrument}, trying base {base_instrument}")
+                        cache_data = self.cache_service.get_cached_ohlc_data(
+                            base_instrument, timeframe, start_timestamp, end_timestamp
+                        )
+                        if cache_data:
+                            actual_instrument = base_instrument
+                            is_fallback = True
+
                 if cache_data:
                     cache_hit = True
-                    self.logger.debug(f"Cache hit for {instrument} {timeframe}: {len(cache_data)} records")
-            
+                    self.logger.debug(f"Cache hit for {actual_instrument} {timeframe}: {len(cache_data)} records")
+
             # If no cache data, fall back to database (but still no API calls)
             if not cache_data:
-                cache_data = self._get_database_data(instrument, timeframe, start_date, end_date)
-                self.logger.debug(f"Database fallback for {instrument} {timeframe}: {len(cache_data)} records")
-            
+                cache_data, actual_instrument, is_fallback = self._get_database_data_with_fallback(
+                    instrument, timeframe, start_date, end_date
+                )
+                self.logger.debug(f"Database fallback for {actual_instrument} {timeframe}: {len(cache_data)} records")
+
             # Format data for TradingView Lightweight Charts
             formatted_data = self._format_chart_data(cache_data)
-            
+
             # Get cache status information
             cache_status = self._get_cache_status(instrument, timeframe)
-            
+
             # Calculate processing time
             processing_time = (datetime.now() - start_time).total_seconds() * 1000  # in milliseconds
-            
+
+            # Determine if this is a continuous contract fallback
+            is_continuous_fallback = is_fallback and not symbol_service.has_expiration(actual_instrument)
+
             # Prepare response
             response = {
                 'success': True,
@@ -96,19 +117,37 @@ class CacheOnlyChartService:
                     'processing_time_ms': processing_time,
                     'data_source': 'cache' if cache_hit else 'database',
                     'start_date': start_date.isoformat(),
-                    'end_date': end_date.isoformat()
+                    'end_date': end_date.isoformat(),
+                    'requested_instrument': instrument,
+                    'actual_instrument': actual_instrument,
+                    'is_fallback': is_fallback,
+                    'is_continuous_fallback': is_continuous_fallback
                 }
             }
-            
+
             # Add warnings if data is incomplete or stale
+            warnings = []
+
+            if is_continuous_fallback:
+                warnings.append(
+                    f"Showing continuous contract data ({actual_instrument}) - "
+                    f"specific contract data ({instrument}) not available"
+                )
+            elif is_fallback:
+                warnings.append(
+                    f"Showing data from {actual_instrument} - "
+                    f"specific data for {instrument} not available"
+                )
+
             if cache_status['is_stale']:
-                response['warnings'] = ['Data may be outdated. Background refresh in progress.']
-            
+                warnings.append('Data may be outdated. Background refresh in progress.')
+
             if cache_status['completeness_score'] < 0.95:
-                if 'warnings' not in response:
-                    response['warnings'] = []
-                response['warnings'].append(f"Data is {cache_status['completeness_score']:.1%} complete. Background filling in progress.")
-            
+                warnings.append(f"Data is {cache_status['completeness_score']:.1%} complete. Background filling in progress.")
+
+            if warnings:
+                response['warnings'] = warnings
+
             return response
             
         except Exception as e:
@@ -126,32 +165,48 @@ class CacheOnlyChartService:
                 'metadata': {'cache_hit': False, 'data_source': 'error'}
             }
     
-    def _get_database_data(self, instrument: str, timeframe: str, 
+    def _get_database_data(self, instrument: str, timeframe: str,
                           start_date: datetime, end_date: datetime) -> List[Dict]:
         """Get data directly from database (fallback when cache unavailable)"""
+        data, _, _ = self._get_database_data_with_fallback(instrument, timeframe, start_date, end_date)
+        return data
+
+    def _get_database_data_with_fallback(self, instrument: str, timeframe: str,
+                          start_date: datetime, end_date: datetime) -> Tuple[List[Dict], str, bool]:
+        """
+        Get data from database with fallback tracking.
+
+        Returns:
+            Tuple of (data, actual_instrument, is_fallback)
+        """
         try:
             start_timestamp = int(start_date.timestamp())
             end_timestamp = int(end_date.timestamp())
-            
+            actual_instrument = instrument
+            is_fallback = False
+
             with FuturesDB() as db:
                 data = db.get_ohlc_data(instrument, timeframe, start_timestamp, end_timestamp, limit=None)
-                
+
                 # If no data found with exact name, try base instrument name
                 if not data:
                     base_instrument = self._get_base_instrument(instrument)
                     if base_instrument != instrument:
                         self.logger.debug(f"No data for {instrument}, trying base instrument {base_instrument}")
                         data = db.get_ohlc_data(base_instrument, timeframe, start_timestamp, end_timestamp, limit=None)
-            
-            return data
-            
+                        if data:
+                            actual_instrument = base_instrument
+                            is_fallback = True
+
+            return data if data else [], actual_instrument, is_fallback
+
         except Exception as e:
             self.logger.error(f"Error getting database data for {instrument} {timeframe}: {e}")
-            return []
+            return [], instrument, False
     
     def _get_base_instrument(self, instrument: str) -> str:
         """Extract base instrument symbol (e.g., 'MNQ SEP25' -> 'MNQ')"""
-        return instrument.split(' ')[0] if ' ' in instrument else instrument
+        return symbol_service.get_base_symbol(instrument)
     
     def _format_chart_data(self, raw_data: List[Dict]) -> List[Dict]:
         """Format raw OHLC data for TradingView Lightweight Charts"""

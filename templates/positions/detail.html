@@ -13,7 +13,7 @@
             background-color: #1a1a1a;
             color: #e5e5e5;
         }
-        
+
         .position-header {
             background: #2a2a2a;
             padding: 30px;
@@ -67,7 +67,7 @@
         }
         .type-long { background-color: #1a4a1a; color: #80ff80; }
         .type-short { background-color: #4a1a1a; color: #ff8080; }
-        
+
         /* Buy/Sell side colors */
         .side-buy { color: #4ade80; font-weight: bold; }
         .side-sell { color: #f87171; font-weight: bold; }
@@ -102,7 +102,7 @@
             gap: 15px;
             margin-top: 20px;
         }
-        
+
         /* Chart section */
         .chart-section {
             background: #2a2a2a;
@@ -112,33 +112,33 @@
             border: 1px solid #404040;
             margin-bottom: 30px;
         }
-        
+
         /* Table styling */
         .table-container {
             background-color: #1f1f1f;
             border: 1px solid #404040;
             border-radius: 8px;
         }
-        
+
         .data-table {
             background-color: #1f1f1f;
             color: #e5e5e5;
         }
-        
+
         .data-table th {
             background-color: #2a2a2a;
             color: #e5e5e5;
             border-bottom: 1px solid #404040;
         }
-        
+
         .data-table td {
             border-bottom: 1px solid #333333;
         }
-        
+
         .data-table tr:hover {
             background-color: #333333;
         }
-        
+
         /* Button styling */
         .btn {
             background-color: #404040;
@@ -149,16 +149,16 @@
             padding: 8px 16px;
             border-radius: 4px;
         }
-        
+
         .btn:hover {
             background-color: #505050;
         }
-        
+
         .btn-secondary {
             background-color: #2a2a2a;
             color: #9ca3af;
         }
-        
+
         /* Summary section styling */
         .position-summary-footer {
             margin-top: 30px;
@@ -167,11 +167,11 @@
             border-radius: 6px;
             border: 1px solid #404040;
         }
-        
+
         h1, h2, h3 {
             color: #e5e5e5;
         }
-        
+
         p {
             color: #d1d5db;
         }
@@ -215,33 +215,33 @@
                 <div class="summary-value">{{ "%.2f"|format(position.average_exit_price) }}</div>
             </div>
             {% endif %}
-            
+
             <div class="summary-card">
                 <div class="summary-label">Points P&L</div>
                 <div class="summary-value {{ 'pnl-positive' if (position.total_points_pnl or 0) > 0 else 'pnl-negative' if (position.total_points_pnl or 0) < 0 else '' }}">
                     {{ "%.2f"|format(position.total_points_pnl or 0) }} pts
                 </div>
             </div>
-            
+
             <div class="summary-card">
                 <div class="summary-label">Gross P&L</div>
                 <div class="summary-value {{ 'pnl-positive' if (position.total_dollars_pnl or 0) > 0 else 'pnl-negative' if (position.total_dollars_pnl or 0) < 0 else '' }}">
                     ${{ "%.2f"|format(position.total_dollars_pnl or 0) }}
                 </div>
             </div>
-            
+
             <div class="summary-card">
                 <div class="summary-label">Commission</div>
                 <div class="summary-value">${{ "%.2f"|format(position.total_commission or 0) }}</div>
             </div>
-            
+
             <div class="summary-card">
                 <div class="summary-label">Net P&L</div>
                 <div class="summary-value {{ 'pnl-positive' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) > 0 else 'pnl-negative' if ((position.total_dollars_pnl or 0) - (position.total_commission or 0)) < 0 else '' }}">
                     ${{ "%.2f"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
                 </div>
             </div>
-            
+
             <div class="summary-card">
                 <div class="summary-label">Total Executions</div>
                 <div class="summary-value">{{ position.execution_count }}</div>
@@ -257,14 +257,14 @@
                 <div class="summary-value">{{ position.duration_display }}</div>
             </div>
             {% endif %}
-            
+
             {% if position.rr_display %}
             <div class="summary-card">
                 <div class="summary-label">Risk:Reward Ratio</div>
                 <div class="summary-value">{{ position.rr_display }}</div>
             </div>
             {% endif %}
-            
+
             {% if position.max_quantity > position.total_quantity %}
             <div class="summary-card">
                 <div class="summary-label">Peak Position Size</div>
@@ -281,7 +281,7 @@
             <h2>Market Context - {{ position.instrument }}</h2>
             <div class="chart-controls">
                 <label style="display: flex; align-items: center; color: #e5e5e5; font-size: 14px; cursor: pointer;">
-                    <input type="checkbox" id="volumeToggle" checked style="margin-right: 8px; transform: scale(1.2);">
+                    <input type="checkbox" id="volumeToggle" style="margin-right: 8px; transform: scale(1.2);">
                     Show Volume
                 </label>
             </div>
@@ -289,13 +289,14 @@
         <p style="color: #9ca3af; margin-bottom: 20px;">
             OHLC price chart showing market context during position lifecycle
         </p>
-        
+
         {% set chart_id = 'positionChart' %}
-        {% set chart_instrument = position.instrument|base_symbol %}
-        {% set chart_timeframe = '1h' %}
-        {% set chart_days = 7 %}
+        {% set chart_instrument = position.instrument %}
+        {# Timeframe and days are loaded from user settings via ChartSettingsAPI #}
         {% set chart_height = '400px' %}
         {% set chart_trade_id = position.id %}
+        {% set chart_start_date = chart_start_date|default(none) %}
+        {% set chart_end_date = chart_end_date|default(none) %}
         {% include 'components/price_chart.html' %}
     </div>
 
@@ -386,7 +387,7 @@
                         to {{ position.first_execution.split(' ')[0] }}
                     {% endif %}
                 </div>
-                
+
                 {% if position.position_status == 'closed' %}
                 <div>
                     <strong>Exit Period:</strong><br>
@@ -396,7 +397,7 @@
                     {% endif %}
                 </div>
                 {% endif %}
-                
+
                 <div>
                     <strong>Position Outcome:</strong><br>
                     {% if position.position_status == 'closed' %}
@@ -425,23 +426,37 @@
 
     <!-- Load PriceChart.js after the library -->
     <script src="{{ url_for('static', filename='js/PriceChart.js') }}"></script>
-    
+
     <script>
         // Handle volume toggle with debugging
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             console.log('📊 Position detail page loaded, setting up volume toggle...');
             const volumeToggle = document.getElementById('volumeToggle');
-            
+
             if (volumeToggle) {
+                // Initialize checkbox from user settings
+                if (typeof window.chartSettingsAPI !== 'undefined') {
+                    try {
+                        const settings = await window.chartSettingsAPI.getSettings();
+                        volumeToggle.checked = settings.volume_visibility !== false;
+                        console.log(`📊 Volume toggle initialized from settings: ${volumeToggle.checked}`);
+                    } catch (error) {
+                        console.warn('⚠️ Could not load volume settings, defaulting to true');
+                        volumeToggle.checked = true;
+                    }
+                } else {
+                    volumeToggle.checked = true;
+                }
+
                 console.log('✅ Volume toggle found, adding event listener');
                 volumeToggle.addEventListener('change', function() {
                     console.log(`📊 Volume toggle changed to: ${this.checked}`);
-                    
+
                     // Find the chart instance and toggle volume
                     const chartContainer = document.getElementById('positionChart');
                     if (chartContainer && window.chartInstances) {
                         console.log(`🔍 Looking for chart instance in ${window.chartInstances.length} instances`);
-                        const chartInstance = window.chartInstances.find(chart => 
+                        const chartInstance = window.chartInstances.find(chart =>
                             chart.container === chartContainer
                         );
                         if (chartInstance) {
