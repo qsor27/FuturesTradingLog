@@ -43,7 +43,7 @@ The script will:
 - Install all Python dependencies
 - Generate `.env` configuration file
 
-> **Note:** Memurai (Redis for Windows) must be installed manually from https://www.memurai.com/get-memurai
+> **Note:** Redis is optional. The app works fine without it (caching will be disabled).
 
 ---
 
@@ -80,29 +80,22 @@ Verify:
 git --version
 ```
 
-### 3. Redis for Windows
+### 3. Redis for Windows (Optional)
 
-Redis is **required** for full functionality (OHLC chart caching, background tasks). Choose one option:
+Redis enables caching for improved performance but is **completely optional**. The application works perfectly without it.
 
-**Option A: Memurai (Recommended for Windows)**
+**Option A: Skip Redis (Recommended for simplicity)**
 
-Memurai is a Redis-compatible Windows service with native support:
+No installation needed. The setup script will automatically set `CACHE_ENABLED=false` in your `.env` file. You can enable caching later if desired.
 
-1. Download from https://www.memurai.com/get-memurai
-2. Run installer with default settings
-3. Memurai installs and starts as a Windows service automatically
+**Option B: Redis via Docker** (Free)
 
-Verify:
+If you have Docker Desktop installed:
 ```powershell
-# Check service status
-Get-Service memurai
-
-# Test connection
-memurai-cli ping
-# Expected: PONG
+docker run -d -p 6379:6379 --name redis --restart unless-stopped redis:alpine
 ```
 
-**Option B: Redis via WSL2**
+**Option C: Redis via WSL2** (Free)
 ```powershell
 # Install WSL2 (if not installed)
 wsl --install -d Ubuntu
@@ -117,9 +110,15 @@ wsl redis-cli ping
 # Expected: PONG
 ```
 
-**Option C: Run without Redis** (Not recommended)
+**Option D: Memurai** (Commercial - requires license for production)
 
-Set `CACHE_ENABLED=false` - see [Running Without Redis](#running-without-redis)
+Memurai is a Redis-compatible Windows service. The free "Developer" version is limited to non-production use.
+
+1. Download from https://www.memurai.com/get-memurai
+2. Run installer with default settings
+3. Memurai installs and starts as a Windows service automatically
+
+> **Note:** For production use, consider Docker or WSL2 options which are fully free.
 
 ### 4. NSSM (for Windows Service)
 
@@ -205,10 +204,10 @@ FLASK_SECRET_KEY=your-generated-secret-key-here
 # Data Directory - Where database, logs, and config are stored
 DATA_DIR=C:\ProgramData\FuturesTradingLog
 
-# Redis Configuration
+# Redis Configuration (Optional - app works without Redis)
+# Set CACHE_ENABLED=true only if you have Redis running
 REDIS_URL=redis://localhost:6379/0
-CACHE_ENABLED=true
-CACHE_TTL_DAYS=14
+CACHE_ENABLED=false
 
 # NinjaTrader Auto-Import
 AUTO_IMPORT_ENABLED=true
@@ -273,12 +272,12 @@ Complete reference of all environment variables with Docker vs Windows defaults:
 | `HOST_IP` | `0.0.0.0` | `127.0.0.1` | External bind IP |
 | `EXTERNAL_PORT` | `5000` | `5000` | External access port |
 
-### Redis/Caching
+### Redis/Caching (Optional)
 
 | Variable | Docker Default | Windows Default | Description |
 |----------|---------------|-----------------|-------------|
 | `REDIS_URL` | `redis://redis:6379/0` | `redis://localhost:6379/0` | Redis connection string |
-| `CACHE_ENABLED` | `true` | `true` | Enable Redis caching |
+| `CACHE_ENABLED` | `true` | `false` | Enable Redis caching (requires Redis) |
 | `CACHE_TTL_DAYS` | `14` | `14` | Cache retention in days |
 
 ### NinjaTrader Integration
@@ -626,17 +625,18 @@ For automation or scripting:
 **Never automatically removed (shared dependencies):**
 - Python
 - Git
-- Memurai/Redis
+- Redis/Docker containers (if used)
 
 To remove these shared dependencies manually:
 ```powershell
 # Remove Python
-winget uninstall Python.Python.3.11
+winget uninstall Python.Python.3.12
 
 # Remove Git
 winget uninstall Git.Git
 
-# Remove Memurai (via Programs and Features or installer)
+# Remove Redis Docker container (if used)
+docker stop redis && docker rm redis
 ```
 
 ### Service-Only Removal
@@ -674,9 +674,9 @@ C:\Users\{username}\FuturesTradingLog_Uninstall.log
 
 ## Running Without Redis
 
-Not recommended for production use, but possible for testing:
+The application is fully functional without Redis. This is the default for new Windows installations.
 
-### Disable Caching
+### Configuration
 
 **In .env file:**
 ```ini
@@ -688,12 +688,39 @@ CACHE_ENABLED=false
 $env:CACHE_ENABLED = "false"
 ```
 
-### Limitations Without Redis
+### What You Get Without Redis
 
-- OHLC chart data fetched from database on each request (slower)
-- No background task queue
-- No data caching for improved performance
-- Some features may have degraded performance
+| Feature | Without Redis | With Redis |
+|---------|---------------|------------|
+| Trading log | ✅ Full functionality | ✅ Full functionality |
+| Position tracking | ✅ Full functionality | ✅ Full functionality |
+| CSV import | ✅ Full functionality | ✅ Full functionality |
+| OHLC charts | ✅ Works (fetches from DB) | ✅ Faster (cached) |
+| Performance | Good | Better |
+
+### Enabling Redis Later
+
+If you decide to add caching later:
+
+1. **Start Redis** (choose one):
+   ```powershell
+   # Docker
+   docker run -d -p 6379:6379 --name redis --restart unless-stopped redis:alpine
+
+   # WSL2
+   wsl -e sudo service redis-server start
+   ```
+
+2. **Update .env:**
+   ```ini
+   CACHE_ENABLED=true
+   REDIS_URL=redis://localhost:6379/0
+   ```
+
+3. **Restart the service:**
+   ```powershell
+   Restart-Service FuturesTradingLog
+   ```
 
 ---
 
@@ -732,16 +759,27 @@ $env:FLASK_PORT = "5001"
 
 ### Redis Connection Failed
 
-**Check Memurai service:**
+If you have `CACHE_ENABLED=true` but Redis isn't running:
+
+**Option 1: Disable caching (simplest)**
 ```powershell
-Get-Service memurai
-Start-Service memurai  # If stopped
-memurai-cli ping       # Test connection
+# Edit .env and set:
+CACHE_ENABLED=false
+
+# Then restart service
+Restart-Service FuturesTradingLog
 ```
 
-**Or disable caching:**
+**Option 2: Start Redis via Docker**
 ```powershell
-$env:CACHE_ENABLED = "false"
+docker run -d -p 6379:6379 --name redis --restart unless-stopped redis:alpine
+```
+
+**Option 3: Check existing Redis service**
+```powershell
+# Check if Memurai or Redis service exists
+Get-Service memurai -ErrorAction SilentlyContinue
+Get-Service redis -ErrorAction SilentlyContinue
 ```
 
 ### "Module not found" Errors
