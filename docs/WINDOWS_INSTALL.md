@@ -19,7 +19,36 @@ Complete guide for installing Futures Trading Log directly on Windows without Do
 
 ---
 
-## Prerequisites
+## Automated Setup (Recommended)
+
+Run the automated setup script to install all dependencies:
+
+```powershell
+# Download and run setup script (if you have the repo)
+cd C:\Projects\FuturesTradingLog
+.\scripts\setup-windows.ps1
+
+# Or with custom paths
+.\scripts\setup-windows.ps1 -InstallPath "D:\Apps\FTL" -DataPath "D:\Data\FTL"
+```
+
+The script will:
+- Install Python 3.11+ via winget
+- Install Git via winget
+- Download and install NSSM (service manager)
+- Clone/update the repository
+- Create data directories
+- Set up Python virtual environment
+- Install all Python dependencies
+- Generate `.env` configuration file
+
+> **Note:** Memurai (Redis for Windows) must be installed manually from https://www.memurai.com/get-memurai
+
+---
+
+## Manual Prerequisites
+
+If you prefer manual installation, follow these steps:
 
 ### 1. Python 3.11+
 
