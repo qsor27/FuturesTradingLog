@@ -4,7 +4,7 @@ Werkzeug==3.0.1
 python-dotenv>=0.19.0
 
 # Database & Data Processing
-pandas==2.1.4
+pandas>=2.1.4,<3.0
 SQLAlchemy==2.0.23
 pymysql==1.1.0
 pydantic==2.5.0
