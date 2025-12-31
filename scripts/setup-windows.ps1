@@ -143,10 +143,17 @@ $PythonPath = ""
 
 if (Test-CommandExists "python") {
     $PythonVersion = python --version 2>&1
-    if ($PythonVersion -match "Python 3\.1[1-9]|Python 3\.[2-9]") {
+    # Accept Python 3.11, 3.12, or 3.13 only (3.14+ lacks pre-built wheels for pandas/numpy)
+    if ($PythonVersion -match "Python 3\.1[1-3]\.") {
         Write-Status "Python already installed: $PythonVersion" "SUCCESS"
         $PythonInstalled = $true
         $PythonPath = (Get-Command python).Source
+    } elseif ($PythonVersion -match "Python 3\.1[4-9]|Python 3\.[2-9]") {
+        Write-Status "Python $PythonVersion is too new - pandas/numpy lack pre-built wheels" "ERROR"
+        Write-Host "  Please install Python 3.11, 3.12, or 3.13 instead."
+        Write-Host "  Run: winget install Python.Python.3.12"
+        Write-Host "  Then restart this script."
+        exit 1
     } else {
         Write-Status "Python found but version too old: $PythonVersion" "WARN"
     }
@@ -218,6 +225,9 @@ if (Test-Path $NssmPath) {
             # Create destination and copy
             New-Item -ItemType Directory -Path "C:\nssm" -Force | Out-Null
             Copy-Item "$NssmExtract\nssm-2.24\win64\nssm.exe" "C:\nssm\nssm.exe"
+
+            # Create marker file for uninstaller to know we installed NSSM
+            "Installed by FuturesTradingLog setup on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Set-Content "C:\nssm\.installed-by-ftl"
 
             # Cleanup
             Remove-Item $NssmZip -Force
@@ -326,7 +336,24 @@ if (-not (Test-Path $VenvPath)) {
 # Activate and install dependencies
 Write-Status "Installing Python dependencies (this may take a few minutes)..."
 & "$VenvPath\Scripts\python.exe" -m pip install --upgrade pip
-& "$VenvPath\Scripts\pip.exe" install -r requirements.txt
+
+$PipInstall = & "$VenvPath\Scripts\pip.exe" install -r requirements.txt 2>&1
+$PipExitCode = $LASTEXITCODE
+
+if ($PipExitCode -ne 0) {
+    Write-Status "Failed to install Python dependencies" "ERROR"
+    Write-Host ""
+    Write-Host "  Common causes:" -ForegroundColor Yellow
+    Write-Host "    - Python version incompatible with pinned packages"
+    Write-Host "    - Missing C compiler for packages that need compilation"
+    Write-Host "    - Network issues downloading packages"
+    Write-Host ""
+    Write-Host "  Try installing Python 3.12 if using a newer version:"
+    Write-Host "    winget install Python.Python.3.12"
+    Write-Host ""
+    Pop-Location
+    exit 1
+}
 
 Write-Status "Python dependencies installed" "SUCCESS"
 

@@ -13,9 +13,10 @@ Complete guide for installing Futures Trading Log directly on Windows without Do
 5. [Windows Service Setup](#windows-service-setup)
 6. [Automatic Updates](#automatic-updates)
 7. [Health Monitoring](#health-monitoring)
-8. [Running Without Redis](#running-without-redis)
-9. [Troubleshooting](#troubleshooting)
-10. [Quick Reference](#quick-reference)
+8. [Uninstall](#uninstall)
+9. [Running Without Redis](#running-without-redis)
+10. [Troubleshooting](#troubleshooting)
+11. [Quick Reference](#quick-reference)
 
 ---
 
@@ -576,6 +577,101 @@ For continuous health monitoring, create a scheduled task that runs the health c
 
 ---
 
+## Uninstall
+
+Complete removal of FuturesTradingLog from your Windows system.
+
+### Complete Uninstall (Recommended)
+
+Use the complete uninstall script for a clean removal:
+
+```powershell
+# Run as Administrator
+cd "C:\Program Files\FuturesTradingLog\scripts"
+.\uninstall-complete.ps1
+```
+
+The script provides three options:
+
+| Option | Description |
+|--------|-------------|
+| **1. Keep my data** | Removes application but preserves database, logs, and config |
+| **2. Export & remove** | Creates backup ZIP, then removes everything |
+| **3. Remove everything** | Complete removal including all data (cannot be undone) |
+
+### Non-Interactive Mode
+
+For automation or scripting:
+
+```powershell
+# Keep data (app-only removal)
+.\uninstall-complete.ps1 -KeepData -Force
+
+# Remove everything without prompts
+.\uninstall-complete.ps1 -RemoveAll -Force
+```
+
+### What Gets Removed
+
+**Always removed:**
+- Windows Service (FuturesTradingLog)
+- Installation directory (`C:\Program Files\FuturesTradingLog`)
+- Python virtual environment
+- Scheduled tasks (auto-update, health-check)
+
+**Optionally removed (based on selection):**
+- Data directory (`C:\ProgramData\FuturesTradingLog`)
+- NSSM (only if installed by our setup script)
+
+**Never automatically removed (shared dependencies):**
+- Python
+- Git
+- Memurai/Redis
+
+To remove these shared dependencies manually:
+```powershell
+# Remove Python
+winget uninstall Python.Python.3.11
+
+# Remove Git
+winget uninstall Git.Git
+
+# Remove Memurai (via Programs and Features or installer)
+```
+
+### Service-Only Removal
+
+To remove just the Windows service (preserves application files):
+
+```powershell
+cd "C:\Program Files\FuturesTradingLog\scripts"
+.\uninstall-service.ps1
+
+# To also remove data:
+.\uninstall-service.ps1 -RemoveData
+```
+
+### Backup Location
+
+When using option 2 (Export & remove), backups are saved to your Desktop:
+```
+C:\Users\{username}\Desktop\FuturesTradingLog_Backup_{timestamp}.zip
+```
+
+The backup contains:
+- Database files (`db/`)
+- Configuration files (`config/`)
+- CSV exports of trades and positions (`csv_exports/`)
+
+### Uninstall Log
+
+A log file is preserved after uninstall for troubleshooting:
+```
+C:\Users\{username}\FuturesTradingLog_Uninstall.log
+```
+
+---
+
 ## Running Without Redis
 
 Not recommended for production use, but possible for testing:
@@ -727,8 +823,10 @@ curl http://localhost:5000/health/detailed
 
 | Script | Purpose |
 |--------|---------|
+| `scripts\setup-windows.ps1` | Automated setup of all dependencies |
 | `scripts\install-service.ps1` | Install Windows service with NSSM |
-| `scripts\uninstall-service.ps1` | Remove Windows service |
+| `scripts\uninstall-service.ps1` | Remove Windows service only |
+| `scripts\uninstall-complete.ps1` | Complete uninstall with data options |
 | `scripts\windows-auto-update.ps1` | Automatic version updates |
 | `scripts\health-check.ps1` | Health monitoring |
 
