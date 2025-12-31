@@ -25,7 +25,7 @@ Run the automated setup script to install all dependencies:
 
 ```powershell
 # Download and run setup script (if you have the repo)
-cd C:\Projects\FuturesTradingLog
+cd C:\Program Files\FuturesTradingLog
 .\scripts\setup-windows.ps1
 
 # Or with custom paths
@@ -144,7 +144,7 @@ cd FuturesTradingLog
 **Example Real Paths:**
 | Environment | Path |
 |-------------|------|
-| Development | `C:\Projects\FuturesTradingLog` |
+| Development | `C:\Program Files\FuturesTradingLog` |
 | Production-style | `C:\Program Files\FuturesTradingLog` |
 
 ### Step 2: Create Virtual Environment
@@ -179,7 +179,7 @@ New-Item -ItemType Directory -Path "$DataPath\backups" -Force
 | Use Case | Data Path |
 |----------|-----------|
 | Generic/Production | `C:\ProgramData\FuturesTradingLog` |
-| Development | `C:\Projects\FuturesTradingLog\data` |
+| Development | `C:\Program Files\FuturesTradingLog\data` |
 | Docker-equivalent | `C:\Containers\FuturesTradingLog\data` |
 
 ### Step 5: Configure Environment
@@ -324,13 +324,13 @@ C:\ProgramData\FuturesTradingLog\          # DATA_DIR
 
 **Development Setup:**
 ```
-Project:       C:\Projects\FuturesTradingLog\
+Project:       C:\Program Files\FuturesTradingLog\
 ├── app.py
 ├── venv\
 ├── requirements.txt
 └── ...
 
-Data:          C:\Projects\FuturesTradingLog\data\
+Data:          C:\Program Files\FuturesTradingLog\data\
 ├── db\
 ├── logs\
 └── config\
@@ -338,7 +338,7 @@ Data:          C:\Projects\FuturesTradingLog\data\
 
 **Docker-Equivalent Native Setup:**
 ```
-Project:       C:\Projects\FuturesTradingLog\
+Project:       C:\Program Files\FuturesTradingLog\
 
 Data:          C:\Containers\FuturesTradingLog\data\
 ├── db\
@@ -360,14 +360,14 @@ Data:          C:\ProgramData\FuturesTradingLog\
 
 | Item | Generic Path | Example Path |
 |------|--------------|--------------|
-| **Installation** | `C:\Projects\FuturesTradingLog` | `C:\Projects\FuturesTradingLog` |
-| **Virtual Env** | `{InstallPath}\venv` | `C:\Projects\FuturesTradingLog\venv` |
-| **Python Exe** | `{InstallPath}\venv\Scripts\python.exe` | `C:\Projects\FuturesTradingLog\venv\Scripts\python.exe` |
+| **Installation** | `C:\Program Files\FuturesTradingLog` | `C:\Program Files\FuturesTradingLog` |
+| **Virtual Env** | `{InstallPath}\venv` | `C:\Program Files\FuturesTradingLog\venv` |
+| **Python Exe** | `{InstallPath}\venv\Scripts\python.exe` | `C:\Program Files\FuturesTradingLog\venv\Scripts\python.exe` |
 | **Data Root** | `C:\ProgramData\FuturesTradingLog` | `C:\Containers\FuturesTradingLog\data` |
 | **Database** | `{DataPath}\db\futures_trades_clean.db` | `C:\ProgramData\FuturesTradingLog\db\futures_trades_clean.db` |
 | **Logs** | `{DataPath}\logs\` | `C:\ProgramData\FuturesTradingLog\logs\` |
 | **Config** | `{DataPath}\config\` | `C:\ProgramData\FuturesTradingLog\config\` |
-| **.env File** | `{InstallPath}\.env` | `C:\Projects\FuturesTradingLog\.env` |
+| **.env File** | `{InstallPath}\.env` | `C:\Program Files\FuturesTradingLog\.env` |
 
 ---
 
@@ -381,7 +381,7 @@ Use the included installation script:
 
 ```powershell
 # Run as Administrator
-cd C:\Projects\FuturesTradingLog\scripts
+cd C:\Program Files\FuturesTradingLog\scripts
 .\install-service.ps1
 ```
 
@@ -401,7 +401,7 @@ cd C:\Projects\FuturesTradingLog\scripts
 # Run as Administrator
 $NssmPath = "C:\nssm\nssm.exe"
 $ServiceName = "FuturesTradingLog"
-$InstallPath = "C:\Projects\FuturesTradingLog"
+$InstallPath = "C:\Program Files\FuturesTradingLog"
 $DataPath = "C:\ProgramData\FuturesTradingLog"
 $VenvPython = "$InstallPath\venv\Scripts\python.exe"
 
@@ -477,7 +477,7 @@ Get-Content "C:\ProgramData\FuturesTradingLog\logs\service_stdout.log" -Tail 50
 
 ```powershell
 # Run as Administrator
-cd C:\Projects\FuturesTradingLog\scripts
+cd C:\Program Files\FuturesTradingLog\scripts
 .\uninstall-service.ps1
 
 # To also remove data:
@@ -496,7 +496,7 @@ The auto-update script checks GitHub for new releases and applies updates automa
 
 **Manual Update Check:**
 ```powershell
-cd C:\Projects\FuturesTradingLog\scripts
+cd C:\Program Files\FuturesTradingLog\scripts
 .\windows-auto-update.ps1 -DryRun
 ```
 
@@ -524,8 +524,8 @@ taskschd.msc
 
 **4. Action:**
 - Program: `powershell.exe`
-- Arguments: `-ExecutionPolicy Bypass -File "C:\Projects\FuturesTradingLog\scripts\windows-auto-update.ps1"`
-- Start in: `C:\Projects\FuturesTradingLog\scripts`
+- Arguments: `-ExecutionPolicy Bypass -File "C:\Program Files\FuturesTradingLog\scripts\windows-auto-update.ps1"`
+- Start in: `C:\Program Files\FuturesTradingLog\scripts`
 
 **5. Settings:**
 - Allow task to be run on demand
@@ -549,7 +549,7 @@ Equivalent to Docker's HEALTHCHECK functionality.
 ### Single Health Check
 
 ```powershell
-cd C:\Projects\FuturesTradingLog\scripts
+cd C:\Program Files\FuturesTradingLog\scripts
 .\health-check.ps1 -RunOnce
 ```
 
@@ -693,8 +693,8 @@ curl http://localhost:5000/health/detailed
 
 | Item | Path |
 |------|------|
-| Installation | `C:\Projects\FuturesTradingLog` |
-| Python | `C:\Projects\FuturesTradingLog\venv\Scripts\python.exe` |
+| Installation | `C:\Program Files\FuturesTradingLog` |
+| Python | `C:\Program Files\FuturesTradingLog\venv\Scripts\python.exe` |
 | Data | `C:\ProgramData\FuturesTradingLog` |
 | Database | `C:\ProgramData\FuturesTradingLog\db\futures_trades_clean.db` |
 | Logs | `C:\ProgramData\FuturesTradingLog\logs\` |

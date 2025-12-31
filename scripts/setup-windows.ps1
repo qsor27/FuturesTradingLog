@@ -15,7 +15,7 @@
 
 .PARAMETER InstallPath
     Where to clone/install FuturesTradingLog
-    Default: C:\Projects\FuturesTradingLog
+    Default: C:\Program Files\FuturesTradingLog
 
 .PARAMETER DataPath
     Where to store application data
@@ -42,7 +42,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$InstallPath = "C:\Projects\FuturesTradingLog",
+    [string]$InstallPath = "C:\Program Files\FuturesTradingLog",
     [string]$DataPath = "C:\ProgramData\FuturesTradingLog",
     [switch]$SkipPython,
     [switch]$SkipGit,

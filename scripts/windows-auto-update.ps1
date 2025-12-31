@@ -9,7 +9,7 @@
 
 .PARAMETER InstallPath
     Path to the FuturesTradingLog installation directory
-    Default: C:\Projects\FuturesTradingLog
+    Default: C:\Program Files\FuturesTradingLog
 
 .PARAMETER DataPath
     Path to the data directory (preserved during updates)
@@ -39,7 +39,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$InstallPath = "C:\Projects\FuturesTradingLog",
+    [string]$InstallPath = "C:\Program Files\FuturesTradingLog",
     [string]$DataPath = "C:\ProgramData\FuturesTradingLog",
     [string]$ServiceName = "FuturesTradingLog",
     [string]$DiscordWebhook = $env:DISCORD_WEBHOOK_URL,

@@ -110,7 +110,7 @@ If Pacific timezone conversion fails (missing timezone data on server):
 ### Step 3: Configure Export Path
 
 **Recommended Setup:**
-- Export Path: `C:\Projects\FuturesTradingLog\data\`
+- Export Path: `C:\Program Files\FuturesTradingLog\data\`
 - This should match your FuturesTradingLog installation directory
 
 **Alternative Setup:**
@@ -490,7 +490,7 @@ Set Create Daily Files = true
 **Cause**: The expected CSV file does not exist in the data directory.
 
 **Solution**:
-1. Check NinjaTrader export path matches: `C:\Projects\FuturesTradingLog\data\`
+1. Check NinjaTrader export path matches: `C:\Program Files\FuturesTradingLog\data\`
 2. Verify export indicator is running
 3. Confirm session date logic is enabled (`Use Session Close Date = true`)
 4. Check file naming pattern: `NinjaTrader_Executions_YYYYMMDD.csv`
@@ -564,7 +564,7 @@ Step 3: Restart After DST Transition
 [Export Path]\logs\execution_export.log
 ```
 
-Example: `C:\Projects\FuturesTradingLog\data\logs\execution_export.log`
+Example: `C:\Program Files\FuturesTradingLog\data\logs\execution_export.log`
 
 ### Log Message Types
 
@@ -584,7 +584,7 @@ Example: `C:\Projects\FuturesTradingLog\data\logs\execution_export.log`
 
 ```
 2025-11-12 16:00:00 - INFO - Pacific timezone initialized successfully
-2025-11-12 16:00:00 - INFO - Created export directory: C:\Projects\FuturesTradingLog\data\
+2025-11-12 16:00:00 - INFO - Created export directory: C:\Program Files\FuturesTradingLog\data\
 2025-11-12 16:00:00 - INFO - Created new export file: NinjaTrader_Executions_20251113.csv
 2025-11-12 16:05:30 - INFO - Server time: 2025-11-12 16:05:30 (Pacific Standard Time)
 2025-11-12 16:05:30 - INFO - Pacific time: 2025-11-12 16:05:30
@@ -687,7 +687,7 @@ The ExecutionExporter indicator automatically generates this format.
 ### Environment Variables
 
 - `ENABLE_CONTINUOUS_WATCHER=false`: Disables continuous file watcher (recommended)
-- `DATA_DIR=C:\Projects\FuturesTradingLog\data\`: Data directory path
+- `DATA_DIR=C:\Program Files\FuturesTradingLog\data\`: Data directory path
 
 ### Scheduler Configuration
 

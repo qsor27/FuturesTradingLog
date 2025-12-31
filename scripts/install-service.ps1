@@ -9,7 +9,7 @@
 
 .PARAMETER InstallPath
     Path to the FuturesTradingLog installation directory
-    Default: C:\Projects\FuturesTradingLog
+    Default: C:\Program Files\FuturesTradingLog
 
 .PARAMETER DataPath
     Path to the data directory
@@ -45,7 +45,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$InstallPath = "C:\Projects\FuturesTradingLog",
+    [string]$InstallPath = "C:\Program Files\FuturesTradingLog",
     [string]$DataPath = "C:\ProgramData\FuturesTradingLog",
     [string]$ServiceName = "FuturesTradingLog",
     [string]$NssmPath = "C:\nssm\nssm.exe",
