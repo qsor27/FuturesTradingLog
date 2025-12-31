@@ -242,30 +242,29 @@ if (Test-Path $NssmPath) {
 }
 
 # ============================================================
-# Step 4: Check/Install Memurai (Redis)
+# Step 4: Check for Redis (Optional)
 # ============================================================
 Write-Host ""
-Write-Status "Checking Redis/Memurai installation..." "STEP"
+Write-Status "Checking for Redis (optional)..." "STEP"
 
+$RedisAvailable = $false
 $MemuraiService = Get-Service -Name "Memurai" -ErrorAction SilentlyContinue
-if ($MemuraiService) {
-    Write-Status "Memurai service found (Status: $($MemuraiService.Status))" "SUCCESS"
-} else {
-    Write-Status "Memurai not installed" "WARN"
-    Write-Host ""
-    Write-Host "  Memurai (Redis for Windows) is required for full functionality."
-    Write-Host "  Please download and install from:"
-    Write-Host ""
-    Write-Host "    https://www.memurai.com/get-memurai" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  After installation, Memurai runs automatically as a Windows service."
-    Write-Host ""
+$RedisService = Get-Service -Name "Redis" -ErrorAction SilentlyContinue
 
-    $Continue = Read-Host "Continue without Redis? (y/n)"
-    if ($Continue -ne 'y') {
-        Write-Host "Please install Memurai and run this script again."
-        exit 0
-    }
+if ($MemuraiService) {
+    Write-Status "Memurai (Redis) found - caching will be enabled" "SUCCESS"
+    $RedisAvailable = $true
+} elseif ($RedisService) {
+    Write-Status "Redis found - caching will be enabled" "SUCCESS"
+    $RedisAvailable = $true
+} else {
+    Write-Status "Redis not found - caching will be disabled (app works fine without it)" "INFO"
+    Write-Host ""
+    Write-Host "  Optional: To enable caching later, you can use:" -ForegroundColor Gray
+    Write-Host "    - Docker: docker run -d -p 6379:6379 redis:alpine" -ForegroundColor Gray
+    Write-Host "    - WSL2:   sudo apt install redis-server && sudo service redis-server start" -ForegroundColor Gray
+    Write-Host "  Then set CACHE_ENABLED=true in .env" -ForegroundColor Gray
+    Write-Host ""
 }
 
 # ============================================================
@@ -367,6 +366,8 @@ Write-Status "Generating configuration..." "STEP"
 
 $SecretKey = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 64 | ForEach-Object {[char]$_})
 
+$CacheEnabled = if ($RedisAvailable) { "true" } else { "false" }
+
 $EnvContent = @"
 # FuturesTradingLog Environment Configuration
 # Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
@@ -378,8 +379,10 @@ FLASK_HOST=0.0.0.0
 FLASK_PORT=5000
 
 DATA_DIR=$DataPath
+
+# Redis caching (optional - app works without it)
 REDIS_URL=redis://localhost:6379/0
-CACHE_ENABLED=true
+CACHE_ENABLED=$CacheEnabled
 
 AUTO_IMPORT_ENABLED=false
 AUTO_IMPORT_INTERVAL=300
@@ -422,12 +425,6 @@ Write-Host ""
 Write-Host "  3. Access the web interface:"
 Write-Host "     http://localhost:5000"
 Write-Host ""
-
-if (-not $MemuraiService) {
-    Write-Host "  IMPORTANT: Install Memurai for full functionality:" -ForegroundColor Yellow
-    Write-Host "     https://www.memurai.com/get-memurai" -ForegroundColor Yellow
-    Write-Host ""
-}
 
 Write-Host "Documentation: $InstallPath\docs\WINDOWS_INSTALL.md"
 Write-Host ""
