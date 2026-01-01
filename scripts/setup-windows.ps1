@@ -334,10 +334,16 @@ if (-not (Test-Path $VenvPath)) {
 
 # Activate and install dependencies
 Write-Status "Installing Python dependencies (this may take a few minutes)..."
-& "$VenvPath\Scripts\python.exe" -m pip install --upgrade pip
 
-$PipInstall = & "$VenvPath\Scripts\pip.exe" install -r requirements.txt 2>&1
+# Temporarily allow errors so pip warnings don't stop the script
+$OldErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+
+& "$VenvPath\Scripts\python.exe" -m pip install --upgrade pip 2>&1 | Out-Null
+& "$VenvPath\Scripts\pip.exe" install -r requirements.txt
 $PipExitCode = $LASTEXITCODE
+
+$ErrorActionPreference = $OldErrorAction
 
 if ($PipExitCode -ne 0) {
     Write-Status "Failed to install Python dependencies" "ERROR"
