@@ -766,10 +766,10 @@ if __name__ == '__main__':
         logger.info("Initializing database schema...")
         with FuturesDB() as db:
             logger.info("Database schema initialized successfully")
-            print("✅ Database schema initialized successfully")
+            print("[OK] Database schema initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database schema: {e}")
-        print(f"❌ Database initialization failed: {e}")
+        print(f"[ERROR] Database initialization failed: {e}")
         raise
 
     # DEPRECATED: File watcher continuous polling for CSV files
@@ -784,7 +784,7 @@ if __name__ == '__main__':
         logger.warning("=" * 80)
         file_watcher.start()
         logger.info(f"File watcher started - checking every {config.auto_import_interval} seconds")
-        print(f"⚠️  File watcher started (deprecated) - checking every {config.auto_import_interval} seconds")
+        print(f"[WARN] File watcher started (deprecated) - checking every {config.auto_import_interval} seconds")
     else:
         logger.info("File watcher disabled (using Daily Import Scheduler at 2:05pm PT)")
         print("File watcher disabled - trade imports scheduled for 2:05pm PT daily")
@@ -815,11 +815,11 @@ if __name__ == '__main__':
         try:
             daily_import_scheduler.start()
             logger.info("Daily import scheduler started successfully")
-            print(f"✅ Daily import scheduler started - automatic import at 2:05pm PT")
+            print(f"[OK] Daily import scheduler started - automatic import at 2:05pm PT")
             print(f"   Next scheduled import: {daily_import_scheduler._get_next_import_time()}")
         except Exception as e:
             logger.warning(f"Daily import scheduler failed to start: {e}")
-            print(f"⚠️ Warning: Daily import scheduler failed to start: {e}")
+            print(f"[WARN] Daily import scheduler failed to start: {e}")
     else:
         logger.info("Daily import scheduler not available")
         print("Daily import scheduler not available")
