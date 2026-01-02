@@ -98,6 +98,19 @@ except ValueError as e:
     print(f"Prometheus trading metrics already registered: {e}")
 
 # System Health Metrics - with safe registration
+# Initialize to None first so they're always defined
+system_cpu_usage = None
+system_memory_usage = None
+system_disk_usage = None
+database_connections = None
+redis_connections = None
+background_services_status = None
+file_watcher_status = None
+cache_hit_ratio = None
+chart_load_time = None
+position_calculation_time = None
+data_sync_duration = None
+
 try:
     system_cpu_usage = Gauge('system_cpu_usage_percent', 'CPU usage percentage')
     system_memory_usage = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
@@ -115,7 +128,7 @@ try:
     position_calculation_time = Histogram('trading_position_calculation_time_seconds', 'Position calculation time')
     data_sync_duration = Histogram('trading_data_sync_duration_seconds', 'Data synchronization duration', ['instrument'])
 except ValueError as e:
-    # Metrics already registered, use existing ones
+    # Metrics already registered - they remain None and metrics collection will be skipped
     print(f"Prometheus system/performance metrics already registered: {e}")
 
 # Apply configuration
@@ -158,6 +171,11 @@ def collect_system_metrics():
     """Collect system health metrics every 30 seconds"""
     while True:
         try:
+            # Skip if metrics weren't registered (duplicate registry)
+            if system_cpu_usage is None:
+                time.sleep(30)
+                continue
+
             # CPU and Memory
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
@@ -171,7 +189,7 @@ def collect_system_metrics():
             try:
                 from services.redis_cache_service import get_cache_stats
                 stats = get_cache_stats()
-                if 'hit_ratio' in stats:
+                if cache_hit_ratio and 'hit_ratio' in stats:
                     cache_hit_ratio.set(stats['hit_ratio'])
             except Exception as e:
                 logger.debug(f"Could not collect cache stats: {e}")
@@ -180,8 +198,9 @@ def collect_system_metrics():
             try:
                 from services.background_services import get_services_status
                 services = get_services_status()
-                for service_name, is_running in services.items():
-                    background_services_status.labels(service=service_name).set(1 if is_running else 0)
+                if background_services_status:
+                    for service_name, is_running in services.items():
+                        background_services_status.labels(service=service_name).set(1 if is_running else 0)
             except Exception as e:
                 logger.debug(f"Could not collect service status: {e}")
 

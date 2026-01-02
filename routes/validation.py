@@ -540,11 +540,13 @@ def ignore_issue(issue_id: int):
 
 
 @validation_bp.route('/statistics', methods=['GET'])
+@validation_bp.route('/summary', methods=['GET'])  # Alias for frontend compatibility
 def get_statistics():
     """
     Get validation statistics
 
     GET /api/validation/statistics
+    GET /api/validation/summary (alias)
 
     Returns:
         {
