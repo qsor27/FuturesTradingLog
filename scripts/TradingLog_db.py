@@ -173,6 +173,18 @@ class FuturesDB:
             else:
                 print(f"Warning: Could not add 'deleted' column: {e}")
         
+        # Create UNIQUE constraint for deduplication (account + entry_execution_id)
+        # This enables INSERT OR IGNORE to work properly
+        try:
+            self.cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_execution
+                ON trades(account, entry_execution_id)
+                WHERE entry_execution_id IS NOT NULL AND entry_execution_id != ''
+            """)
+            print("Created/verified unique index: idx_unique_execution")
+        except Exception as e:
+            print(f"Warning: Could not create unique execution index: {e}")
+
         # Create critical indexes for performance
         indexes = [
             ("idx_entry_time", "CREATE INDEX IF NOT EXISTS idx_entry_time ON trades(entry_time)"),
@@ -339,41 +351,94 @@ class FuturesDB:
         
         return self
 
-    def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None, 
+    def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None,
                            confirmed_valid: Optional[bool] = None, reviewed: Optional[bool] = None) -> bool:
         """Update the notes and/or chart URL for a trade."""
         try:
             updates = []
             params = []
-            
+
             if chart_url is not None:
                 updates.append("chart_url = ?")
                 params.append(chart_url)
-            
+
             if notes is not None:
                 updates.append("notes = ?")
                 params.append(notes)
-                
+
             if confirmed_valid is not None:
                 updates.append("validated = ?")
                 params.append(confirmed_valid)
-                
+
             if reviewed is not None:
                 updates.append("reviewed = ?")
                 params.append(reviewed)
-            
+
             if not updates:
                 return True
-            
+
             query = f"UPDATE trades SET {', '.join(updates)} WHERE id = ?"
             params.append(trade_id)
-            
+
             self.cursor.execute(query, params)
             self.conn.commit()
             return True
-            
+
         except Exception as e:
             print(f"Error updating trade details: {e}")
+            self.conn.rollback()
+            return False
+
+    def update_trade_core_fields(self, trade_id: int, side_of_market: Optional[str] = None,
+                                  quantity: Optional[int] = None, entry_price: Optional[float] = None,
+                                  exit_price: Optional[float] = None) -> bool:
+        """Update core trade fields (side_of_market, quantity, entry_price, exit_price).
+
+        These are critical fields that affect position calculations. After updating,
+        positions should be rebuilt for the affected account/instrument.
+        """
+        try:
+            updates = []
+            params = []
+
+            if side_of_market is not None:
+                # Validate side_of_market value
+                valid_sides = ['Buy', 'Sell', 'BuyToCover', 'SellShort', 'Long', 'Short']
+                if side_of_market not in valid_sides:
+                    db_logger.error(f"Invalid side_of_market value: {side_of_market}")
+                    return False
+                updates.append("side_of_market = ?")
+                params.append(side_of_market)
+
+            if quantity is not None:
+                if quantity <= 0:
+                    db_logger.error(f"Invalid quantity value: {quantity}")
+                    return False
+                updates.append("quantity = ?")
+                params.append(quantity)
+
+            if entry_price is not None:
+                updates.append("entry_price = ?")
+                params.append(entry_price)
+
+            if exit_price is not None:
+                updates.append("exit_price = ?")
+                params.append(exit_price)
+
+            if not updates:
+                return True
+
+            query = f"UPDATE trades SET {', '.join(updates)} WHERE id = ?"
+            params.append(trade_id)
+
+            self.cursor.execute(query, params)
+            self.conn.commit()
+
+            db_logger.info(f"Updated core fields for trade {trade_id}: {updates}")
+            return True
+
+        except Exception as e:
+            db_logger.error(f"Error updating trade core fields: {e}")
             self.conn.rollback()
             return False
 

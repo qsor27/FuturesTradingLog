@@ -529,10 +529,111 @@ class UnifiedCSVImportService:
             self.logger.error(f"Error rebuilding positions: {e}")
             return {'positions_created': 0, 'trades_processed': 0}
     
+    def _detect_import_issues(self, trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Detect potential issues in imported trades based on running quantity flow.
+
+        This helps identify incorrect side_of_market classifications such as:
+        - BuyToCover with no short position
+        - Sell with no long position
+        - Adding to existing positions unexpectedly
+
+        Args:
+            trades: List of trade dictionaries that were imported
+
+        Returns:
+            List of issue dictionaries containing details about potential problems
+        """
+        if not trades:
+            return []
+
+        detected_issues = []
+        running_quantities: Dict[tuple, int] = {}
+
+        # Sort by entry_time for proper analysis
+        sorted_trades = sorted(trades, key=lambda t: t.get('entry_time', t.get('Entry Time', '')))
+
+        for trade in sorted_trades:
+            # Get trade details (handle both formats)
+            account = trade.get('Account', trade.get('account', ''))
+            instrument = trade.get('Instrument', trade.get('instrument', ''))
+            action = trade.get('action', trade.get('Side of Market', trade.get('side_of_market', '')))
+            quantity = abs(int(trade.get('quantity', trade.get('Quantity', 0))))
+            entry_time = trade.get('entry_time', trade.get('Entry Time', ''))
+
+            if not account or not instrument or not action:
+                continue
+
+            key = (account, instrument)
+            prev_qty = running_quantities.get(key, 0)
+
+            # Calculate signed quantity change
+            if action in ['Buy', 'BuyToCover']:
+                signed_change = quantity
+            elif action in ['Sell', 'SellShort']:
+                signed_change = -quantity
+            else:
+                signed_change = 0
+
+            running_qty = prev_qty + signed_change
+            running_quantities[key] = running_qty
+
+            # Detect issues
+            issue = self._detect_single_issue(action, prev_qty, running_qty)
+            if issue:
+                detected_issues.append({
+                    'account': account,
+                    'instrument': instrument,
+                    'action': action,
+                    'quantity': quantity,
+                    'prev_qty': prev_qty,
+                    'running_qty': running_qty,
+                    'issue': issue,
+                    'time': str(entry_time)
+                })
+
+        if detected_issues:
+            self.logger.warning(
+                f"Detected {len(detected_issues)} potential issues in imported trades. "
+                "Review recommended in Execution Review screen."
+            )
+
+        return detected_issues
+
+    def _detect_single_issue(self, action: str, prev_qty: int, running_qty: int) -> Optional[str]:
+        """
+        Detect potential issues with a single execution based on position state.
+
+        Args:
+            action: The execution action (Buy, Sell, BuyToCover, SellShort)
+            prev_qty: Running quantity before this execution
+            running_qty: Running quantity after this execution
+
+        Returns:
+            Issue description string if issue detected, None otherwise
+        """
+        # BuyToCover with no short position (prev_qty should be negative)
+        if action == 'BuyToCover' and prev_qty >= 0:
+            return 'BuyToCover with no short position'
+
+        # SellShort when already short (adding to short - might be intentional but flag it)
+        if action == 'SellShort' and prev_qty < 0:
+            return 'SellShort adding to existing short'
+
+        # Sell with no long position (prev_qty should be positive for a closing Sell)
+        if action == 'Sell' and prev_qty <= 0:
+            return 'Sell with no long position'
+
+        # Buy when already long (adding to long - might be intentional but flag it)
+        if action == 'Buy' and prev_qty > 0:
+            return 'Buy adding to existing long'
+
+        return None
+
     def _invalidate_cache_after_import(self, trades: List[Dict[str, Any]]) -> None:
         """
         Invalidate relevant cache entries after importing trades.
-        
+
         Args:
             trades: List of imported trades for cache invalidation
         """
@@ -647,7 +748,7 @@ class UnifiedCSVImportService:
             # Import trades to database
             if all_trades:
                 import_success = self._import_trades_to_database(all_trades)
-                
+
                 if not import_success:
                     return {
                         'success': False,
@@ -655,7 +756,10 @@ class UnifiedCSVImportService:
                         'files_processed': len(processed_files),
                         'trades_imported': 0
                     }
-                
+
+                # Detect potential issues in imported trades
+                issues_detected = self._detect_import_issues(all_trades)
+
                 # Rebuild positions
                 if FuturesDB:
                     with FuturesDB() as db:
@@ -663,20 +767,22 @@ class UnifiedCSVImportService:
                 else:
                     self.logger.warning("FuturesDB not available - skipping position rebuild")
                     position_result = {'positions_created': 0, 'trades_processed': 0}
-                
+
                 # Invalidate cache for imported trades
                 self._invalidate_cache_after_import(all_trades)
-                
+
                 # Archive processed files
                 for file_path in processed_files:
                     self._archive_file(file_path)
-                
+
                 return {
                     'success': True,
                     'files_processed': len(processed_files),
                     'trades_imported': len(all_trades),
                     'positions_created': position_result.get('positions_created', 0),
-                    'message': f'Successfully processed {len(processed_files)} files'
+                    'message': f'Successfully processed {len(processed_files)} files',
+                    'issues_detected': issues_detected,
+                    'has_issues': len(issues_detected) > 0
                 }
             else:
                 return {
@@ -723,13 +829,16 @@ class UnifiedCSVImportService:
             if trades:
                 # Import to database
                 import_success = self._import_trades_to_database(trades)
-                
+
                 if not import_success:
                     return {
                         'success': False,
                         'error': 'Failed to import trades to database'
                     }
-                
+
+                # Detect potential issues in imported trades
+                issues_detected = self._detect_import_issues(trades)
+
                 # Rebuild positions
                 if FuturesDB:
                     with FuturesDB() as db:
@@ -737,18 +846,20 @@ class UnifiedCSVImportService:
                 else:
                     self.logger.warning("FuturesDB not available - skipping position rebuild")
                     position_result = {'positions_created': 0, 'trades_processed': 0}
-                
+
                 # Invalidate cache for imported trades
                 self._invalidate_cache_after_import(trades)
-                
+
                 # Mark as processed
                 self.processed_files.add(file_path.name)
-                
+
                 return {
                     'success': True,
                     'trades_imported': len(trades),
                     'positions_created': position_result.get('positions_created', 0),
-                    'message': f'Successfully reprocessed {file_path.name}'
+                    'message': f'Successfully reprocessed {file_path.name}',
+                    'issues_detected': issues_detected,
+                    'has_issues': len(issues_detected) > 0
                 }
             else:
                 return {

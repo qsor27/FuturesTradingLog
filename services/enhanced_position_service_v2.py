@@ -129,9 +129,10 @@ class EnhancedPositionServiceV2:
         self.cursor.execute("DELETE FROM position_executions")
         self.cursor.execute("DELETE FROM positions")
 
-        # Get all trades grouped by account and instrument
+        # Get all trades grouped by account and instrument (excluding deleted trades)
         self.cursor.execute("""
             SELECT * FROM trades
+            WHERE deleted = 0 OR deleted IS NULL
             ORDER BY account, instrument, entry_time
         """)
 

@@ -918,6 +918,10 @@ class NinjaTraderImportService:
         skipped_executions = 0
         affected_combinations = set()
 
+        # Track running quantity per account+instrument for issue detection
+        running_quantities: Dict[tuple, int] = {}
+        detected_issues: List[Dict[str, Any]] = []
+
         for index, row in df.iterrows():
             try:
                 # Get execution ID (or generate fallback)
@@ -943,6 +947,39 @@ class NinjaTraderImportService:
                     instrument = str(row.get('Instrument', ''))
                     affected_combinations.add((account, instrument))
 
+                    # Detect potential issues based on running quantity
+                    action = str(row.get('Action', '')).strip()
+                    quantity = abs(int(row.get('Quantity', 0)))
+                    key = (account, instrument)
+
+                    prev_qty = running_quantities.get(key, 0)
+
+                    # Calculate signed quantity change
+                    if action in ['Buy', 'BuyToCover']:
+                        signed_change = quantity
+                    elif action in ['Sell', 'SellShort']:
+                        signed_change = -quantity
+                    else:
+                        signed_change = 0
+
+                    running_qty = prev_qty + signed_change
+                    running_quantities[key] = running_qty
+
+                    # Detect issues
+                    issue = self._detect_execution_issue(action, prev_qty, running_qty)
+                    if issue:
+                        detected_issues.append({
+                            'trade_id': trade_id,
+                            'account': account,
+                            'instrument': instrument,
+                            'action': action,
+                            'quantity': quantity,
+                            'prev_qty': prev_qty,
+                            'running_qty': running_qty,
+                            'issue': issue,
+                            'time': str(row.get('Time', ''))
+                        })
+
             except Exception as e:
                 self.logger.warning(
                     f"Error processing row {index} in {file_path.name}: {e}. "
@@ -959,14 +996,58 @@ class NinjaTraderImportService:
             f"{new_executions} new, {skipped_executions} skipped"
         )
 
+        # Log detected issues
+        if detected_issues:
+            self.logger.warning(
+                f"Detected {len(detected_issues)} potential issues in {file_path.name}. "
+                "Review recommended in Execution Review screen."
+            )
+            for issue in detected_issues:
+                self.logger.warning(
+                    f"  Issue: {issue['issue']} - {issue['account']}/{issue['instrument']} "
+                    f"Action={issue['action']} Qty={issue['quantity']} at {issue['time']}"
+                )
+
         return {
             'success': True,
             'executions_imported': new_executions,
             'executions_skipped': skipped_executions,
             'affected_accounts': len(set(a for a, _ in affected_combinations)),
             'affected_instruments': len(set(i for _, i in affected_combinations)),
-            'file': file_path.name
+            'file': file_path.name,
+            'issues_detected': detected_issues,
+            'has_issues': len(detected_issues) > 0
         }
+
+    def _detect_execution_issue(self, action: str, prev_qty: int, running_qty: int) -> Optional[str]:
+        """
+        Detect potential issues with an execution based on position state.
+
+        Args:
+            action: The execution action (Buy, Sell, BuyToCover, SellShort)
+            prev_qty: Running quantity before this execution
+            running_qty: Running quantity after this execution
+
+        Returns:
+            Issue description string if issue detected, None otherwise
+        """
+        # BuyToCover with no short position (prev_qty should be negative)
+        if action == 'BuyToCover' and prev_qty >= 0:
+            return 'BuyToCover with no short position'
+
+        # SellShort when already short (adding to short - might be intentional but flag it)
+        if action == 'SellShort' and prev_qty < 0:
+            return 'SellShort adding to existing short'
+
+        # Sell with no long position (prev_qty should be positive for a closing Sell)
+        if action == 'Sell' and prev_qty <= 0:
+            return 'Sell with no long position'
+
+        # Buy when already long (adding to long - might be intentional but flag it)
+        if action == 'Buy' and prev_qty > 0:
+            return 'Buy adding to existing long'
+
+        return None
 
     # ========================================================================
     # Execution Insertion into Trades Table (Task 4.3)
@@ -1046,6 +1127,18 @@ class NinjaTraderImportService:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check for existing execution first (belt-and-suspenders with UNIQUE index)
+            cursor.execute("""
+                SELECT id FROM trades
+                WHERE account = ? AND entry_execution_id = ?
+            """, (trade_data['account'], trade_data['entry_execution_id']))
+
+            existing = cursor.fetchone()
+            if existing:
+                conn.close()
+                self.logger.debug(f"Execution {trade_data['entry_execution_id']} already exists (id={existing[0]}), skipped")
+                return None
+
             cursor.execute("""
                 INSERT OR IGNORE INTO trades (
                     instrument, account, side_of_market, quantity,
@@ -1067,7 +1160,7 @@ class NinjaTraderImportService:
                 trade_data['dollars_gain_loss']
             ))
 
-            # Check if insert actually happened (rowcount=0 means duplicate was ignored)
+            # Check if insert actually happened (rowcount=0 means duplicate was ignored by UNIQUE constraint)
             if cursor.rowcount == 0:
                 conn.close()
                 self.logger.debug(f"Execution {trade_data['entry_execution_id']} already exists (DB constraint), skipped")

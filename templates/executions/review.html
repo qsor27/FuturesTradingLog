@@ -1,0 +1,706 @@
+{% extends "base.html" %}
+
+{% block title %}Execution Review{% endblock %}
+
+{% block extra_head %}
+<style>
+    .review-container {
+        padding: 20px;
+        max-width: 1600px;
+        margin: 0 auto;
+    }
+
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .filters-section {
+        background: var(--card-bg);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+    }
+
+    .filters-row {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .filter-group label {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .filter-group select,
+    .filter-group input {
+        padding: 8px 12px;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-color);
+        min-width: 150px;
+    }
+
+    .summary-bar {
+        background: var(--card-bg);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border: 1px solid var(--border-color);
+    }
+
+    .summary-stats {
+        display: flex;
+        gap: 30px;
+    }
+
+    .summary-stat {
+        text-align: center;
+    }
+
+    .summary-stat .value {
+        font-size: 24px;
+        font-weight: bold;
+    }
+
+    .summary-stat .label {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .summary-stat.positive .value { color: var(--positive-text); }
+    .summary-stat.negative .value { color: var(--negative-text); }
+    .summary-stat.warning .value { color: #fbbf24; }
+
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+    }
+
+    .table-container {
+        background: var(--card-bg);
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+    }
+
+    .execution-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .execution-table th,
+    .execution-table td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .execution-table th {
+        background: var(--header-bg);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+    }
+
+    .execution-table tr:hover {
+        background: var(--row-hover);
+    }
+
+    .execution-table tr.modified {
+        background: rgba(59, 130, 246, 0.1);
+    }
+
+    .execution-table tr.has-issue {
+        background: rgba(251, 191, 36, 0.1);
+    }
+
+    .side-select {
+        padding: 6px 10px;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-color);
+        min-width: 120px;
+    }
+
+    .side-select.modified {
+        border-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.1);
+    }
+
+    .side-buy { color: var(--positive-text); }
+    .side-sell { color: var(--negative-text); }
+
+    .running-qty {
+        font-weight: bold;
+        font-family: monospace;
+    }
+
+    .running-qty.long { color: var(--positive-text); }
+    .running-qty.short { color: var(--negative-text); }
+    .running-qty.flat { color: var(--text-muted); }
+
+    .issue-badge {
+        background: rgba(251, 191, 36, 0.2);
+        color: #fbbf24;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+    }
+
+    .btn {
+        padding: 8px 16px;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.2s;
+    }
+
+    .btn-primary {
+        background: #3b82f6;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #2563eb;
+    }
+
+    .btn-primary:disabled {
+        background: #1e40af;
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-danger {
+        background: #dc2626;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #b91c1c;
+    }
+
+    .btn-secondary {
+        background: var(--button-secondary);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+        background: var(--button-secondary-hover);
+    }
+
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .loading-overlay.hidden {
+        display: none;
+    }
+
+    .loading-spinner {
+        background: var(--card-bg);
+        padding: 30px;
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        color: white;
+        z-index: 1001;
+        animation: slideIn 0.3s ease;
+    }
+
+    .toast.success { background: #22c55e; }
+    .toast.error { background: #dc2626; }
+    .toast.info { background: #3b82f6; }
+
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+
+    .checkbox-cell {
+        width: 40px;
+        text-align: center;
+    }
+
+    .checkbox-cell input {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .no-data {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-muted);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="review-container">
+    <div class="page-header">
+        <h1>Execution Review</h1>
+        <div class="action-buttons">
+            <button class="btn btn-secondary" onclick="resetFilters()">Reset Filters</button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-section">
+        <div class="filters-row">
+            <div class="filter-group">
+                <label>Account</label>
+                <select id="accountFilter" onchange="loadExecutions()">
+                    <option value="">All Accounts</option>
+                    {% for account in accounts %}
+                    <option value="{{ account }}">{{ account }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Instrument</label>
+                <select id="instrumentFilter" onchange="loadExecutions()">
+                    <option value="">All Instruments</option>
+                    {% for instrument in instruments %}
+                    <option value="{{ instrument }}">{{ instrument }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Start Date</label>
+                <input type="date" id="startDate" onchange="loadExecutions()">
+            </div>
+            <div class="filter-group">
+                <label>End Date</label>
+                <input type="date" id="endDate" onchange="loadExecutions()">
+            </div>
+            <div class="filter-group">
+                <button class="btn btn-primary" onclick="loadExecutions()">Apply Filters</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Bar -->
+    <div class="summary-bar">
+        <div class="summary-stats">
+            <div class="summary-stat">
+                <div class="value" id="totalCount">0</div>
+                <div class="label">Total Executions</div>
+            </div>
+            <div class="summary-stat" id="finalQtyStat">
+                <div class="value" id="finalQty">0</div>
+                <div class="label">Final Position</div>
+            </div>
+            <div class="summary-stat warning">
+                <div class="value" id="issueCount">0</div>
+                <div class="label">Potential Issues</div>
+            </div>
+            <div class="summary-stat">
+                <div class="value" id="modifiedCount">0</div>
+                <div class="label">Pending Changes</div>
+            </div>
+        </div>
+        <div class="action-buttons">
+            <button class="btn btn-danger" id="deleteBtn" onclick="deleteSelected()" disabled>
+                Delete Selected (<span id="selectedCount">0</span>)
+            </button>
+            <button class="btn btn-primary" id="saveBtn" onclick="saveChanges()" disabled>
+                Save Changes
+            </button>
+            <button class="btn btn-secondary" id="rebuildBtn" onclick="rebuildPositions()">
+                Recalculate Positions
+            </button>
+        </div>
+    </div>
+
+    <!-- Execution Table -->
+    <div class="table-container">
+        <table class="execution-table">
+            <thead>
+                <tr>
+                    <th class="checkbox-cell">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                    </th>
+                    <th>ID</th>
+                    <th>Time</th>
+                    <th>Side</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Running Qty</th>
+                    <th>Issue</th>
+                    <th>Execution ID</th>
+                </tr>
+            </thead>
+            <tbody id="executionTableBody">
+                <tr>
+                    <td colspan="9" class="no-data">Select filters and click "Apply Filters" to load executions</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="loading-spinner">
+        <div>Loading...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let executions = [];
+    let pendingChanges = {};
+    let affectedPositions = new Set();
+
+    async function loadExecutions() {
+        const account = document.getElementById('accountFilter').value;
+        const instrument = document.getElementById('instrumentFilter').value;
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+
+        showLoading();
+
+        try {
+            const params = new URLSearchParams();
+            if (account) params.append('account', account);
+            if (instrument) params.append('instrument', instrument);
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            const response = await fetch(`/executions/api/list?${params}`);
+            const data = await response.json();
+
+            if (data.success) {
+                executions = data.executions;
+                renderTable();
+                updateSummary(data);
+            } else {
+                showToast('Error loading executions: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error loading executions: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('executionTableBody');
+
+        if (executions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="no-data">No executions found</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = executions.map(exec => {
+            const isModified = pendingChanges[exec.id];
+            const currentSide = isModified ? pendingChanges[exec.id].side_of_market : exec.side_of_market;
+            const sideClass = currentSide.includes('Buy') ? 'side-buy' : 'side-sell';
+            const qtyClass = exec.running_qty > 0 ? 'long' : exec.running_qty < 0 ? 'short' : 'flat';
+            const rowClass = (isModified ? 'modified' : '') + (exec.issue ? ' has-issue' : '');
+
+            return `
+                <tr class="${rowClass}" data-id="${exec.id}">
+                    <td class="checkbox-cell">
+                        <input type="checkbox" class="row-checkbox" value="${exec.id}" onchange="updateSelectedCount()">
+                    </td>
+                    <td>${exec.id}</td>
+                    <td>${exec.entry_time}</td>
+                    <td>
+                        <select class="side-select ${isModified ? 'modified' : ''} ${sideClass}"
+                                data-id="${exec.id}"
+                                data-original="${exec.side_of_market}"
+                                onchange="handleSideChange(this)">
+                            <option value="Buy" ${currentSide === 'Buy' ? 'selected' : ''}>Buy</option>
+                            <option value="Sell" ${currentSide === 'Sell' ? 'selected' : ''}>Sell</option>
+                            <option value="BuyToCover" ${currentSide === 'BuyToCover' ? 'selected' : ''}>BuyToCover</option>
+                            <option value="SellShort" ${currentSide === 'SellShort' ? 'selected' : ''}>SellShort</option>
+                        </select>
+                    </td>
+                    <td>${exec.quantity}</td>
+                    <td>${exec.price ? exec.price.toFixed(2) : '-'}</td>
+                    <td class="running-qty ${qtyClass}">${exec.running_qty}</td>
+                    <td>${exec.issue ? `<span class="issue-badge">${exec.issue}</span>` : ''}</td>
+                    <td style="font-size: 11px; color: var(--text-muted);">${exec.execution_id || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function handleSideChange(select) {
+        const id = parseInt(select.dataset.id);
+        const original = select.dataset.original;
+        const newValue = select.value;
+
+        if (newValue !== original) {
+            pendingChanges[id] = { id, side_of_market: newValue };
+            select.classList.add('modified');
+            select.closest('tr').classList.add('modified');
+
+            // Track affected position
+            const exec = executions.find(e => e.id === id);
+            if (exec) {
+                affectedPositions.add(`${exec.account}|${exec.instrument}`);
+            }
+        } else {
+            delete pendingChanges[id];
+            select.classList.remove('modified');
+            select.closest('tr').classList.remove('modified');
+        }
+
+        updateModifiedCount();
+    }
+
+    function updateSummary(data) {
+        document.getElementById('totalCount').textContent = data.count;
+        document.getElementById('finalQty').textContent = data.final_quantity;
+
+        const finalQtyStat = document.getElementById('finalQtyStat');
+        finalQtyStat.className = 'summary-stat';
+        if (data.final_quantity > 0) {
+            finalQtyStat.classList.add('positive');
+        } else if (data.final_quantity < 0) {
+            finalQtyStat.classList.add('negative');
+        }
+
+        const issueCount = data.executions.filter(e => e.issue).length;
+        document.getElementById('issueCount').textContent = issueCount;
+    }
+
+    function updateModifiedCount() {
+        const count = Object.keys(pendingChanges).length;
+        document.getElementById('modifiedCount').textContent = count;
+        document.getElementById('saveBtn').disabled = count === 0;
+    }
+
+    function updateSelectedCount() {
+        const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+        const count = checkboxes.length;
+        document.getElementById('selectedCount').textContent = count;
+        document.getElementById('deleteBtn').disabled = count === 0;
+    }
+
+    function toggleSelectAll() {
+        const selectAll = document.getElementById('selectAll').checked;
+        document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = selectAll);
+        updateSelectedCount();
+    }
+
+    async function saveChanges() {
+        if (Object.keys(pendingChanges).length === 0) return;
+
+        showLoading();
+
+        try {
+            const response = await fetch('/executions/api/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updates: Object.values(pendingChanges) })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(`Updated ${data.updated_count} executions`, 'success');
+                pendingChanges = {};
+                updateModifiedCount();
+                await loadExecutions();
+            } else {
+                showToast('Error saving changes: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error saving changes: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function deleteSelected() {
+        const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+        const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+        if (ids.length === 0) return;
+
+        if (!confirm(`Are you sure you want to delete ${ids.length} execution(s)?`)) {
+            return;
+        }
+
+        showLoading();
+
+        try {
+            const response = await fetch('/executions/api/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trade_ids: ids })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(`Deleted ${data.deleted_count} executions`, 'success');
+
+                // Track affected positions for rebuild
+                data.affected_positions.forEach(([account, instrument]) => {
+                    affectedPositions.add(`${account}|${instrument}`);
+                });
+
+                await loadExecutions();
+            } else {
+                showToast('Error deleting executions: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error deleting executions: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function rebuildPositions() {
+        showLoading();
+
+        try {
+            const positions = Array.from(affectedPositions).map(p => p.split('|'));
+
+            const response = await fetch('/executions/api/rebuild-positions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ affected_positions: positions })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(data.message, 'success');
+                affectedPositions.clear();
+            } else {
+                showToast('Error rebuilding positions: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error rebuilding positions: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    function resetFilters() {
+        document.getElementById('accountFilter').value = '';
+        document.getElementById('instrumentFilter').value = '';
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+        executions = [];
+        pendingChanges = {};
+        renderTable();
+        updateModifiedCount();
+        updateSelectedCount();
+        document.getElementById('totalCount').textContent = '0';
+        document.getElementById('finalQty').textContent = '0';
+        document.getElementById('issueCount').textContent = '0';
+    }
+
+    function showLoading() {
+        document.getElementById('loadingOverlay').classList.remove('hidden');
+    }
+
+    function hideLoading() {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => toast.remove(), 4000);
+    }
+
+    // Initialize filters from URL parameters on page load
+    function initFromUrlParams() {
+        const urlParams = new URLSearchParams(window.location.search);
+
+        const account = urlParams.get('account');
+        const instrument = urlParams.get('instrument');
+        const startDate = urlParams.get('start_date');
+        const endDate = urlParams.get('end_date');
+
+        let hasFilters = false;
+
+        if (account) {
+            const accountSelect = document.getElementById('accountFilter');
+            // Check if the account exists in the dropdown
+            const option = Array.from(accountSelect.options).find(opt => opt.value === account);
+            if (option) {
+                accountSelect.value = account;
+                hasFilters = true;
+            }
+        }
+
+        if (instrument) {
+            const instrumentSelect = document.getElementById('instrumentFilter');
+            // Check if the instrument exists in the dropdown
+            const option = Array.from(instrumentSelect.options).find(opt => opt.value === instrument);
+            if (option) {
+                instrumentSelect.value = instrument;
+                hasFilters = true;
+            }
+        }
+
+        if (startDate) {
+            document.getElementById('startDate').value = startDate;
+            hasFilters = true;
+        }
+
+        if (endDate) {
+            document.getElementById('endDate').value = endDate;
+            hasFilters = true;
+        }
+
+        // Auto-load executions if filters were applied from URL
+        if (hasFilters) {
+            loadExecutions();
+        }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', initFromUrlParams);
+</script>
+{% endblock %}

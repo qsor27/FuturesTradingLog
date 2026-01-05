@@ -140,20 +140,20 @@ def update_notes(trade_id):
     chart_url = data.get('chart_url', '')
     validated = data.get('validated', False)
     reviewed = data.get('reviewed', False)
-    
+
     # Get auto_update_positions parameter (default: true)
     auto_update_positions = data.get('auto_update_positions', True)
-    
+
     try:
         with FuturesDB() as db:
             success = db.update_trade_details(trade_id, chart_url=chart_url, notes=notes,
                                              confirmed_valid=validated, reviewed=reviewed)
-        
+
         response_data = {
             'success': success,
             'auto_update_positions': auto_update_positions
         }
-        
+
         # Trigger automatic position updates if enabled and update was successful
         if success and auto_update_positions:
             try:
@@ -163,24 +163,102 @@ def update_notes(trade_id):
                     if trade:
                         account = trade.get('account')
                         instrument = trade.get('instrument')
-                        
+
                         if account and instrument:
                             # Trigger synchronous position update for single trade
                             with EnhancedPositionServiceV2() as position_service:
                                 result = position_service.rebuild_positions_for_account_instrument(account, instrument)
                                 response_data['position_update'] = result
-                                
+
                                 logger.info(f"Triggered position update for trade {trade_id}: {account}/{instrument}")
-                        
+
             except Exception as pos_error:
                 logger.error(f"Error triggering position update for trade {trade_id}: {pos_error}")
                 response_data['position_update_warning'] = f"Position update failed: {str(pos_error)}"
-        
+
         return jsonify(response_data)
-        
+
     except Exception as e:
         logger.error(f"Error in update_notes for trade {trade_id}: {e}")
         return jsonify({'success': False, 'error': str(e)})
+
+
+@trades_bp.route('/update-core-fields/<int:trade_id>', methods=['POST'])
+def update_core_fields(trade_id):
+    """Update core trade fields (side_of_market, quantity, entry_price, exit_price).
+
+    These fields affect position calculations, so positions are automatically rebuilt.
+    """
+    data = request.get_json()
+
+    # Extract core fields from request
+    side_of_market = data.get('side_of_market')
+    quantity = data.get('quantity')
+    entry_price = data.get('entry_price')
+    exit_price = data.get('exit_price')
+
+    # Get auto_update_positions parameter (default: true for core field updates)
+    auto_update_positions = data.get('auto_update_positions', True)
+
+    try:
+        # Get trade details before update for position rebuild
+        with FuturesDB() as db:
+            trade = db.get_trade_by_id(trade_id)
+            if not trade:
+                return jsonify({'success': False, 'error': 'Trade not found'}), 404
+
+            account = trade.get('account')
+            instrument = trade.get('instrument')
+
+        # Update the core fields
+        with FuturesDB() as db:
+            success = db.update_trade_core_fields(
+                trade_id,
+                side_of_market=side_of_market,
+                quantity=int(quantity) if quantity is not None else None,
+                entry_price=float(entry_price) if entry_price is not None else None,
+                exit_price=float(exit_price) if exit_price is not None else None
+            )
+
+        if not success:
+            return jsonify({'success': False, 'error': 'Failed to update trade fields'}), 400
+
+        response_data = {
+            'success': True,
+            'trade_id': trade_id,
+            'updated_fields': {
+                k: v for k, v in {
+                    'side_of_market': side_of_market,
+                    'quantity': quantity,
+                    'entry_price': entry_price,
+                    'exit_price': exit_price
+                }.items() if v is not None
+            },
+            'auto_update_positions': auto_update_positions
+        }
+
+        # Trigger automatic position rebuild since core fields affect positions
+        if auto_update_positions and account and instrument:
+            try:
+                with EnhancedPositionServiceV2() as position_service:
+                    result = position_service.rebuild_positions_for_account_instrument(account, instrument)
+                    response_data['position_update'] = result
+
+                    logger.info(f"Rebuilt positions after core field update for trade {trade_id}: {account}/{instrument}")
+
+            except Exception as pos_error:
+                logger.error(f"Error rebuilding positions for trade {trade_id}: {pos_error}")
+                response_data['position_update_warning'] = f"Position rebuild failed: {str(pos_error)}"
+
+        return jsonify(response_data)
+
+    except ValueError as ve:
+        logger.error(f"Invalid value in update_core_fields for trade {trade_id}: {ve}")
+        return jsonify({'success': False, 'error': f'Invalid value: {str(ve)}'}), 400
+
+    except Exception as e:
+        logger.error(f"Error in update_core_fields for trade {trade_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @trades_bp.context_processor
 def utility_processor():
