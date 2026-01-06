@@ -18,10 +18,10 @@ Create the base `uninstall-complete.ps1` script with:
 - `scripts/uninstall-complete.ps1` (create)
 
 **Acceptance Criteria:**
-- [ ] Script has all parameters defined with defaults
-- [ ] Administrator check exits with clear message if not elevated
-- [ ] Logging writes to `%USERPROFILE%\FuturesTradingLog_Uninstall.log`
-- [ ] Main function structure in place
+- [x] Script has all parameters defined with defaults
+- [x] Administrator check exits with clear message if not elevated
+- [x] Logging writes to `%USERPROFILE%\FuturesTradingLog_Uninstall.log`
+- [x] Main function structure in place
 
 ---
 
@@ -37,12 +37,12 @@ Implement functions to detect all installed components:
 - `scripts/uninstall-complete.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Detects Windows service and its status
-- [ ] Detects installation directory with size
-- [ ] Detects data directory with breakdown (db, logs, config)
-- [ ] Counts trades in database using Python/sqlite
-- [ ] Detects NSSM and whether we installed it
-- [ ] Detects any FuturesTradingLog scheduled tasks
+- [x] Detects Windows service and its status
+- [x] Detects installation directory with size
+- [x] Detects data directory with breakdown (db, logs, config)
+- [x] Counts trades in database using Python/sqlite
+- [x] Detects NSSM and whether we installed it
+- [x] Detects any FuturesTradingLog scheduled tasks
 
 ---
 
@@ -58,13 +58,13 @@ Implement backup functionality:
 - `scripts/uninstall-complete.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Creates backup directory with timestamp
-- [ ] Copies database files to backup
-- [ ] Copies config files to backup
-- [ ] Exports trades to CSV format
-- [ ] Creates ZIP archive of backup
-- [ ] Returns path to created backup
-- [ ] Handles missing database gracefully
+- [x] Creates backup directory with timestamp
+- [x] Copies database files to backup
+- [x] Copies config files to backup
+- [x] Exports trades to CSV format
+- [x] Creates ZIP archive of backup
+- [x] Returns path to created backup
+- [x] Handles missing database gracefully
 
 ---
 
@@ -82,13 +82,13 @@ Implement removal functions:
 - `scripts/uninstall-complete.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Stops service before removal
-- [ ] Kills any Python processes from our venv
-- [ ] Removes installation directory completely
-- [ ] Removes data directory if requested
-- [ ] Only removes NSSM if marker file exists and no other services use it
-- [ ] Removes all FuturesTradingLog scheduled tasks
-- [ ] Each function returns success/failure status
+- [x] Stops service before removal
+- [x] Kills any Python processes from our venv
+- [x] Removes installation directory completely
+- [x] Removes data directory if requested
+- [x] Only removes NSSM if marker file exists and no other services use it
+- [x] Removes all FuturesTradingLog scheduled tasks
+- [x] Each function returns success/failure status
 
 ---
 
@@ -104,12 +104,12 @@ Implement the user interface:
 - `scripts/uninstall-complete.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Shows formatted list of detected components
-- [ ] Displays sizes in human-readable format (MB, KB)
-- [ ] Shows trade count from database
-- [ ] Presents 4 options (keep data, export & remove, remove all, cancel)
-- [ ] Requires explicit confirmation for data removal
-- [ ] Shows progress during uninstall
+- [x] Shows formatted list of detected components
+- [x] Displays sizes in human-readable format (MB, KB)
+- [x] Shows trade count from database
+- [x] Presents 4 options (keep data, export & remove, remove all, cancel)
+- [x] Requires explicit confirmation for data removal
+- [x] Shows progress during uninstall
 
 ---
 
@@ -126,13 +126,13 @@ Implement the main uninstall flow:
 - `scripts/uninstall-complete.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Orchestrates full uninstall flow
-- [ ] Handles all three removal options
-- [ ] Creates backup when option 2 selected
-- [ ] Verifies each removal step succeeded
-- [ ] Reports any components that couldn't be removed
-- [ ] Shows final summary
-- [ ] Provides reinstall instructions
+- [x] Orchestrates full uninstall flow
+- [x] Handles all three removal options
+- [x] Creates backup when option 2 selected
+- [x] Verifies each removal step succeeded
+- [x] Reports any components that couldn't be removed
+- [x] Shows final summary
+- [x] Provides reinstall instructions
 
 ---
 
@@ -145,9 +145,9 @@ Modify setup script to create marker file when NSSM is installed.
 - `scripts/setup-windows.ps1` (modify)
 
 **Acceptance Criteria:**
-- [ ] Creates `.installed-by-ftl` marker file when NSSM is installed
-- [ ] Marker includes installation timestamp
-- [ ] Existing installations without marker handled gracefully
+- [x] Creates `.installed-by-ftl` marker file when NSSM is installed
+- [x] Marker includes installation timestamp
+- [x] Existing installations without marker handled gracefully
 
 ---
 
@@ -160,11 +160,11 @@ Update Windows installation documentation with uninstall instructions.
 - `docs/WINDOWS_INSTALL.md` (modify)
 
 **Acceptance Criteria:**
-- [ ] Documents `uninstall-complete.ps1` usage
-- [ ] Explains all options (keep data, export, remove all)
-- [ ] Documents backup location and contents
-- [ ] Explains what is and isn't removed
-- [ ] Provides manual cleanup steps for shared dependencies
+- [x] Documents `uninstall-complete.ps1` usage
+- [x] Explains all options (keep data, export, remove all)
+- [x] Documents backup location and contents
+- [x] Explains what is and isn't removed
+- [x] Provides manual cleanup steps for shared dependencies
 
 ---
 
@@ -174,14 +174,14 @@ Update Windows installation documentation with uninstall instructions.
 Test the uninstall script thoroughly.
 
 **Test Cases:**
-- [ ] Full uninstall on complete installation
-- [ ] Uninstall with data preservation
-- [ ] Uninstall with data export
-- [ ] Partial installation (missing components)
-- [ ] NSSM used by other services (should not be removed)
-- [ ] Locked files handling
-- [ ] Backup archive integrity
-- [ ] CSV export data verification
+- [x] Full uninstall on complete installation
+- [x] Uninstall with data preservation
+- [x] Uninstall with data export
+- [x] Partial installation (missing components)
+- [x] NSSM used by other services (should not be removed)
+- [x] Locked files handling
+- [x] Backup archive integrity
+- [x] CSV export data verification
 
 ---
 
