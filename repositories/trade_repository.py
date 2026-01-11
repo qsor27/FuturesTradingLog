@@ -107,10 +107,10 @@ class TradeRepository(BaseRepository):
                     instrument, side_of_market, quantity, entry_price, entry_time,
                     exit_time, exit_price, points_gain_loss, dollars_gain_loss,
                     commission, account, chart_url, notes, validated, reviewed,
-                    entry_execution_id, link_group_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    entry_execution_id, link_group_id, source_file, import_batch_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
-            
+
             params = (
                 trade_data.get('instrument'),
                 trade_data.get('side_of_market'),
@@ -128,7 +128,9 @@ class TradeRepository(BaseRepository):
                 trade_data.get('validated', False),
                 trade_data.get('reviewed', False),
                 trade_data.get('entry_execution_id'),
-                trade_data.get('link_group_id')
+                trade_data.get('link_group_id'),
+                trade_data.get('source_file'),
+                trade_data.get('import_batch_id')
             )
             
             self._execute_with_monitoring(

@@ -32,6 +32,8 @@ import json
 import shutil
 import threading
 import sqlite3
+import hashlib
+import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set
@@ -301,6 +303,22 @@ class NinjaTraderImportService:
         except Exception as e:
             self.logger.error(f"CSV validation error for {file_path.name}: {e}")
             return False
+
+    def _compute_file_hash(self, file_path: Path) -> str:
+        """
+        Compute SHA-256 hash of file contents for tracking.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Hex string of file hash
+        """
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
 
     def _parse_csv(self, file_path: Path) -> Optional[pd.DataFrame]:
         """
@@ -863,8 +881,18 @@ class NinjaTraderImportService:
                     'file': file_path.name
                 }
 
+            # Generate unique import batch ID for this import run
+            import_batch_id = str(uuid.uuid4())
+
+            # Compute file hash for tracking
+            file_hash = self._compute_file_hash(file_path)
+
             # Process executions incrementally
-            result = self._process_executions(df, file_path)
+            result = self._process_executions(
+                df, file_path,
+                import_batch_id=import_batch_id,
+                file_hash=file_hash
+            )
 
             # Archive file if conditions met
             if result['success'] and self._should_archive_file(file_path, result['success']):
@@ -885,7 +913,13 @@ class NinjaTraderImportService:
                 'file': file_path.name
             }
 
-    def _process_executions(self, df: pd.DataFrame, file_path: Path) -> Dict[str, Any]:
+    def _process_executions(
+        self,
+        df: pd.DataFrame,
+        file_path: Path,
+        import_batch_id: str = None,
+        file_hash: str = None
+    ) -> Dict[str, Any]:
         """
         Process executions from DataFrame.
 
@@ -903,6 +937,8 @@ class NinjaTraderImportService:
         Args:
             df: DataFrame with execution data
             file_path: Source file path
+            import_batch_id: Unique ID for this import batch (for tracking)
+            file_hash: SHA-256 hash of the source file (for tracking)
 
         Returns:
             Dictionary with processing results
@@ -937,7 +973,11 @@ class NinjaTraderImportService:
 
                 # Insert execution into database
                 # Uses INSERT OR IGNORE as backup for any Redis failures
-                trade_id = self._insert_execution(row)
+                trade_id = self._insert_execution(
+                    row,
+                    source_file=file_path.name,
+                    import_batch_id=import_batch_id
+                )
 
                 if trade_id:
                     new_executions += 1
@@ -1008,6 +1048,17 @@ class NinjaTraderImportService:
                     f"Action={issue['action']} Qty={issue['quantity']} at {issue['time']}"
                 )
 
+        # Record import in history table (only if we imported new trades)
+        if new_executions > 0 and import_batch_id and file_hash:
+            accounts_list = list(set(a for a, _ in affected_combinations))
+            self._record_import_history(
+                file_path=file_path,
+                file_hash=file_hash,
+                import_batch_id=import_batch_id,
+                trades_imported=new_executions,
+                accounts_affected=accounts_list
+            )
+
         return {
             'success': True,
             'executions_imported': new_executions,
@@ -1016,7 +1067,8 @@ class NinjaTraderImportService:
             'affected_instruments': len(set(i for _, i in affected_combinations)),
             'file': file_path.name,
             'issues_detected': detected_issues,
-            'has_issues': len(detected_issues) > 0
+            'has_issues': len(detected_issues) > 0,
+            'import_batch_id': import_batch_id
         }
 
     def _detect_execution_issue(self, action: str, prev_qty: int, running_qty: int) -> Optional[str]:
@@ -1050,10 +1102,86 @@ class NinjaTraderImportService:
         return None
 
     # ========================================================================
+    # Trade Labeling Using E/X Column
+    # ========================================================================
+
+    def _determine_side_of_market(self, action: str, entry_exit: str) -> str:
+        """
+        Determine correct side_of_market using both Action and E/X columns.
+
+        The E/X column from NinjaTrader is critical for disambiguating trades:
+        - "Sell" can mean close-long (E/X=Exit) OR open-short (E/X=Entry)
+        - "Buy" can mean open-long (E/X=Entry) OR close-short (E/X=Exit)
+
+        Mapping rules:
+        - E/X=Entry + Action=Sell     → SellShort (opening short)
+        - E/X=Entry + Action=Buy      → Buy (opening long)
+        - E/X=Exit  + Action=Sell     → Sell (closing long)
+        - E/X=Exit  + Action=Buy      → BuyToCover (closing short)
+        - E/X=Exit  + Action=BuyToCover → BuyToCover (closing short)
+        - E/X=Entry + Action=SellShort → SellShort (opening short)
+
+        Args:
+            action: CSV Action column value (Buy, Sell, BuyToCover, SellShort)
+            entry_exit: CSV E/X column value (Entry, Exit)
+
+        Returns:
+            Correct side_of_market string (Buy, Sell, BuyToCover, SellShort)
+        """
+        # Normalize E/X to handle variations
+        is_entry = entry_exit.lower() == 'entry'
+        is_exit = entry_exit.lower() == 'exit'
+
+        if action == 'Buy':
+            if is_entry:
+                return 'Buy'  # Opening long
+            elif is_exit:
+                return 'BuyToCover'  # Closing short
+            else:
+                # E/X missing or invalid - default to original action, log warning
+                self.logger.warning(
+                    f"Missing/invalid E/X value '{entry_exit}' for Buy action. "
+                    "Defaulting to Buy (opening long)."
+                )
+                return 'Buy'
+
+        elif action == 'Sell':
+            if is_entry:
+                return 'SellShort'  # Opening short
+            elif is_exit:
+                return 'Sell'  # Closing long
+            else:
+                # E/X missing or invalid - default to Sell, log warning
+                self.logger.warning(
+                    f"Missing/invalid E/X value '{entry_exit}' for Sell action. "
+                    "Defaulting to Sell (closing long). This may be incorrect!"
+                )
+                return 'Sell'
+
+        elif action == 'BuyToCover':
+            # BuyToCover is always closing a short, regardless of E/X
+            return 'BuyToCover'
+
+        elif action == 'SellShort':
+            # SellShort is always opening a short, regardless of E/X
+            return 'SellShort'
+
+        else:
+            self.logger.warning(
+                f"Unknown action: '{action}'. Defaulting to Buy."
+            )
+            return 'Buy'
+
+    # ========================================================================
     # Execution Insertion into Trades Table (Task 4.3)
     # ========================================================================
 
-    def _insert_execution(self, row: Dict) -> Optional[int]:
+    def _insert_execution(
+        self,
+        row: Dict,
+        source_file: str = None,
+        import_batch_id: str = None
+    ) -> Optional[int]:
         """
         Insert single execution into trades table.
 
@@ -1068,6 +1196,8 @@ class NinjaTraderImportService:
 
         Args:
             row: CSV row data
+            source_file: Name of the source CSV file
+            import_batch_id: Unique ID for this import batch
 
         Returns:
             Trade ID if successful, None otherwise
@@ -1077,31 +1207,25 @@ class NinjaTraderImportService:
             commission_str = str(row.get('Commission', '0'))
             commission = float(commission_str.replace('$', ''))
 
-            # Map Action to side_of_market and determine entry/exit price
+            # Map Action + E/X to side_of_market and determine entry/exit price
             # NinjaTrader exports: "Buy", "Sell", "BuyToCover", "SellShort"
+            # E/X column: "Entry" or "Exit" - critical for disambiguating Sell/Buy actions
             action = str(row.get('Action', '')).strip()
+            entry_exit = str(row.get('E/X', '')).strip()
 
-            if action == 'Buy':
-                side_of_market = 'Buy'
-                entry_price = float(row.get('Price', 0))
-                exit_price = None
-            elif action == 'Sell':
-                side_of_market = 'Sell'
-                entry_price = None
-                exit_price = float(row.get('Price', 0))
-            elif action == 'BuyToCover':
-                side_of_market = 'BuyToCover'
-                entry_price = None
-                exit_price = float(row.get('Price', 0))
-            elif action == 'SellShort':
-                side_of_market = 'SellShort'
-                entry_price = float(row.get('Price', 0))
+            # Determine side_of_market using E/X column for correct labeling
+            side_of_market = self._determine_side_of_market(action, entry_exit)
+
+            # Set entry/exit price based on whether this is an opening or closing trade
+            price = float(row.get('Price', 0))
+            if side_of_market in ('Buy', 'SellShort'):
+                # Opening trades have entry price
+                entry_price = price
                 exit_price = None
             else:
-                self.logger.warning(f"Unknown action: {action}. Defaulting to Buy.")
-                side_of_market = 'Buy'
-                entry_price = float(row.get('Price', 0))
-                exit_price = None
+                # Closing trades (Sell, BuyToCover) have exit price
+                entry_price = None
+                exit_price = price
 
             # Parse timestamp (format: "M/d/yyyy h:mm:ss tt")
             time_str = str(row.get('Time', ''))
@@ -1120,7 +1244,9 @@ class NinjaTraderImportService:
                 'entry_execution_id': str(row.get('ID', '')),
                 'commission': commission,
                 'points_gain_loss': None,
-                'dollars_gain_loss': None
+                'dollars_gain_loss': None,
+                'source_file': source_file,
+                'import_batch_id': import_batch_id
             }
 
             # Insert into database (use atomic transaction)
@@ -1143,8 +1269,9 @@ class NinjaTraderImportService:
                 INSERT OR IGNORE INTO trades (
                     instrument, account, side_of_market, quantity,
                     entry_price, exit_price, entry_time, exit_time,
-                    entry_execution_id, commission, points_gain_loss, dollars_gain_loss
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    entry_execution_id, commission, points_gain_loss, dollars_gain_loss,
+                    source_file, import_batch_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade_data['instrument'],
                 trade_data['account'],
@@ -1157,7 +1284,9 @@ class NinjaTraderImportService:
                 trade_data['entry_execution_id'],
                 trade_data['commission'],
                 trade_data['points_gain_loss'],
-                trade_data['dollars_gain_loss']
+                trade_data['dollars_gain_loss'],
+                trade_data['source_file'],
+                trade_data['import_batch_id']
             ))
 
             # Check if insert actually happened (rowcount=0 means duplicate was ignored by UNIQUE constraint)
@@ -1176,6 +1305,63 @@ class NinjaTraderImportService:
         except Exception as e:
             self.logger.error(f"Error inserting execution: {e}", exc_info=True)
             return None
+
+    def _record_import_history(
+        self,
+        file_path: Path,
+        file_hash: str,
+        import_batch_id: str,
+        trades_imported: int,
+        accounts_affected: List[str]
+    ) -> None:
+        """
+        Record import in history table for tracking and orphan detection.
+
+        Args:
+            file_path: Path to the source CSV file
+            file_hash: SHA-256 hash of the file
+            import_batch_id: Unique ID for this import batch
+            trades_imported: Number of trades imported
+            accounts_affected: List of account names affected
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Check if import_history table exists (handle older databases)
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='import_history'
+            """)
+            if not cursor.fetchone():
+                self.logger.warning("import_history table not found, skipping history record")
+                conn.close()
+                return
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO import_history (
+                    file_name, original_path, file_hash, import_batch_id,
+                    trades_imported, accounts_affected
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                file_path.name,
+                str(file_path.absolute()),
+                file_hash,
+                import_batch_id,
+                trades_imported,
+                json.dumps(accounts_affected)
+            ))
+
+            conn.commit()
+            conn.close()
+
+            self.logger.debug(
+                f"Recorded import history: {file_path.name} "
+                f"(batch={import_batch_id[:8]}..., {trades_imported} trades)"
+            )
+
+        except Exception as e:
+            self.logger.warning(f"Could not record import history: {e}")
 
     def _parse_ninjatrader_timestamp(self, timestamp_str: str) -> Optional[str]:
         """

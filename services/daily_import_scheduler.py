@@ -254,6 +254,125 @@ class DailyImportScheduler:
 
         except Exception as e:
             logger.warning(f"Failed to record import completion to Redis: {e}")
+    def _catch_up_missed_imports(self) -> Dict[str, Any]:
+        """
+        Catch up on any missed imports at startup.
+
+        This ensures that if the container/computer was not running during the
+        scheduled import time, any unprocessed CSV files will be imported.
+        """
+        logger.info("=" * 80)
+        logger.info("STARTUP CATCH-UP: Checking for missed imports...")
+        logger.info("=" * 80)
+
+        try:
+            csv_pattern = "NinjaTrader_Executions_*.csv"
+            data_path = Path(self.data_dir) if isinstance(self.data_dir, str) else self.data_dir
+            csv_files = sorted(data_path.glob(csv_pattern))
+
+            if not csv_files:
+                logger.info("No CSV files found to check")
+                return {'success': True, 'files_checked': 0, 'files_caught_up': 0}
+
+            logger.info(f"Found {len(csv_files)} CSV files to check")
+
+            files_caught_up = 0
+            total_executions = 0
+            caught_up_files = []
+
+            for csv_file in csv_files:
+                try:
+                    date_str = csv_file.stem.split('_')[-1]
+                    datetime.strptime(date_str, '%Y%m%d')
+                except (IndexError, ValueError):
+                    logger.warning(f"Skipping file with invalid date format: {csv_file.name}")
+                    continue
+
+                if self._has_been_imported(date_str):
+                    logger.debug(f"Already imported: {csv_file.name}")
+                    continue
+
+                file_date = datetime.strptime(date_str, '%Y%m%d')
+                if file_date.weekday() >= 5:
+                    logger.debug(f"Skipping weekend file: {csv_file.name}")
+                    continue
+
+                logger.info(f"CATCH-UP: Importing missed file {csv_file.name}...")
+
+                try:
+                    import_result = self.import_service.process_csv_file(csv_file)
+
+                    if import_result.get('success', False):
+                        executions = import_result.get('executions_imported', 0)
+                        total_executions += executions
+                        files_caught_up += 1
+                        caught_up_files.append(csv_file.name)
+                        self._record_catch_up_import(date_str, import_result)
+
+                        instruments = self._extract_instruments_from_csv(csv_file)
+                        if instruments:
+                            self._trigger_ohlc_sync(instruments=instruments, reason=f"catch_up_{date_str}")
+
+                        logger.info(f"  Imported {executions} executions from {csv_file.name}")
+                    else:
+                        logger.warning(f"  Failed to import {csv_file.name}: {import_result.get('error', 'Unknown')}")
+
+                except Exception as e:
+                    logger.error(f"  Error importing {csv_file.name}: {e}")
+                    continue
+
+            if files_caught_up > 0:
+                logger.info("=" * 80)
+                logger.info(f"CATCH-UP COMPLETE: {files_caught_up} files, {total_executions} executions")
+                logger.info(f"Files caught up: {', '.join(caught_up_files)}")
+                logger.info("=" * 80)
+            else:
+                logger.info("No missed imports to catch up - all files already processed")
+
+            return {
+                'success': True,
+                'files_checked': len(csv_files),
+                'files_caught_up': files_caught_up,
+                'total_executions': total_executions,
+                'caught_up_files': caught_up_files
+            }
+
+        except Exception as e:
+            logger.error(f"Error during catch-up: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+
+    def _has_been_imported(self, date_str: str) -> bool:
+        """Check if a date's import has already been completed."""
+        if not self._redis_client:
+            return False
+        try:
+            redis_key = f'daily_import:last_scheduled:{date_str}'
+            return self._redis_client.exists(redis_key) > 0
+        except Exception as e:
+            logger.warning(f"Redis check failed for {date_str}: {e}")
+            return False
+
+    def _record_catch_up_import(self, date_str: str, result: Dict[str, Any]) -> None:
+        """Record a catch-up import to Redis."""
+        if not self._redis_client:
+            logger.debug("Redis not available, skipping catch-up record")
+            return
+
+        try:
+            redis_key = f'daily_import:last_scheduled:{date_str}'
+            import_record = {
+                'timestamp': datetime.now(self.pacific_tz).isoformat(),
+                'success': result.get('success', False),
+                'executions_imported': result.get('executions_imported', 0),
+                'type': 'catch_up',
+                'note': 'Imported during startup catch-up'
+            }
+            self._redis_client.setex(redis_key, 30 * 24 * 60 * 60, json.dumps(import_record))
+            logger.info(f"Recorded catch-up import to Redis: {redis_key}")
+        except Exception as e:
+            logger.warning(f"Failed to record catch-up import to Redis: {e}")
+
+
 
     def start(self):
         """
@@ -267,6 +386,11 @@ class DailyImportScheduler:
             return
 
         logger.info("Starting daily import scheduler...")
+
+        # CRITICAL: Catch up on any missed imports BEFORE starting the scheduler
+        catch_up_result = self._catch_up_missed_imports()
+        if catch_up_result.get('files_caught_up', 0) > 0:
+            logger.info(f"Catch-up completed: {catch_up_result['files_caught_up']} files imported")
 
         # Create BackgroundScheduler with Pacific timezone
         self._scheduler = BackgroundScheduler(timezone=self.pacific_tz)

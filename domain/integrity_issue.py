@@ -19,6 +19,8 @@ class IssueType(Enum):
     INCOMPLETE_DATA = "incomplete_data"
     DUPLICATE_EXECUTION = "duplicate_execution"
     POSITION_WITHOUT_EXECUTIONS = "position_without_executions"
+    POSITION_NOT_FLAT = "position_not_flat"  # Running quantity != 0 at end of day
+    ORPHAN_SOURCE_FILE = "orphan_source_file"  # Trade's source CSV file is missing
     OTHER = "other"
 
 

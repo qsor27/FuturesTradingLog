@@ -1,9 +1,15 @@
 """
 Execution Review Routes - For reviewing and correcting trade executions
+
+Includes reconciliation endpoints for:
+- Detecting non-flat positions
+- Identifying orphan trades from missing CSV files
+- User management of reconciliation issues
 """
 from flask import Blueprint, render_template, request, jsonify
 from scripts.TradingLog_db import FuturesDB
 from services.enhanced_position_service_v2 import EnhancedPositionServiceV2
+from services.reconciliation_service import get_reconciliation_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -251,4 +257,152 @@ def rebuild_positions():
 
     except Exception as e:
         logger.error(f"Error rebuilding positions: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# Reconciliation API Endpoints
+# ============================================================================
+
+@execution_review_bp.route('/api/reconciliation-summary')
+def reconciliation_summary():
+    """Get summary of current reconciliation status"""
+    try:
+        service = get_reconciliation_service()
+        summary = service.get_reconciliation_summary()
+
+        return jsonify({
+            'success': True,
+            'data': summary
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting reconciliation summary: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@execution_review_bp.route('/api/reconciliation-issues')
+def list_reconciliation_issues():
+    """Get list of accounts with non-flat positions"""
+    try:
+        account = request.args.get('account')
+        service = get_reconciliation_service()
+
+        non_flat_accounts = service.check_account_positions(account)
+
+        return jsonify({
+            'success': True,
+            'issues': non_flat_accounts,
+            'count': len(non_flat_accounts)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting reconciliation issues: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@execution_review_bp.route('/api/trade-sequence/<account>')
+def get_trade_sequence(account):
+    """Get trade sequence with running quantity for an account"""
+    try:
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        service = get_reconciliation_service()
+        trades = service.get_account_trade_sequence(account, start_date, end_date)
+
+        # Calculate final running quantity
+        final_qty = trades[-1]['running_quantity'] if trades else 0
+
+        return jsonify({
+            'success': True,
+            'account': account,
+            'trades': trades,
+            'count': len(trades),
+            'final_quantity': final_qty
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting trade sequence for {account}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@execution_review_bp.route('/api/orphan-trades')
+def list_orphan_trades():
+    """Get list of orphan trades (from missing source files)"""
+    try:
+        account = request.args.get('account')
+        service = get_reconciliation_service()
+
+        orphans = service.detect_orphan_trades(account)
+
+        # Also get trades without any source tracking
+        untracked = service.get_trades_without_source(account)
+
+        return jsonify({
+            'success': True,
+            'orphan_files': orphans,
+            'orphan_file_count': len(orphans),
+            'orphan_trade_count': sum(o['trade_count'] for o in orphans),
+            'untracked_trades': untracked,
+            'untracked_count': len(untracked)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting orphan trades: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@execution_review_bp.route('/api/orphan-trades/delete', methods=['POST'])
+def delete_orphan_trades():
+    """Delete orphan trades by trade IDs"""
+    try:
+        data = request.get_json()
+        trade_ids = data.get('trade_ids', [])
+
+        if not trade_ids:
+            return jsonify({'success': False, 'error': 'No trade IDs provided'}), 400
+
+        with FuturesDB() as db:
+            # Get affected positions before deletion
+            affected_positions = set()
+            for trade_id in trade_ids:
+                trade = db.get_trade_by_id(trade_id)
+                if trade:
+                    affected_positions.add((trade['account'], trade['instrument']))
+
+            # Delete trades (hard delete for orphans)
+            placeholders = ','.join('?' * len(trade_ids))
+            db.cursor.execute(
+                f"DELETE FROM trades WHERE id IN ({placeholders})",
+                trade_ids
+            )
+            deleted_count = db.cursor.rowcount
+            db.conn.commit()
+
+            return jsonify({
+                'success': True,
+                'deleted_count': deleted_count,
+                'affected_positions': list(affected_positions)
+            })
+
+    except Exception as e:
+        logger.error(f"Error deleting orphan trades: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@execution_review_bp.route('/api/run-reconciliation', methods=['POST'])
+def run_reconciliation():
+    """Run daily reconciliation check manually"""
+    try:
+        service = get_reconciliation_service()
+        results = service.run_daily_reconciliation()
+
+        return jsonify({
+            'success': True,
+            'results': results
+        })
+
+    except Exception as e:
+        logger.error(f"Error running reconciliation: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

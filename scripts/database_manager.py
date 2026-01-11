@@ -114,6 +114,10 @@ class DatabaseManager:
             db_logger.info("Database schema created successfully")
         else:
             db_logger.debug("Database schema already exists")
+            # Run migrations for existing databases
+            self._run_migrations()
+            self._create_indexes()  # Ensure indexes exist
+            self.conn.commit()
     
     def _create_tables(self):
         """Create all required database tables"""
@@ -140,7 +144,9 @@ class DatabaseManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 link_group_id INTEGER,
                 entry_execution_id TEXT,
-                deleted BOOLEAN DEFAULT 0
+                deleted BOOLEAN DEFAULT 0,
+                source_file TEXT,
+                import_batch_id TEXT
             )
         """)
         
@@ -238,6 +244,21 @@ class DatabaseManager:
             )
         """)
         
+        # Import history table for tracking source files
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS import_history (
+                id INTEGER PRIMARY KEY,
+                file_name TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                import_batch_id TEXT NOT NULL UNIQUE,
+                archive_path TEXT,
+                trades_imported INTEGER DEFAULT 0,
+                accounts_affected TEXT
+            )
+        """)
+
         # Initialize default chart settings
         self.cursor.execute("SELECT COUNT(*) FROM chart_settings")
         if self.cursor.fetchone()[0] == 0:
@@ -261,6 +282,13 @@ class DatabaseManager:
             "CREATE INDEX IF NOT EXISTS idx_trades_side_entry_time ON trades(side_of_market, entry_time)",
             "CREATE INDEX IF NOT EXISTS idx_trades_exit_time ON trades(exit_time)",
             "CREATE INDEX IF NOT EXISTS idx_trades_deleted ON trades(deleted)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_source_file ON trades(source_file)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_import_batch_id ON trades(import_batch_id)",
+
+            # Import history indexes
+            "CREATE INDEX IF NOT EXISTS idx_import_history_file_name ON import_history(file_name)",
+            "CREATE INDEX IF NOT EXISTS idx_import_history_import_batch_id ON import_history(import_batch_id)",
+            "CREATE INDEX IF NOT EXISTS idx_import_history_import_time ON import_history(import_time DESC)",
             
             # OHLC data indexes  
             "CREATE INDEX IF NOT EXISTS idx_ohlc_instrument_timeframe_timestamp ON ohlc_data(instrument, timeframe, timestamp)",
@@ -297,6 +325,56 @@ class DatabaseManager:
                 self.cursor.execute(index_sql)
             except Exception as e:
                 db_logger.warning(f"Could not create index: {e}")
+
+    def _run_migrations(self):
+        """Run database migrations for existing databases"""
+        db_logger.info("Running database migrations...")
+
+        # Migration 1: Add source_file and import_batch_id columns to trades table
+        self._migrate_trades_source_tracking()
+
+        # Migration 2: Create import_history table
+        self._migrate_import_history_table()
+
+        db_logger.info("Database migrations completed")
+
+    def _migrate_trades_source_tracking(self):
+        """Add source_file and import_batch_id columns to trades table if missing"""
+        # Check which columns exist
+        self.cursor.execute("PRAGMA table_info(trades)")
+        existing_columns = {row[1] for row in self.cursor.fetchall()}
+
+        # Add source_file column if missing
+        if 'source_file' not in existing_columns:
+            try:
+                self.cursor.execute("ALTER TABLE trades ADD COLUMN source_file TEXT")
+                db_logger.info("Added source_file column to trades table")
+            except Exception as e:
+                db_logger.warning(f"Could not add source_file column: {e}")
+
+        # Add import_batch_id column if missing
+        if 'import_batch_id' not in existing_columns:
+            try:
+                self.cursor.execute("ALTER TABLE trades ADD COLUMN import_batch_id TEXT")
+                db_logger.info("Added import_batch_id column to trades table")
+            except Exception as e:
+                db_logger.warning(f"Could not add import_batch_id column: {e}")
+
+    def _migrate_import_history_table(self):
+        """Create import_history table if it doesn't exist"""
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS import_history (
+                id INTEGER PRIMARY KEY,
+                file_name TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                import_batch_id TEXT NOT NULL UNIQUE,
+                archive_path TEXT,
+                trades_imported INTEGER DEFAULT 0,
+                accounts_affected TEXT
+            )
+        """)
     
     def _initialize_repositories(self):
         """Initialize all repository instances"""

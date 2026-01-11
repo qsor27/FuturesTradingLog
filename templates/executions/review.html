@@ -270,6 +270,114 @@
         padding: 40px;
         color: var(--text-muted);
     }
+
+    /* Reconciliation Panel Styles */
+    .reconciliation-panel {
+        background: var(--card-bg);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+    }
+
+    .reconciliation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .reconciliation-header h3 {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .reconciliation-header .badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: normal;
+    }
+
+    .reconciliation-header .badge.alert {
+        background: #dc2626;
+        color: white;
+    }
+
+    .reconciliation-header .badge.ok {
+        background: #22c55e;
+        color: white;
+    }
+
+    .reconciliation-content {
+        margin-top: 15px;
+        display: none;
+    }
+
+    .reconciliation-content.show {
+        display: block;
+    }
+
+    .recon-section {
+        margin-bottom: 15px;
+        padding: 12px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 6px;
+    }
+
+    .recon-section h4 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: var(--text-muted);
+    }
+
+    .recon-issue-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .recon-issue-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        background: var(--card-bg);
+        border-radius: 4px;
+        border-left: 3px solid #fbbf24;
+    }
+
+    .recon-issue-item.critical {
+        border-left-color: #dc2626;
+    }
+
+    .recon-issue-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .recon-issue-info .account {
+        font-weight: bold;
+    }
+
+    .recon-issue-info .details {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .recon-issue-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .btn-sm {
+        padding: 5px 10px;
+        font-size: 12px;
+    }
 </style>
 {% endblock %}
 
@@ -313,6 +421,41 @@
             </div>
             <div class="filter-group">
                 <button class="btn btn-primary" onclick="loadExecutions()">Apply Filters</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reconciliation Panel -->
+    <div class="reconciliation-panel" id="reconciliationPanel">
+        <div class="reconciliation-header" onclick="toggleReconciliation()">
+            <h3>
+                Reconciliation Status
+                <span class="badge" id="reconBadge">Loading...</span>
+            </h3>
+            <span id="reconToggle">&#9660;</span>
+        </div>
+        <div class="reconciliation-content" id="reconContent">
+            <!-- Non-Flat Accounts Section -->
+            <div class="recon-section" id="nonFlatSection">
+                <h4>Non-Flat Positions</h4>
+                <div class="recon-issue-list" id="nonFlatList">
+                    <div class="no-data">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Orphan Trades Section -->
+            <div class="recon-section" id="orphanSection">
+                <h4>Orphan Trades (Missing Source Files)</h4>
+                <div class="recon-issue-list" id="orphanList">
+                    <div class="no-data">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn btn-secondary" onclick="runReconciliation()">
+                    Run Reconciliation Check
+                </button>
             </div>
         </div>
     </div>
@@ -702,5 +845,238 @@
 
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', initFromUrlParams);
+
+    // ========================================================================
+    // Reconciliation Panel Functions
+    // ========================================================================
+
+    let reconExpanded = false;
+
+    function toggleReconciliation() {
+        reconExpanded = !reconExpanded;
+        const content = document.getElementById('reconContent');
+        const toggle = document.getElementById('reconToggle');
+
+        if (reconExpanded) {
+            content.classList.add('show');
+            toggle.innerHTML = '&#9650;';
+            loadReconciliationData();
+        } else {
+            content.classList.remove('show');
+            toggle.innerHTML = '&#9660;';
+        }
+    }
+
+    async function loadReconciliationData() {
+        try {
+            // Load summary and issues in parallel
+            const [summaryRes, issuesRes, orphansRes] = await Promise.all([
+                fetch('/executions/api/reconciliation-summary'),
+                fetch('/executions/api/reconciliation-issues'),
+                fetch('/executions/api/orphan-trades')
+            ]);
+
+            const summary = await summaryRes.json();
+            const issues = await issuesRes.json();
+            const orphans = await orphansRes.json();
+
+            // Update badge
+            const badge = document.getElementById('reconBadge');
+            if (summary.success && summary.data.has_issues) {
+                badge.textContent = `${summary.data.non_flat_account_count + summary.data.orphan_file_count} Issues`;
+                badge.className = 'badge alert';
+            } else {
+                badge.textContent = 'OK';
+                badge.className = 'badge ok';
+            }
+
+            // Render non-flat accounts
+            renderNonFlatList(issues.success ? issues.issues : []);
+
+            // Render orphan trades
+            renderOrphanList(orphans.success ? orphans : { orphan_files: [], untracked_count: 0 });
+
+        } catch (error) {
+            console.error('Error loading reconciliation data:', error);
+            document.getElementById('reconBadge').textContent = 'Error';
+            document.getElementById('reconBadge').className = 'badge alert';
+        }
+    }
+
+    function renderNonFlatList(issues) {
+        const container = document.getElementById('nonFlatList');
+
+        if (issues.length === 0) {
+            container.innerHTML = '<div class="no-data" style="padding: 10px;">All positions are flat</div>';
+            return;
+        }
+
+        container.innerHTML = issues.map(issue => `
+            <div class="recon-issue-item ${Math.abs(issue.running_quantity) > 5 ? 'critical' : ''}">
+                <div class="recon-issue-info">
+                    <span class="account">${issue.account}</span>
+                    <span class="details">
+                        Running: ${issue.running_quantity > 0 ? '+' : ''}${issue.running_quantity} |
+                        ${issue.trade_count} trades |
+                        ${issue.date_range}
+                    </span>
+                </div>
+                <div class="recon-issue-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="reviewAccount('${issue.account}')">
+                        Review Trades
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderOrphanList(data) {
+        const container = document.getElementById('orphanList');
+
+        if (data.orphan_files.length === 0 && data.untracked_count === 0) {
+            container.innerHTML = '<div class="no-data" style="padding: 10px;">No orphan trades detected</div>';
+            return;
+        }
+
+        let html = '';
+
+        // Orphan files
+        data.orphan_files.forEach(orphan => {
+            html += `
+                <div class="recon-issue-item critical">
+                    <div class="recon-issue-info">
+                        <span class="account">Missing: ${orphan.source_file}</span>
+                        <span class="details">
+                            ${orphan.trade_count} trades |
+                            Accounts: ${orphan.accounts.join(', ')} |
+                            ${orphan.date_range}
+                        </span>
+                    </div>
+                    <div class="recon-issue-actions">
+                        <button class="btn btn-sm btn-danger" onclick="deleteOrphans(${JSON.stringify(orphan.trade_ids)})">
+                            Delete Orphans
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Untracked trades info
+        if (data.untracked_count > 0) {
+            html += `
+                <div class="recon-issue-item">
+                    <div class="recon-issue-info">
+                        <span class="account">Legacy Trades (no source tracking)</span>
+                        <span class="details">${data.untracked_count} trades imported before source tracking was enabled</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+    }
+
+    function reviewAccount(account) {
+        // Set the account filter and load executions
+        document.getElementById('accountFilter').value = account;
+        loadExecutions();
+
+        // Scroll to the table
+        document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function deleteOrphans(tradeIds) {
+        if (!confirm(`Are you sure you want to delete ${tradeIds.length} orphan trades? This cannot be undone.`)) {
+            return;
+        }
+
+        showLoading();
+
+        try {
+            const response = await fetch('/executions/api/orphan-trades/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trade_ids: tradeIds })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(`Deleted ${data.deleted_count} orphan trades`, 'success');
+
+                // Track affected positions
+                data.affected_positions.forEach(([account, instrument]) => {
+                    affectedPositions.add(`${account}|${instrument}`);
+                });
+
+                // Refresh reconciliation data
+                loadReconciliationData();
+
+                // Refresh execution list if showing
+                if (executions.length > 0) {
+                    loadExecutions();
+                }
+            } else {
+                showToast('Error deleting orphans: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error deleting orphans: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    async function runReconciliation() {
+        showLoading();
+
+        try {
+            const response = await fetch('/executions/api/run-reconciliation', {
+                method: 'POST'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const results = data.results;
+                if (results.has_issues) {
+                    showToast(`Reconciliation found ${results.non_flat_accounts.length} non-flat accounts and ${results.orphan_trades.length} orphan file issues`, 'warning');
+                } else {
+                    showToast('Reconciliation passed - no issues found', 'success');
+                }
+
+                // Refresh the panel
+                loadReconciliationData();
+            } else {
+                showToast('Error running reconciliation: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showToast('Error running reconciliation: ' + error.message, 'error');
+        } finally {
+            hideLoading();
+        }
+    }
+
+    // Load reconciliation summary on page load (badge only)
+    async function loadReconciliationSummary() {
+        try {
+            const response = await fetch('/executions/api/reconciliation-summary');
+            const data = await response.json();
+
+            const badge = document.getElementById('reconBadge');
+            if (data.success && data.data.has_issues) {
+                const issueCount = data.data.non_flat_account_count + data.data.orphan_file_count;
+                badge.textContent = `${issueCount} Issue${issueCount > 1 ? 's' : ''}`;
+                badge.className = 'badge alert';
+            } else {
+                badge.textContent = 'OK';
+                badge.className = 'badge ok';
+            }
+        } catch (error) {
+            document.getElementById('reconBadge').textContent = 'Error';
+        }
+    }
+
+    // Initialize reconciliation summary
+    document.addEventListener('DOMContentLoaded', loadReconciliationSummary);
 </script>
 {% endblock %}
