@@ -524,3 +524,317 @@ def get_import_history():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# ========================================================================
+# Import History Database Endpoints (Phase 5)
+# ========================================================================
+
+@csv_management_bp.route('/imports/history')
+def get_db_import_history():
+    """
+    Get database-backed import history.
+
+    Returns list of imported files from the import_history table,
+    including file names, trade counts, and import times.
+
+    Query params:
+        limit: Max records to return (default: 100)
+        offset: Records to skip for pagination (default: 0)
+    """
+    import sqlite3
+    try:
+        limit = min(int(request.args.get('limit', 100)), 500)
+        offset = int(request.args.get('offset', 0))
+
+        conn = sqlite3.connect(str(config.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get total count
+        cursor.execute("SELECT COUNT(*) FROM import_history")
+        total = cursor.fetchone()[0]
+
+        # Get paginated history
+        cursor.execute("""
+            SELECT
+                id,
+                file_name,
+                original_path,
+                file_hash,
+                import_time,
+                import_batch_id,
+                archive_path,
+                trades_imported,
+                accounts_affected
+            FROM import_history
+            ORDER BY import_time DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+
+        imports = []
+        for row in cursor.fetchall():
+            imports.append({
+                'id': row['id'],
+                'file_name': row['file_name'],
+                'original_path': row['original_path'],
+                'file_hash': row['file_hash'],
+                'import_time': row['import_time'],
+                'import_batch_id': row['import_batch_id'],
+                'archive_path': row['archive_path'],
+                'trades_imported': row['trades_imported'],
+                'accounts_affected': row['accounts_affected'].split(',') if row['accounts_affected'] else []
+            })
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+            'imports': imports
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting database import history: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/imports/<import_batch_id>/trades')
+def get_trades_by_import(import_batch_id: str):
+    """
+    Get trades imported from a specific batch/file.
+
+    Args:
+        import_batch_id: The import batch UUID
+
+    Returns:
+        List of trades from that import batch
+    """
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(config.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # First get import info
+        cursor.execute("""
+            SELECT file_name, import_time, trades_imported
+            FROM import_history
+            WHERE import_batch_id = ?
+        """, (import_batch_id,))
+
+        import_info = cursor.fetchone()
+        if not import_info:
+            return jsonify({
+                'success': False,
+                'error': f'Import batch not found: {import_batch_id}'
+            }), 404
+
+        # Get trades from this batch
+        cursor.execute("""
+            SELECT
+                id, account, instrument, side_of_market, quantity,
+                entry_price, exit_price, entry_time, exit_time,
+                profit_loss, entry_execution_id, source_file
+            FROM trades
+            WHERE import_batch_id = ? AND (deleted = 0 OR deleted IS NULL)
+            ORDER BY entry_time
+        """, (import_batch_id,))
+
+        trades = []
+        for row in cursor.fetchall():
+            trades.append(dict(row))
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'import_batch_id': import_batch_id,
+            'file_name': import_info['file_name'],
+            'import_time': import_info['import_time'],
+            'expected_count': import_info['trades_imported'],
+            'actual_count': len(trades),
+            'trades': trades
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting trades for import {import_batch_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/imports/orphans')
+def get_orphan_imports():
+    """
+    Get trades whose source CSV files are missing.
+
+    Compares trades.source_file against existing files in data/ and archive/
+    directories to find orphan trades.
+
+    Query params:
+        account: Optional account filter
+    """
+    import sqlite3
+    try:
+        account = request.args.get('account')
+
+        conn = sqlite3.connect(str(config.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Get all unique source files from trades
+        query = """
+            SELECT DISTINCT source_file
+            FROM trades
+            WHERE (deleted = 0 OR deleted IS NULL)
+              AND source_file IS NOT NULL
+              AND source_file != ''
+        """
+        params = []
+
+        if account:
+            query += " AND account = ?"
+            params.append(account)
+
+        cursor.execute(query, params)
+        source_files = [row['source_file'] for row in cursor.fetchall()]
+
+        # Check which files exist in data/ or archive/
+        data_dir = config.data_dir
+        archive_dir = data_dir / 'archive'
+
+        missing_files = []
+        for filename in source_files:
+            file_path = data_dir / filename
+            archive_path = archive_dir / filename
+
+            if not file_path.exists() and not archive_path.exists():
+                missing_files.append(filename)
+
+        # Get trades from missing files
+        orphan_details = []
+        total_orphan_trades = 0
+
+        for filename in missing_files:
+            query = """
+                SELECT
+                    COUNT(*) as trade_count,
+                    GROUP_CONCAT(DISTINCT account) as accounts,
+                    MIN(entry_time) as first_trade,
+                    MAX(entry_time) as last_trade,
+                    GROUP_CONCAT(id) as trade_ids
+                FROM trades
+                WHERE (deleted = 0 OR deleted IS NULL)
+                  AND source_file = ?
+            """
+            params = [filename]
+
+            if account:
+                query += " AND account = ?"
+                params.append(account)
+
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+
+            if row and row['trade_count'] > 0:
+                orphan_details.append({
+                    'source_file': filename,
+                    'trade_count': row['trade_count'],
+                    'accounts': row['accounts'].split(',') if row['accounts'] else [],
+                    'date_range': f"{row['first_trade']} to {row['last_trade']}",
+                    'trade_ids': [int(x) for x in row['trade_ids'].split(',')] if row['trade_ids'] else []
+                })
+                total_orphan_trades += row['trade_count']
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'missing_file_count': len(missing_files),
+            'total_orphan_trades': total_orphan_trades,
+            'orphan_files': orphan_details
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting orphan imports: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@csv_management_bp.route('/imports/by-file/<filename>')
+def get_import_by_filename(filename: str):
+    """
+    Get import history for a specific file by name.
+
+    Args:
+        filename: The CSV filename (e.g., NinjaTrader_Executions_20251225.csv)
+
+    Returns:
+        Import record(s) for this file
+    """
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(config.db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT
+                id,
+                file_name,
+                original_path,
+                file_hash,
+                import_time,
+                import_batch_id,
+                archive_path,
+                trades_imported,
+                accounts_affected
+            FROM import_history
+            WHERE file_name = ?
+            ORDER BY import_time DESC
+        """, (filename,))
+
+        imports = []
+        for row in cursor.fetchall():
+            imports.append({
+                'id': row['id'],
+                'file_name': row['file_name'],
+                'original_path': row['original_path'],
+                'file_hash': row['file_hash'],
+                'import_time': row['import_time'],
+                'import_batch_id': row['import_batch_id'],
+                'archive_path': row['archive_path'],
+                'trades_imported': row['trades_imported'],
+                'accounts_affected': row['accounts_affected'].split(',') if row['accounts_affected'] else []
+            })
+
+        conn.close()
+
+        if not imports:
+            return jsonify({
+                'success': False,
+                'error': f'No import history found for file: {filename}'
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'file_name': filename,
+            'import_count': len(imports),
+            'imports': imports
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting import by filename {filename}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
