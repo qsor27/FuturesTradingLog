@@ -177,6 +177,19 @@ class DailyImportScheduler:
             logger.warning("Scheduled imports will proceed without deduplication protection")
             self._redis_client = None
 
+    def _get_csv_file_path(self, date_str: str) -> Optional[Path]:
+        """Get the path to the CSV file for a given date."""
+        data_path = Path(self.data_dir) if isinstance(self.data_dir, str) else self.data_dir
+        file_path = data_path / f"NinjaTrader_Executions_{date_str}.csv"
+        return file_path if file_path.exists() else None
+
+    def _get_file_mtime(self, file_path: Path) -> Optional[float]:
+        """Get the modification time of a file."""
+        try:
+            return file_path.stat().st_mtime
+        except Exception:
+            return None
+
     def _should_run_scheduled_import(self) -> Tuple[bool, str]:
         """
         Check if scheduled import should run.
@@ -184,6 +197,7 @@ class DailyImportScheduler:
         Checks:
         1. Is it a weekend? (Skip Saturday/Sunday)
         2. Has today's import already run? (Check Redis)
+        3. Has the file been modified since last import? (Re-import if updated)
 
         Returns:
             (should_run, reason) tuple
@@ -198,17 +212,31 @@ class DailyImportScheduler:
         if weekday == 6:  # Sunday
             return False, "market closed (Sunday)"
 
-        # Check 2: Has today's import already run?
+        # Check 2: Has today's import already run AND file not modified since?
         if self._redis_client:
             try:
                 redis_key = f'daily_import:last_scheduled:{today_str}'
                 if self._redis_client.exists(redis_key):
-                    # Get the existing record for logging
                     existing = self._redis_client.get(redis_key)
                     if existing:
                         try:
                             record = json.loads(existing)
                             prev_time = record.get('timestamp', 'unknown time')
+                            recorded_mtime = record.get('file_mtime')
+
+                            # Check if file has been modified since last import
+                            file_path = self._get_csv_file_path(today_str)
+                            if file_path:
+                                current_mtime = self._get_file_mtime(file_path)
+                                if current_mtime and recorded_mtime:
+                                    if current_mtime > recorded_mtime:
+                                        logger.info(f"File modified since last import (recorded: {recorded_mtime}, current: {current_mtime})")
+                                        return True, "file modified since last import"
+                                elif current_mtime and not recorded_mtime:
+                                    # File exists but no mtime was recorded - re-import to be safe
+                                    logger.info("No file mtime recorded in previous import, re-importing")
+                                    return True, "no file mtime recorded previously"
+
                             return False, f"already completed for {today_str} at {prev_time}"
                         except json.JSONDecodeError:
                             pass
@@ -223,6 +251,7 @@ class DailyImportScheduler:
         Record successful scheduled import to Redis.
 
         This prevents duplicate imports if the container restarts.
+        Stores file modification time to detect if file is updated after import.
 
         Args:
             result: Import result dictionary
@@ -235,12 +264,17 @@ class DailyImportScheduler:
             today_str = datetime.now(self.pacific_tz).strftime('%Y%m%d')
             redis_key = f'daily_import:last_scheduled:{today_str}'
 
+            # Get file modification time for change detection
+            file_path = self._get_csv_file_path(today_str)
+            file_mtime = self._get_file_mtime(file_path) if file_path else None
+
             import_record = {
                 'timestamp': datetime.now(self.pacific_tz).isoformat(),
                 'success': result.get('success', False),
                 'executions_imported': result.get('total_executions', 0),
                 'files_processed': result.get('files_processed', 0),
-                'positions_rebuilt': result.get('positions_rebuilt', 0)
+                'positions_rebuilt': result.get('positions_rebuilt', 0),
+                'file_mtime': file_mtime  # Track file modification time
             }
 
             # Set with 7-day TTL for automatic cleanup
@@ -250,7 +284,7 @@ class DailyImportScheduler:
                 json.dumps(import_record)
             )
 
-            logger.info(f"Recorded scheduled import completion to Redis: {redis_key}")
+            logger.info(f"Recorded scheduled import completion to Redis: {redis_key} (file_mtime: {file_mtime})")
 
         except Exception as e:
             logger.warning(f"Failed to record import completion to Redis: {e}")
@@ -342,33 +376,72 @@ class DailyImportScheduler:
             return {'success': False, 'error': str(e)}
 
     def _has_been_imported(self, date_str: str) -> bool:
-        """Check if a date's import has already been completed."""
+        """
+        Check if a date's import has already been completed.
+
+        Also checks if the file has been modified since the last import.
+        Returns False if file was modified (needs re-import).
+        """
         if not self._redis_client:
             return False
         try:
             redis_key = f'daily_import:last_scheduled:{date_str}'
-            return self._redis_client.exists(redis_key) > 0
+            if not self._redis_client.exists(redis_key):
+                return False
+
+            # Check if file has been modified since last import
+            existing = self._redis_client.get(redis_key)
+            if existing:
+                try:
+                    record = json.loads(existing)
+                    recorded_mtime = record.get('file_mtime')
+
+                    file_path = self._get_csv_file_path(date_str)
+                    if file_path:
+                        current_mtime = self._get_file_mtime(file_path)
+                        if current_mtime and recorded_mtime:
+                            if current_mtime > recorded_mtime:
+                                logger.info(f"File {date_str} modified since last import, needs re-import")
+                                return False
+                        elif current_mtime and not recorded_mtime:
+                            # File exists but no mtime recorded - needs re-import
+                            logger.info(f"No mtime recorded for {date_str}, needs re-import")
+                            return False
+                except json.JSONDecodeError:
+                    pass
+
+            return True
         except Exception as e:
             logger.warning(f"Redis check failed for {date_str}: {e}")
             return False
 
     def _record_catch_up_import(self, date_str: str, result: Dict[str, Any]) -> None:
-        """Record a catch-up import to Redis."""
+        """
+        Record a catch-up import to Redis.
+
+        Stores file modification time to detect if file is updated after import.
+        """
         if not self._redis_client:
             logger.debug("Redis not available, skipping catch-up record")
             return
 
         try:
             redis_key = f'daily_import:last_scheduled:{date_str}'
+
+            # Get file modification time for change detection
+            file_path = self._get_csv_file_path(date_str)
+            file_mtime = self._get_file_mtime(file_path) if file_path else None
+
             import_record = {
                 'timestamp': datetime.now(self.pacific_tz).isoformat(),
                 'success': result.get('success', False),
                 'executions_imported': result.get('executions_imported', 0),
                 'type': 'catch_up',
-                'note': 'Imported during startup catch-up'
+                'note': 'Imported during startup catch-up',
+                'file_mtime': file_mtime  # Track file modification time
             }
             self._redis_client.setex(redis_key, 30 * 24 * 60 * 60, json.dumps(import_record))
-            logger.info(f"Recorded catch-up import to Redis: {redis_key}")
+            logger.info(f"Recorded catch-up import to Redis: {redis_key} (file_mtime: {file_mtime})")
         except Exception as e:
             logger.warning(f"Failed to record catch-up import to Redis: {e}")
 
