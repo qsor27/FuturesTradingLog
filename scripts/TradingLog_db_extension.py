@@ -16,25 +16,28 @@ db_logger = logging.getLogger('database')
 def get_position_executions_for_chart(self, position_id: int, timeframe: str = '1h', start_date: str = None, end_date: str = None) -> Dict[str, Any]:
     """
     Get execution data formatted for chart arrow display with precise timestamps and positioning.
-    
+
     Args:
-        position_id: Position identifier  
+        position_id: Position identifier (from positions table)
         timeframe: Chart timeframe ('1m', '5m', '1h')
         start_date: Optional start date filter (ISO 8601)
         end_date: Optional end date filter (ISO 8601)
-        
+
     Returns:
         Dictionary with executions, chart_bounds, and timeframe_info
     """
     try:
-        # First get the position data to verify it exists
-        position_data = self.get_position_executions(position_id)
-        if not position_data:
-            return None
-        
-        # Get related executions from position data
-        related_executions = position_data.get('related_executions', [])
+        # Get trades linked to this position via position_executions junction table
+        self.cursor.execute("""
+            SELECT t.* FROM trades t
+            INNER JOIN position_executions pe ON t.id = pe.trade_id
+            WHERE pe.position_id = ?
+            ORDER BY t.entry_time
+        """, (position_id,))
+        related_executions = [dict(row) for row in self.cursor.fetchall()]
+
         if not related_executions:
+            db_logger.warning(f"No executions found for position {position_id}")
             return None
         
         # Convert timeframe to milliseconds for timestamp alignment
@@ -84,64 +87,67 @@ def get_position_executions_for_chart(self, position_id: int, timeframe: str = '
 
 def _format_execution_for_chart(self, execution: Dict[str, Any], timeframe_ms: int) -> List[Dict[str, Any]]:
     """
-    Format a single execution into chart arrow data (entry and exit if closed).
-    
-    Returns list because one execution record can generate multiple chart points.
+    Format a single execution into chart arrow data.
+
+    The trades table stores raw executions:
+    - Entry executions have entry_price set, exit_price is null
+    - Exit executions have exit_price set, entry_price is null
+
+    Returns list of chart arrow objects.
     """
     try:
         chart_executions = []
-        
-        # Parse timestamps
-        entry_time = execution.get('entry_time')
-        exit_time = execution.get('exit_time')
-        
-        if not entry_time:
+        exec_time = execution.get('entry_time')  # All executions use entry_time as their timestamp
+
+        if not exec_time:
             return []
-        
-        # Entry execution
-        entry_timestamp_ms = self._align_timestamp_to_timeframe(entry_time, timeframe_ms)
-        
-        entry_execution = {
-            'id': execution['id'],
-            'timestamp': entry_time,
-            'timestamp_ms': entry_timestamp_ms,
-            'price': float(execution['entry_price']),
-            'quantity': int(execution['quantity']),
-            'side': execution['side_of_market'].lower(),
-            'execution_type': 'entry',
-            'pnl_dollars': 0.00,  # Entry has no P&L yet
-            'pnl_points': 0.00,
-            'commission': float(execution.get('commission', 0)),
-            'position_quantity': int(execution['quantity']),  # Position size after entry
-            'avg_price': float(execution['entry_price'])
-        }
-        chart_executions.append(entry_execution)
-        
-        # Exit execution (if position is closed)
-        if exit_time and execution.get('exit_price'):
-            exit_timestamp_ms = self._align_timestamp_to_timeframe(exit_time, timeframe_ms)
-            
-            # Determine exit side (opposite of entry)
-            exit_side = 'buy' if execution['side_of_market'].lower() == 'sell' else 'sell'
-            
-            exit_execution = {
+
+        entry_price = execution.get('entry_price')
+        exit_price = execution.get('exit_price')
+        side = execution.get('side_of_market', '').lower()
+        quantity = int(execution.get('quantity', 0))
+
+        # Determine if this is an entry or exit execution
+        if entry_price is not None:
+            # This is an entry execution (Buy to open long, Sell to open short)
+            timestamp_ms = self._align_timestamp_to_timeframe(exec_time, timeframe_ms)
+
+            chart_executions.append({
                 'id': execution['id'],
-                'timestamp': exit_time,
-                'timestamp_ms': exit_timestamp_ms,
-                'price': float(execution['exit_price']),
-                'quantity': int(execution['quantity']),
-                'side': exit_side,
+                'timestamp': exec_time,
+                'timestamp_ms': timestamp_ms,
+                'price': float(entry_price),
+                'quantity': quantity,
+                'side': side,
+                'execution_type': 'entry',
+                'pnl_dollars': 0.00,
+                'pnl_points': 0.00,
+                'commission': float(execution.get('commission', 0) or 0),
+                'position_quantity': quantity,
+                'avg_price': float(entry_price)
+            })
+
+        elif exit_price is not None:
+            # This is an exit execution (Sell to close long, Buy to close short)
+            timestamp_ms = self._align_timestamp_to_timeframe(exec_time, timeframe_ms)
+
+            chart_executions.append({
+                'id': execution['id'],
+                'timestamp': exec_time,
+                'timestamp_ms': timestamp_ms,
+                'price': float(exit_price),
+                'quantity': quantity,
+                'side': side,
                 'execution_type': 'exit',
-                'pnl_dollars': float(execution.get('dollars_gain_loss', 0)),
-                'pnl_points': float(execution.get('points_gain_loss', 0)),
-                'commission': float(execution.get('commission', 0)),
-                'position_quantity': 0,  # Position closed
-                'avg_price': float(execution['exit_price'])
-            }
-            chart_executions.append(exit_execution)
-        
+                'pnl_dollars': float(execution.get('dollars_gain_loss', 0) or 0),
+                'pnl_points': float(execution.get('points_gain_loss', 0) or 0),
+                'commission': float(execution.get('commission', 0) or 0),
+                'position_quantity': 0,
+                'avg_price': float(exit_price)
+            })
+
         return chart_executions
-        
+
     except Exception as e:
         db_logger.error(f"Error formatting execution for chart: {e}")
         return []

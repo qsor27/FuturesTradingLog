@@ -300,9 +300,80 @@
         {% include 'components/price_chart.html' %}
     </div>
 
-    <!-- Execution Breakdown -->
+    <!-- FIFO-Matched Execution Pairs -->
+    {% if execution_pairs and execution_pairs.execution_pairs %}
+    <div class="executions-section" style="margin-bottom: 30px;">
+        <h2>Entry/Exit Pairs (FIFO)</h2>
+        <p style="color: #6b7280; margin-bottom: 20px;">
+            {{ execution_pairs.summary.total_pairs }} matched pairs showing P&L for each entry/exit combination.
+            Win rate: {{ "%.0f"|format(execution_pairs.summary.win_rate) }}%
+        </p>
+
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Pair</th>
+                        <th>Entry Time</th>
+                        <th>Exit Time</th>
+                        <th>Qty</th>
+                        <th>Entry $</th>
+                        <th>Exit $</th>
+                        <th>Duration</th>
+                        <th>Pts P&L</th>
+                        <th>$ P&L</th>
+                        <th>Comm</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pair in execution_pairs.execution_pairs %}
+                    <tr>
+                        <td>{{ pair.pair_number }}</td>
+                        <td>{{ pair.entry_time[:16] if pair.entry_time else '-' }}</td>
+                        <td>{{ pair.exit_time[:16] if pair.exit_time else '-' }}</td>
+                        <td>{{ pair.quantity }}</td>
+                        <td>{{ "%.2f"|format(pair.entry_price) }}</td>
+                        <td>{{ "%.2f"|format(pair.exit_price) }}</td>
+                        <td style="color: #9ca3af;">{{ pair.duration_display }}</td>
+                        <td class="{{ 'pnl-positive' if pair.points_pnl > 0 else 'pnl-negative' if pair.points_pnl < 0 else '' }}">
+                            {{ "+%.2f"|format(pair.points_pnl) if pair.points_pnl > 0 else "%.2f"|format(pair.points_pnl) }}
+                        </td>
+                        <td class="{{ 'pnl-positive' if pair.dollars_pnl > 0 else 'pnl-negative' if pair.dollars_pnl < 0 else '' }}">
+                            {{ "+$%.2f"|format(pair.dollars_pnl) if pair.dollars_pnl > 0 else "$%.2f"|format(pair.dollars_pnl) }}
+                        </td>
+                        <td>${{ "%.2f"|format(pair.total_commission) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot style="background-color: #2a2a2a; font-weight: bold;">
+                    <tr>
+                        <td colspan="3">Total</td>
+                        <td>{{ execution_pairs.summary.total_quantity }}</td>
+                        <td colspan="2"></td>
+                        <td></td>
+                        <td class="{{ 'pnl-positive' if execution_pairs.summary.total_points_pnl > 0 else 'pnl-negative' if execution_pairs.summary.total_points_pnl < 0 else '' }}">
+                            {{ "%.2f"|format(execution_pairs.summary.total_points_pnl) }}
+                        </td>
+                        <td class="{{ 'pnl-positive' if execution_pairs.summary.total_dollars_pnl > 0 else 'pnl-negative' if execution_pairs.summary.total_dollars_pnl < 0 else '' }}">
+                            ${{ "%.2f"|format(execution_pairs.summary.total_dollars_pnl) }}
+                        </td>
+                        <td>${{ "%.2f"|format(execution_pairs.summary.total_commission) }}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="7" style="text-align: right;">Net P&L (after commission):</td>
+                        <td colspan="3" class="{{ 'pnl-positive' if execution_pairs.summary.net_pnl > 0 else 'pnl-negative' if execution_pairs.summary.net_pnl < 0 else '' }}">
+                            ${{ "%.2f"|format(execution_pairs.summary.net_pnl) }}
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Raw Execution Breakdown -->
     <div class="executions-section">
-        <h2>Execution Breakdown</h2>
+        <h2>Raw Executions</h2>
         <p style="color: #6b7280; margin-bottom: 20px;">
             All {{ position.execution_count }} executions that make up this position, showing the complete lifecycle from entry to exit.
         </p>

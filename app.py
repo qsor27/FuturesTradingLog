@@ -25,6 +25,7 @@ from routes.csv_management import csv_management_bp
 from routes.custom_fields import custom_fields_bp
 from routes.validation import validation_bp
 from routes.validation_cleanup import validation_cleanup_bp
+from routes.execution_review import execution_review_bp
 from scripts.TradingLog_db import FuturesDB
 from services.background_services import start_background_services, stop_background_services, get_services_status
 from services.background_data_manager import background_data_manager
@@ -231,7 +232,8 @@ app.register_blueprint(cache_bp)  # Cache management routes
 app.register_blueprint(csv_management_bp)  # CSV management routes
 app.register_blueprint(custom_fields_bp)  # Custom fields API routes
 app.register_blueprint(validation_bp)  # Position-Execution integrity validation routes
-app.register_blueprint(validation_cleanup_bp)  # Position validation and database cleanup API routes
+app.register_blueprint(validation_cleanup_bp)
+app.register_blueprint(execution_review_bp)  # Position validation and database cleanup API routes
 
 # Initialize validation routes with app context
 from routes.validation import init_validation_routes

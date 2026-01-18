@@ -261,10 +261,23 @@ def position_detail(position_id):
             position['reward_risk_ratio'] = 0
             position['rr_display'] = "N/A"
 
+    # Get FIFO-matched execution pairs for closed positions
+    execution_pairs = None
+    if position['position_status'] == 'closed':
+        try:
+            with FuturesDB() as db:
+                instrument_multiplier = 2.0  # $2/point for MNQ
+                execution_pairs = db.get_position_execution_pairs(position_id, instrument_multiplier)
+                logger.debug(f"Position {position_id} execution pairs: {len(execution_pairs.get('execution_pairs', []))} pairs")
+        except Exception as e:
+            logger.error(f"Error getting execution pairs for position {position_id}: {e}")
+            execution_pairs = None
+
     return render_template('positions/detail.html',
                          position=position,
                          chart_start_date=chart_start_date,
-                         chart_end_date=chart_end_date)
+                         chart_end_date=chart_end_date,
+                         execution_pairs=execution_pairs)
 
 
 @positions_bp.route('/rebuild', methods=['POST'])
@@ -365,6 +378,45 @@ def api_position_executions(position_id):
         return jsonify({
             'success': False,
             'message': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/<int:position_id>/execution-pairs')
+def api_position_execution_pairs(position_id):
+    """API endpoint to get FIFO-matched execution pairs with per-pair P&L"""
+    try:
+        # First check if position exists using PositionService
+        with PositionService() as pos_service:
+            position = pos_service.get_position_by_id(position_id)
+
+        if not position:
+            return jsonify({
+                'success': False,
+                'error': 'Position not found'
+            }), 404
+
+        if position.get('position_status') != 'closed':
+            return jsonify({
+                'success': False,
+                'error': 'Cannot calculate pairs for open positions'
+            }), 400
+
+        # Get execution pairs using FuturesDB
+        with FuturesDB() as db:
+            # Use $2/point multiplier for MNQ (standard for micro futures)
+            instrument_multiplier = 2.0
+            pairs_data = db.get_position_execution_pairs(position_id, instrument_multiplier)
+
+        return jsonify({
+            'success': True,
+            **pairs_data
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting position execution pairs: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 

@@ -1028,9 +1028,9 @@ class OHLCDataService:
                         for record in recent_data:
                             try:
                                 db.insert_ohlc_data(
-                                    record['instrument'], record['timeframe'], record['timestamp'], 
-                                    record['open_price'], record['high_price'], record['low_price'],
-                                    record['close_price'], record['volume']
+                                    record['instrument'], record['timeframe'], record['timestamp'],
+                                    record['open'], record['high'], record['low'],
+                                    record['close'], record['volume']
                                 )
                             except Exception:
                                 continue

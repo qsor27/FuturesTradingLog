@@ -2316,6 +2316,209 @@ class FuturesDB:
             print(f"Error calculating position summary: {e}")
             return {}
 
+    def get_position_execution_pairs(self, position_id: int, instrument_multiplier: float = 2.0) -> Dict[str, Any]:
+        """
+        Get FIFO-matched execution pairs for a position with per-pair P&L.
+
+        For a position with multiple entries/exits, this matches them using FIFO
+        (First-In-First-Out) to calculate P&L for each entry/exit pair.
+
+        Args:
+            position_id: The position ID to analyze
+            instrument_multiplier: Dollar value per point (default $2 for MNQ)
+
+        Returns:
+            Dictionary with execution_pairs list and summary statistics
+        """
+        try:
+            # Get position details
+            self.cursor.execute("SELECT * FROM positions WHERE id = ?", (position_id,))
+            position = self.cursor.fetchone()
+            if not position:
+                return {'success': False, 'error': 'Position not found'}
+
+            position = dict(position)
+            is_long = position['position_type'] == 'Long'
+
+            # Get all executions for this position
+            self.cursor.execute("""
+                SELECT t.*, pe.execution_order
+                FROM trades t
+                JOIN position_executions pe ON t.id = pe.trade_id
+                WHERE pe.position_id = ?
+                ORDER BY t.entry_time, pe.execution_order
+            """, (position_id,))
+
+            trades = [dict(row) for row in self.cursor.fetchall()]
+
+            if not trades:
+                return {'success': False, 'error': 'No executions found'}
+
+            # Separate into entries and exits based on position type
+            # For Long: Buy = entry, Sell = exit
+            # For Short: Sell = entry, Buy = exit
+            entry_queue = []  # List of (price, quantity, time, trade_id, commission)
+            exit_queue = []   # List of (price, quantity, time, trade_id, commission)
+
+            for trade in trades:
+                side = trade['side_of_market']
+                qty = trade['quantity']
+                commission = trade['commission'] or 0
+
+                if is_long:
+                    if side == 'Buy' and trade['entry_price']:
+                        # Entry for long position
+                        entry_queue.append({
+                            'price': trade['entry_price'],
+                            'quantity': qty,
+                            'time': trade['entry_time'],
+                            'trade_id': trade['id'],
+                            'commission': commission
+                        })
+                    elif side == 'Sell' and trade['exit_price']:
+                        # Exit for long position
+                        exit_queue.append({
+                            'price': trade['exit_price'],
+                            'quantity': qty,
+                            'time': trade['entry_time'],  # exit time stored in entry_time for sell trades
+                            'trade_id': trade['id'],
+                            'commission': commission
+                        })
+                else:  # Short position
+                    if side == 'Sell' and trade['entry_price']:
+                        # Entry for short position
+                        entry_queue.append({
+                            'price': trade['entry_price'],
+                            'quantity': qty,
+                            'time': trade['entry_time'],
+                            'trade_id': trade['id'],
+                            'commission': commission
+                        })
+                    elif side == 'Buy' and trade['exit_price']:
+                        # Exit for short position
+                        exit_queue.append({
+                            'price': trade['exit_price'],
+                            'quantity': qty,
+                            'time': trade['entry_time'],
+                            'trade_id': trade['id'],
+                            'commission': commission
+                        })
+
+            # FIFO matching: pair entries with exits
+            execution_pairs = []
+            pair_number = 0
+
+            # Expand entries and exits to individual units for FIFO matching
+            entry_units = []
+            for entry in entry_queue:
+                for _ in range(entry['quantity']):
+                    entry_units.append({
+                        'price': entry['price'],
+                        'time': entry['time'],
+                        'trade_id': entry['trade_id'],
+                        'commission': entry['commission'] / entry['quantity']  # Split commission per unit
+                    })
+
+            exit_units = []
+            for exit in exit_queue:
+                for _ in range(exit['quantity']):
+                    exit_units.append({
+                        'price': exit['price'],
+                        'time': exit['time'],
+                        'trade_id': exit['trade_id'],
+                        'commission': exit['commission'] / exit['quantity']
+                    })
+
+            # Match entry units with exit units (FIFO)
+            for i, exit_unit in enumerate(exit_units):
+                if i < len(entry_units):
+                    entry_unit = entry_units[i]
+                    pair_number += 1
+
+                    # Calculate P&L for this pair
+                    if is_long:
+                        points_pnl = exit_unit['price'] - entry_unit['price']
+                    else:
+                        points_pnl = entry_unit['price'] - exit_unit['price']
+
+                    dollars_pnl = points_pnl * instrument_multiplier
+                    total_commission = entry_unit['commission'] + exit_unit['commission']
+
+                    # Calculate duration
+                    from datetime import datetime
+                    try:
+                        entry_dt = datetime.strptime(entry_unit['time'], '%Y-%m-%d %H:%M:%S')
+                        exit_dt = datetime.strptime(exit_unit['time'], '%Y-%m-%d %H:%M:%S')
+                        duration_seconds = (exit_dt - entry_dt).total_seconds()
+
+                        # Format duration display
+                        if duration_seconds < 60:
+                            duration_display = f"{int(duration_seconds)}s"
+                        elif duration_seconds < 3600:
+                            duration_display = f"{int(duration_seconds // 60)}m"
+                        elif duration_seconds < 86400:
+                            hours = int(duration_seconds // 3600)
+                            mins = int((duration_seconds % 3600) // 60)
+                            duration_display = f"{hours}h {mins}m"
+                        else:
+                            days = int(duration_seconds // 86400)
+                            hours = int((duration_seconds % 86400) // 3600)
+                            duration_display = f"{days}d {hours}h"
+                    except:
+                        duration_seconds = 0
+                        duration_display = "-"
+
+                    execution_pairs.append({
+                        'pair_number': pair_number,
+                        'entry_time': entry_unit['time'],
+                        'exit_time': exit_unit['time'],
+                        'entry_price': entry_unit['price'],
+                        'exit_price': exit_unit['price'],
+                        'quantity': 1,
+                        'duration_seconds': duration_seconds,
+                        'duration_display': duration_display,
+                        'points_pnl': points_pnl,
+                        'dollars_pnl': dollars_pnl,
+                        'entry_commission': entry_unit['commission'],
+                        'exit_commission': exit_unit['commission'],
+                        'total_commission': total_commission,
+                        'net_pnl': dollars_pnl - total_commission
+                    })
+
+            # Calculate summary statistics
+            total_pairs = len(execution_pairs)
+            winning_pairs = len([p for p in execution_pairs if p['dollars_pnl'] > 0])
+            losing_pairs = len([p for p in execution_pairs if p['dollars_pnl'] < 0])
+            breakeven_pairs = total_pairs - winning_pairs - losing_pairs
+
+            total_points_pnl = sum(p['points_pnl'] for p in execution_pairs)
+            total_dollars_pnl = sum(p['dollars_pnl'] for p in execution_pairs)
+            total_commission = sum(p['total_commission'] for p in execution_pairs)
+
+            return {
+                'success': True,
+                'position_id': position_id,
+                'instrument': position['instrument'],
+                'position_type': position['position_type'],
+                'execution_pairs': execution_pairs,
+                'summary': {
+                    'total_pairs': total_pairs,
+                    'total_quantity': total_pairs,  # Each pair is 1 unit
+                    'winning_pairs': winning_pairs,
+                    'losing_pairs': losing_pairs,
+                    'breakeven_pairs': breakeven_pairs,
+                    'win_rate': (winning_pairs / total_pairs * 100) if total_pairs > 0 else 0,
+                    'total_points_pnl': total_points_pnl,
+                    'total_dollars_pnl': total_dollars_pnl,
+                    'total_commission': total_commission,
+                    'net_pnl': total_dollars_pnl - total_commission
+                }
+            }
+
+        except Exception as e:
+            db_logger.error(f"Error getting position execution pairs: {e}")
+            return {'success': False, 'error': str(e)}
+
     def get_linked_trades_with_stats(self, group_id: int) -> Dict[str, Any]:
         """Get linked trades with comprehensive statistics - replaces the buggy approach."""
         try:

@@ -311,18 +311,30 @@ document.addEventListener('DOMContentLoaded', async function() {
         try {
             await waitForChart();
 
-            // Fetch execution data for this position
-            const response = await fetch(`/api/executions/${encodeURIComponent(tradeId)}`);
+            // Fetch execution data formatted for chart display
+            const response = await fetch(`/positions/api/${encodeURIComponent(tradeId)}/executions-chart`);
             if (response.ok) {
                 const data = await response.json();
-                if (data.success && data.executions) {
+                if (data.success && data.executions && data.executions.length > 0) {
                     console.log(`🎯 Loading ${data.executions.length} execution arrows for position ${tradeId}`);
 
+                    // Transform executions to the format expected by loadExecutionArrows
+                    const chartExecutions = data.executions.map(exec => ({
+                        execution_id: exec.id,
+                        timestamp: exec.timestamp,
+                        price: exec.price,
+                        quantity: exec.quantity,
+                        side: exec.side === 'buy' ? 'Buy' : 'Sell',
+                        type: exec.execution_type
+                    }));
+
                     // Load execution arrows into the chart
-                    container.chartInstance.loadExecutionArrows(data.executions);
+                    container.chartInstance.loadExecutionArrows(chartExecutions);
                 } else {
                     console.warn(`⚠️ No execution data found for position ${tradeId}`);
                 }
+            } else {
+                console.warn(`⚠️ Failed to fetch execution data: ${response.status}`);
             }
         } catch (error) {
             console.error(`❌ Error loading execution arrows for position ${tradeId}:`, error);
