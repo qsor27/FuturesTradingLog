@@ -23,6 +23,7 @@ class PriceChart {
         this.arrowTooltip = null; // Tooltip element for execution arrows
         this.currentTimeframe = options.timeframe || '1h'; // Track current timeframe for arrow positioning
         this.priceLines = []; // Store active price lines for position entry prices
+        this.executionPriceLines = []; // Store price lines for individual executions
         this.volumeVisible = true; // Default volume visibility (will be overridden by settings)
         this.ohlcDisplayEl = null; // OHLC overlay element
         this.crosshairMoveHandler = null; // Store bound handler for cleanup
@@ -1021,13 +1022,91 @@ class PriceChart {
         // Store arrow markers
         this.executionArrows = arrowMarkers;
 
+        // Add price lines for each execution
+        this.addExecutionPriceLines(executions);
+
         // Combine with existing markers and update chart
         this.updateChartMarkers();
 
         // Setup interactive features
         this.setupArrowInteractions();
 
-        console.log(`🎯 Execution arrows successfully added to chart`);
+        console.log(`🎯 Execution arrows and price lines successfully added to chart`);
+    }
+
+    /**
+     * Add horizontal price lines for each execution
+     * Entry executions get blue lines, exit executions get grey lines
+     * @param {Array} executions - Array of execution data
+     */
+    addExecutionPriceLines(executions) {
+        if (!this.candlestickSeries) {
+            console.warn('Cannot add execution price lines: candlestick series not initialized');
+            return;
+        }
+
+        // Clear existing execution price lines
+        this.clearExecutionPriceLines();
+
+        const lineStyle = (typeof LightweightCharts !== 'undefined' &&
+                          LightweightCharts.LineStyle &&
+                          LightweightCharts.LineStyle.Dashed) ?
+                          LightweightCharts.LineStyle.Dashed : 1;
+
+        executions.forEach((execution, index) => {
+            if (!this.isValidExecution(execution)) return;
+
+            // Determine line color based on execution type
+            // Entry = blue (#2196F3), Exit = grey (#9E9E9E)
+            const isEntry = execution.type === 'entry';
+            const lineColor = isEntry ? '#2196F3' : '#9E9E9E';
+            const lineLabel = isEntry ? 'Entry' : 'Exit';
+
+            try {
+                const lineOptions = {
+                    price: execution.price,
+                    color: lineColor,
+                    lineWidth: 1,
+                    lineStyle: lineStyle,
+                    axisLabelVisible: true,
+                    title: `${lineLabel}: ${execution.price.toFixed(2)}`
+                };
+
+                const priceLine = this.candlestickSeries.createPriceLine(lineOptions);
+
+                this.executionPriceLines.push({
+                    line: priceLine,
+                    price: execution.price,
+                    type: execution.type,
+                    executionId: execution.execution_id
+                });
+
+                console.log(`📏 Added ${lineLabel} price line at ${execution.price} (${lineColor})`);
+
+            } catch (error) {
+                console.error(`❌ Error adding execution price line:`, error);
+            }
+        });
+
+        console.log(`✅ Added ${this.executionPriceLines.length} execution price lines`);
+    }
+
+    /**
+     * Clear all execution price lines from the chart
+     */
+    clearExecutionPriceLines() {
+        if (!this.candlestickSeries) return;
+
+        this.executionPriceLines.forEach(lineData => {
+            try {
+                this.candlestickSeries.removePriceLine(lineData.line);
+            } catch (error) {
+                console.warn('Error removing execution price line:', error);
+            }
+        });
+
+        this.executionPriceLines = [];
+        console.log('🧹 Cleared execution price lines');
     }
 
     /**
@@ -1203,7 +1282,8 @@ class PriceChart {
         this.executionArrows = [];
         this.updateChartMarkers();
         this.clearArrowTooltip();
-        console.log('🧹 Cleared all execution arrows');
+        this.clearExecutionPriceLines();
+        console.log('🧹 Cleared all execution arrows and price lines');
     }
 
     /**
@@ -2411,10 +2491,28 @@ class PriceChart {
         console.log(`🎯 Centering on executions: ${minDate.toISOString()} to ${maxDate.toISOString()}`);
 
         // Calculate the time range we want to show
-        // Add padding of ~10 minutes before first execution and after last execution
-        const paddingSeconds = 10 * 60; // 10 minutes in seconds
-        const viewStartTime = minTime - paddingSeconds;
-        const viewEndTime = maxTime + paddingSeconds;
+        // Add generous padding to show trading context around the position
+        // Use 2 hours before and after to show meaningful market context
+        const paddingSeconds = 2 * 60 * 60; // 2 hours in seconds
+
+        // Calculate the execution duration and ensure minimum visible range
+        const executionDuration = maxTime - minTime;
+        const minVisibleRange = 4 * 60 * 60; // Minimum 4 hours visible range
+
+        // If the execution window + padding is less than minimum, expand symmetrically
+        let viewStartTime, viewEndTime;
+        const totalRange = executionDuration + (2 * paddingSeconds);
+
+        if (totalRange < minVisibleRange) {
+            // Center on the middle of the execution and expand to minimum range
+            const executionCenter = minTime + (executionDuration / 2);
+            viewStartTime = executionCenter - (minVisibleRange / 2);
+            viewEndTime = executionCenter + (minVisibleRange / 2);
+            console.log(`📐 Expanded to minimum range of ${minVisibleRange / 3600} hours`);
+        } else {
+            viewStartTime = minTime - paddingSeconds;
+            viewEndTime = maxTime + paddingSeconds;
+        }
 
         console.log(`📐 Target time range: ${new Date(viewStartTime * 1000).toISOString()} to ${new Date(viewEndTime * 1000).toISOString()}`);
 
@@ -2455,8 +2553,20 @@ class PriceChart {
 
                 // Calculate target barSpacing to fit the desired range
                 const chartWidth = self.container.clientWidth - 60; // Account for price scale
-                const barsToShow = endBarIndex - startBarIndex + 1;
-                const targetBarSpacing = Math.max(8, Math.floor(chartWidth / barsToShow));
+                let barsToShow = endBarIndex - startBarIndex + 1;
+
+                // Ensure minimum number of bars for good chart context
+                const minBarsToShow = 60; // At least 60 candles visible
+                if (barsToShow < minBarsToShow && chartData.length >= minBarsToShow) {
+                    // Expand the range to show more bars
+                    const additionalBars = Math.floor((minBarsToShow - barsToShow) / 2);
+                    startBarIndex = Math.max(0, startBarIndex - additionalBars);
+                    endBarIndex = Math.min(chartData.length - 1, endBarIndex + additionalBars);
+                    barsToShow = endBarIndex - startBarIndex + 1;
+                    console.log(`📐 Expanded to show ${barsToShow} bars (min: ${minBarsToShow})`);
+                }
+
+                const targetBarSpacing = Math.max(6, Math.min(12, Math.floor(chartWidth / barsToShow)));
 
                 console.log(`📐 Chart width: ${chartWidth}px, bars to show: ${barsToShow}, target barSpacing: ${targetBarSpacing}px`);
 

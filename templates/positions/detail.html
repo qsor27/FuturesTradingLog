@@ -389,8 +389,6 @@
                         <th>Quantity</th>
                         <th>Entry Price</th>
                         <th>Exit Price</th>
-                        <th>Points P&L</th>
-                        <th>Dollar P&L</th>
                         <th>Commission</th>
                         <th>Execution ID</th>
                     </tr>
@@ -432,12 +430,6 @@
                             {% else %}
                                 -
                             {% endif %}
-                        </td>
-                        <td class="{{ 'pnl-positive' if (execution.points_gain_loss or 0) > 0 else 'pnl-negative' if (execution.points_gain_loss or 0) < 0 else '' }}">
-                            {{ "%.2f"|format(execution.points_gain_loss or 0) }}
-                        </td>
-                        <td class="{{ 'pnl-positive' if (execution.dollars_gain_loss or 0) > 0 else 'pnl-negative' if (execution.dollars_gain_loss or 0) < 0 else '' }}">
-                            ${{ "%.2f"|format(execution.dollars_gain_loss or 0) }}
                         </td>
                         <td>${{ "%.2f"|format(execution.commission or 0) }}</td>
                         <td style="font-family: monospace; font-size: 11px;">{{ execution.entry_execution_id }}</td>
