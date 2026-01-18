@@ -165,7 +165,25 @@ jobs:
     - name: Download NSSM
       run: |
         New-Item -ItemType Directory -Force -Path vendor\nssm
-        Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile nssm.zip
+        $urls = @(
+          "https://nssm.cc/release/nssm-2.24.zip",
+          "https://web.archive.org/web/20240101000000id_/https://nssm.cc/release/nssm-2.24.zip"
+        )
+        $downloaded = $false
+        foreach ($url in $urls) {
+          try {
+            Write-Host "Trying to download NSSM from: $url"
+            Invoke-WebRequest -Uri $url -OutFile nssm.zip -TimeoutSec 30
+            $downloaded = $true
+            Write-Host "Successfully downloaded from: $url"
+            break
+          } catch {
+            Write-Host "Failed to download from $url : $_"
+          }
+        }
+        if (-not $downloaded) {
+          throw "Failed to download NSSM from all sources"
+        }
         Expand-Archive -Path nssm.zip -DestinationPath vendor\nssm -Force
         Move-Item -Path vendor\nssm\nssm-2.24\win64 -Destination vendor\nssm\win64 -Force
         Remove-Item -Recurse -Force vendor\nssm\nssm-2.24
