@@ -740,7 +740,7 @@ def send_email_alert(alert_data):
     """Send email alert for critical issues"""
     try:
         import smtplib
-        from email.mime.text import MimeText
+        from email.mime.text import MIMEText
         import os
 
         # Email configuration
@@ -766,7 +766,7 @@ Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}
 Please check the monitoring dashboard at /monitoring for more details.
         """
 
-        msg = MimeText(body)
+        msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = smtp_username
         msg['To'] = ', '.join(alert_recipients)

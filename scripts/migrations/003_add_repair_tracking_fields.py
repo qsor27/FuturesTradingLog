@@ -1,5 +1,5 @@
 """
-Database migration: Add repair tracking fields to integrity_issues table
+Migration: Add repair tracking fields to integrity_issues table
 
 This migration adds fields to track automatic repair attempts:
 - repair_attempted: Whether repair was attempted
@@ -9,142 +9,209 @@ This migration adds fields to track automatic repair attempts:
 - repair_details: JSON details about repair
 """
 import sqlite3
-from datetime import datetime
+import sys
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
-def upgrade(db_path: str) -> None:
-    """
-    Add repair tracking fields to integrity_issues table.
+class AddRepairTrackingFieldsMigration:
+    """Migration to add repair tracking fields to integrity_issues table"""
 
-    Args:
-        db_path: Path to the SQLite database
-    """
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    def __init__(self, db_path: str):
+        """
+        Initialize migration
 
-    try:
-        # Add repair_attempted column (default False)
-        cursor.execute("""
-            ALTER TABLE integrity_issues
-            ADD COLUMN repair_attempted INTEGER DEFAULT 0
-        """)
+        Args:
+            db_path: Path to the SQLite database
+        """
+        self.db_path = db_path
+        self.migration_name = "003_add_repair_tracking_fields"
 
-        # Add repair_method column (nullable text)
-        cursor.execute("""
-            ALTER TABLE integrity_issues
-            ADD COLUMN repair_method TEXT
-        """)
+    def up(self) -> bool:
+        """
+        Apply the migration
 
-        # Add repair_successful column (nullable integer - 0/1/NULL)
-        cursor.execute("""
-            ALTER TABLE integrity_issues
-            ADD COLUMN repair_successful INTEGER
-        """)
+        Returns:
+            True if migration successful, False otherwise
+        """
+        logger.info(f"Applying migration: {self.migration_name}")
 
-        # Add repair_timestamp column (nullable text)
-        cursor.execute("""
-            ALTER TABLE integrity_issues
-            ADD COLUMN repair_timestamp TEXT
-        """)
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
 
-        # Add repair_details column (nullable text for JSON)
-        cursor.execute("""
-            ALTER TABLE integrity_issues
-            ADD COLUMN repair_details TEXT
-        """)
+                # Check if integrity_issues table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='integrity_issues'
+                """)
 
-        conn.commit()
-        print(f"Migration 003: Successfully added repair tracking fields to integrity_issues table")
+                if not cursor.fetchone():
+                    logger.error("integrity_issues table does not exist")
+                    return False
 
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Migration 003: Error during migration - {e}")
-        raise
+                # Check which fields already exist
+                cursor.execute("PRAGMA table_info(integrity_issues)")
+                columns = [col[1] for col in cursor.fetchall()]
 
-    finally:
-        conn.close()
+                fields_to_add = []
+                if 'repair_attempted' not in columns:
+                    fields_to_add.append(('repair_attempted', 'INTEGER DEFAULT 0'))
+                if 'repair_method' not in columns:
+                    fields_to_add.append(('repair_method', 'TEXT'))
+                if 'repair_successful' not in columns:
+                    fields_to_add.append(('repair_successful', 'INTEGER'))
+                if 'repair_timestamp' not in columns:
+                    fields_to_add.append(('repair_timestamp', 'TEXT'))
+                if 'repair_details' not in columns:
+                    fields_to_add.append(('repair_details', 'TEXT'))
+
+                if not fields_to_add:
+                    logger.info("All repair tracking fields already exist, skipping migration")
+                    return True
+
+                # Add new columns
+                for field_name, field_type in fields_to_add:
+                    logger.info(f"Adding column {field_name} to integrity_issues table")
+                    cursor.execute(f"""
+                        ALTER TABLE integrity_issues
+                        ADD COLUMN {field_name} {field_type}
+                    """)
+
+                conn.commit()
+
+                # Verify the changes
+                cursor.execute("PRAGMA table_info(integrity_issues)")
+                updated_columns = [col[1] for col in cursor.fetchall()]
+
+                required_fields = ['repair_attempted', 'repair_method', 'repair_successful',
+                                 'repair_timestamp', 'repair_details']
+                if all(field in updated_columns for field in required_fields):
+                    logger.info(f"Migration {self.migration_name} completed successfully")
+                    return True
+                else:
+                    logger.error(f"Migration {self.migration_name} failed - fields not added")
+                    return False
+
+        except sqlite3.Error as e:
+            logger.error(f"Database error during migration: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during migration: {e}")
+            return False
+
+    def down(self) -> bool:
+        """
+        Rollback the migration
+
+        Note: SQLite doesn't support DROP COLUMN directly, so we need to recreate the table
+
+        Returns:
+            True if rollback successful, False otherwise
+        """
+        logger.info(f"Rolling back migration: {self.migration_name}")
+
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                # Get current table schema
+                cursor.execute("PRAGMA table_info(integrity_issues)")
+                columns = cursor.fetchall()
+
+                # Filter out the repair tracking fields
+                keep_columns = [
+                    f"{col[1]} {col[2]}"
+                    for col in columns
+                    if col[1] not in ['repair_attempted', 'repair_method', 'repair_successful',
+                                    'repair_timestamp', 'repair_details']
+                ]
+
+                if len(keep_columns) == len(columns):
+                    logger.info("Repair tracking fields don't exist, nothing to rollback")
+                    return True
+
+                # Create temporary table without repair fields
+                logger.info("Creating temporary table without repair tracking fields")
+                create_temp_sql = f"""
+                    CREATE TABLE integrity_issues_temp (
+                        {', '.join(keep_columns)}
+                    )
+                """
+                cursor.execute(create_temp_sql)
+
+                # Copy data to temporary table
+                column_names = [col[1] for col in columns
+                              if col[1] not in ['repair_attempted', 'repair_method',
+                                              'repair_successful', 'repair_timestamp', 'repair_details']]
+                logger.info("Copying data to temporary table")
+                cursor.execute(f"""
+                    INSERT INTO integrity_issues_temp ({', '.join(column_names)})
+                    SELECT {', '.join(column_names)} FROM integrity_issues
+                """)
+
+                # Drop old table
+                logger.info("Dropping old integrity_issues table")
+                cursor.execute("DROP TABLE integrity_issues")
+
+                # Rename temporary table
+                logger.info("Renaming temporary table to integrity_issues")
+                cursor.execute("ALTER TABLE integrity_issues_temp RENAME TO integrity_issues")
+
+                conn.commit()
+
+                logger.info(f"Migration {self.migration_name} rolled back successfully")
+                return True
+
+        except sqlite3.Error as e:
+            logger.error(f"Database error during rollback: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error during rollback: {e}")
+            return False
 
 
-def downgrade(db_path: str) -> None:
-    """
-    Remove repair tracking fields from integrity_issues table.
+def main():
+    """Run the migration"""
+    import argparse
 
-    Note: SQLite doesn't support DROP COLUMN directly, so we need to:
-    1. Create a new table without the repair columns
-    2. Copy data from old table
-    3. Drop old table
-    4. Rename new table
+    parser = argparse.ArgumentParser(description="Add repair tracking fields migration")
+    parser.add_argument(
+        '--db-path',
+        type=str,
+        default='data/db/trading_log.db',
+        help='Path to the SQLite database'
+    )
+    parser.add_argument(
+        '--rollback',
+        action='store_true',
+        help='Rollback the migration'
+    )
 
-    Args:
-        db_path: Path to the SQLite database
-    """
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    args = parser.parse_args()
 
-    try:
-        # Create new table without repair fields
-        cursor.execute("""
-            CREATE TABLE integrity_issues_backup (
-                issue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                validation_id INTEGER NOT NULL,
-                issue_type TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                description TEXT NOT NULL,
-                resolution_status TEXT DEFAULT 'open',
-                position_id INTEGER,
-                execution_id INTEGER,
-                detected_at TEXT NOT NULL,
-                resolved_at TEXT,
-                resolution_method TEXT,
-                resolution_details TEXT,
-                metadata TEXT,
-                FOREIGN KEY (validation_id) REFERENCES validation_results(validation_id)
-            )
-        """)
+    migration = AddRepairTrackingFieldsMigration(args.db_path)
 
-        # Copy data from old table (excluding repair fields)
-        cursor.execute("""
-            INSERT INTO integrity_issues_backup (
-                issue_id, validation_id, issue_type, severity, description,
-                resolution_status, position_id, execution_id, detected_at,
-                resolved_at, resolution_method, resolution_details, metadata
-            )
-            SELECT
-                issue_id, validation_id, issue_type, severity, description,
-                resolution_status, position_id, execution_id, detected_at,
-                resolved_at, resolution_method, resolution_details, metadata
-            FROM integrity_issues
-        """)
+    if args.rollback:
+        success = migration.down()
+        action = "rolled back"
+    else:
+        success = migration.up()
+        action = "applied"
 
-        # Drop old table
-        cursor.execute("DROP TABLE integrity_issues")
-
-        # Rename new table
-        cursor.execute("ALTER TABLE integrity_issues_backup RENAME TO integrity_issues")
-
-        conn.commit()
-        print(f"Migration 003: Successfully removed repair tracking fields from integrity_issues table")
-
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Migration 003: Error during downgrade - {e}")
-        raise
-
-    finally:
-        conn.close()
+    if success:
+        print(f"[OK] Migration {action} successfully")
+        sys.exit(0)
+    else:
+        print(f"[FAIL] Migration {action} failed")
+        sys.exit(1)
 
 
-if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-
-    # Add project root to path
-    project_root = Path(__file__).parent.parent.parent
-    sys.path.insert(0, str(project_root))
-
-    from config import config
-
-    # Run migration
-    print(f"Running migration 003 on database: {config.db_path}")
-    upgrade(config.db_path)
-    print("Migration 003 completed successfully")
+if __name__ == '__main__':
+    main()

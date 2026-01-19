@@ -407,11 +407,31 @@ class FuturesDB:
         # Run ANALYZE to update query planner statistics
         self.cursor.execute("ANALYZE")
         self.conn.commit()
-        
+
+        # Run pending database migrations
+        try:
+            db_logger.info("Checking for pending database migrations...")
+            from scripts.migrations.migration_runner import MigrationRunner
+
+            migration_runner = MigrationRunner(self.db_path)
+            successful, failed = migration_runner.run_pending_migrations()
+
+            if failed > 0:
+                db_logger.warning(f"Some migrations failed: {failed} failed, {successful} succeeded")
+            elif successful > 0:
+                db_logger.info(f"Successfully applied {successful} migration(s)")
+            else:
+                db_logger.debug("No pending migrations")
+
+        except Exception as e:
+            db_logger.error(f"Error running migrations: {e}", exc_info=True)
+            print(f"[WARNING] Migration check failed: {e}")
+            # Don't fail the entire initialization if migrations fail
+
         # Mark database as initialized to prevent repeated setup
         _database_initialized = True
         db_logger.info("Database initialization completed successfully")
-        
+
         return self
 
     def update_trade_details(self, trade_id: int, chart_url: Optional[str] = None, notes: Optional[str] = None,
