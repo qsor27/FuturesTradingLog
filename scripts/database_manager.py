@@ -53,7 +53,8 @@ class DatabaseManager:
         """Establish database connection and initialize repositories"""
         try:
             db_logger.info(f"Connecting to database: {self.db_path}")
-            self.conn = sqlite3.connect(self.db_path)
+            # timeout=30.0 makes SQLite wait up to 30 seconds for locks instead of failing immediately
+            self.conn = sqlite3.connect(self.db_path, timeout=30.0)
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
             
@@ -88,8 +89,9 @@ class DatabaseManager:
     def _apply_sqlite_optimizations(self):
         """Apply SQLite performance optimizations"""
         optimizations = [
-            "PRAGMA journal_mode = DELETE",  # Use DELETE mode instead of WAL for Docker compatibility
-            "PRAGMA synchronous = normal", 
+            "PRAGMA busy_timeout = 30000",    # Wait up to 30 seconds for locks (prevents 'database is locked' errors)
+            "PRAGMA journal_mode = DELETE",   # Use DELETE mode instead of WAL for Docker compatibility
+            "PRAGMA synchronous = normal",
             "PRAGMA temp_store = memory",
             "PRAGMA mmap_size = 1073741824",  # 1GB
             "PRAGMA cache_size = -64000"      # 64MB cache

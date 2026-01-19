@@ -74,26 +74,33 @@ def create_custom_field():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        # Extract options if provided
+        # Clean up empty strings - convert to None
+        for key in ['default_value', 'description', 'validation_rules']:
+            if key in data and data[key] == '':
+                data[key] = None
+
+        # Extract options for select fields - store in validation_rules
         options_data = data.pop('options', [])
-
-        # Create custom field model
-        custom_field = CustomField(**data)
-
-        # Create field options if provided
-        options = []
-        if options_data:
-            for option_data in options_data:
-                option_data['field_id'] = None  # Will be set after field creation
-                options.append(CustomFieldOption(**option_data))
+        if options_data and data.get('field_type') == 'select':
+            import json
+            data['validation_rules'] = json.dumps({'options': options_data})
 
         service = get_custom_fields_service()
-        created_field = service.create_field(custom_field, options)
+        success, message, field_id = service.create_custom_field(data)
 
-        return jsonify({
-            'success': True,
-            'data': created_field.dict()
-        }), 201
+        if success:
+            # Fetch the created field to return full data
+            created_field = service.get_custom_field_by_id(field_id, include_options=True)
+            return jsonify({
+                'success': True,
+                'data': created_field,
+                'message': message
+            }), 201
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except ValidationError as e:
         return handle_validation_error(e)
@@ -106,14 +113,14 @@ def get_custom_field(field_id: int):
     """Get a specific custom field by ID"""
     try:
         service = get_custom_fields_service()
-        field = service.get_field_by_id(field_id)
+        field = service.get_custom_field_by_id(field_id, include_options=True)
 
         if not field:
             return jsonify({'error': 'Custom field not found'}), 404
 
         return jsonify({
             'success': True,
-            'data': field.dict()
+            'data': field
         })
 
     except Exception as e:
@@ -128,33 +135,31 @@ def update_custom_field(field_id: int):
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        # Ensure field_id is set correctly
-        data['field_id'] = field_id
-
-        # Extract options if provided
+        # Extract options for select fields - store in validation_rules
         options_data = data.pop('options', None)
+        if options_data is not None and data.get('field_type') == 'select':
+            import json
+            data['validation_rules'] = json.dumps({'options': options_data})
 
-        # Create custom field model
-        custom_field = CustomField(**data)
-
-        # Create field options if provided
-        options = None
-        if options_data is not None:
-            options = []
-            for option_data in options_data:
-                option_data['field_id'] = field_id
-                options.append(CustomFieldOption(**option_data))
+        # Remove field_id from updates if present (it's in the URL)
+        data.pop('field_id', None)
+        data.pop('id', None)
 
         service = get_custom_fields_service()
-        updated_field = service.update_field(custom_field, options)
+        success, message = service.update_custom_field(field_id, data)
 
-        if not updated_field:
-            return jsonify({'error': 'Custom field not found'}), 404
-
-        return jsonify({
-            'success': True,
-            'data': updated_field.dict()
-        })
+        if success:
+            updated_field = service.get_custom_field_by_id(field_id, include_options=True)
+            return jsonify({
+                'success': True,
+                'data': updated_field,
+                'message': message
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except ValidationError as e:
         return handle_validation_error(e)
@@ -164,18 +169,21 @@ def update_custom_field(field_id: int):
 
 @custom_fields_bp.route('/<int:field_id>', methods=['DELETE'])
 def delete_custom_field(field_id: int):
-    """Delete a custom field"""
+    """Delete a custom field (soft delete by default)"""
     try:
         service = get_custom_fields_service()
-        success = service.delete_field(field_id)
+        success, message = service.delete_custom_field(field_id, soft_delete=True)
 
-        if not success:
-            return jsonify({'error': 'Custom field not found'}), 404
-
-        return jsonify({
-            'success': True,
-            'message': 'Custom field deleted successfully'
-        })
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except Exception as e:
         return handle_service_error(e)
@@ -186,15 +194,28 @@ def toggle_field_status(field_id: int):
     """Toggle active status of a custom field"""
     try:
         service = get_custom_fields_service()
-        updated_field = service.toggle_field_status(field_id)
 
-        if not updated_field:
+        # Get current field status
+        field = service.get_custom_field_by_id(field_id)
+        if not field:
             return jsonify({'error': 'Custom field not found'}), 404
 
-        return jsonify({
-            'success': True,
-            'data': updated_field.dict()
-        })
+        # Toggle the is_active status
+        new_status = not field.get('is_active', True)
+        success, message = service.update_custom_field(field_id, {'is_active': new_status})
+
+        if success:
+            updated_field = service.get_custom_field_by_id(field_id)
+            return jsonify({
+                'success': True,
+                'data': updated_field,
+                'message': f"Field {'activated' if new_status else 'deactivated'} successfully"
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except Exception as e:
         return handle_service_error(e)
@@ -301,7 +322,7 @@ def get_position_field_values(position_id: int):
 
         return jsonify({
             'success': True,
-            'data': [value.dict() for value in values]
+            'data': values  # Already a list of dicts from the service
         })
 
     except Exception as e:
@@ -316,16 +337,25 @@ def set_position_field_value(position_id: int):
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        data['position_id'] = position_id
-        field_value = PositionCustomFieldValue(**data)
+        field_id = data.get('custom_field_id') or data.get('field_id')
+        field_value = data.get('field_value') or data.get('value', '')
+
+        if not field_id:
+            return jsonify({'error': 'custom_field_id is required'}), 400
 
         service = get_custom_fields_service()
-        saved_value = service.set_position_field_value(field_value)
+        success, message = service.set_position_field_value(position_id, field_id, field_value)
 
-        return jsonify({
-            'success': True,
-            'data': saved_value.dict()
-        })
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except ValidationError as e:
         return handle_validation_error(e)
@@ -338,14 +368,16 @@ def get_position_field_value(position_id: int, field_id: int):
     """Get a specific custom field value for a position"""
     try:
         service = get_custom_fields_service()
-        value = service.get_position_field_value(position_id, field_id)
+        # Get all values and filter for the specific field
+        all_values = service.get_position_field_values(position_id)
+        value = next((v for v in all_values if v.get('custom_field_id') == field_id), None)
 
         if not value:
             return jsonify({'error': 'Field value not found'}), 404
 
         return jsonify({
             'success': True,
-            'data': value.dict()
+            'data': value
         })
 
     except Exception as e:
@@ -360,17 +392,21 @@ def update_position_field_value(position_id: int, field_id: int):
         if not data:
             return jsonify({'error': 'No data provided'}), 400
 
-        data['position_id'] = position_id
-        data['field_id'] = field_id
-        field_value = PositionCustomFieldValue(**data)
+        field_value = data.get('field_value') or data.get('value', '')
 
         service = get_custom_fields_service()
-        updated_value = service.set_position_field_value(field_value)
+        success, message = service.set_position_field_value(position_id, field_id, field_value)
 
-        return jsonify({
-            'success': True,
-            'data': updated_value.dict()
-        })
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': message
+            }), 400
 
     except ValidationError as e:
         return handle_validation_error(e)

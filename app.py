@@ -167,6 +167,29 @@ def after_request(response):
 
     return response
 
+
+@app.teardown_request
+def teardown_request(exception=None):
+    """Clean up database connections at end of request.
+
+    This prevents 'database is locked' errors by ensuring database
+    connections created during a request are properly closed.
+    """
+    # Clean up DatabaseManager context from custom_fields routes
+    if hasattr(g, 'db_manager'):
+        try:
+            g.db_manager.__exit__(None, None, None)
+            logger.debug("Database manager cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Error cleaning up database manager: {e}")
+        finally:
+            # Remove from g to prevent double cleanup
+            delattr(g, 'db_manager')
+            if hasattr(g, 'db_context'):
+                delattr(g, 'db_context')
+            if hasattr(g, 'custom_fields_service'):
+                delattr(g, 'custom_fields_service')
+
 # System Metrics Collection (runs in background)
 def collect_system_metrics():
     """Collect system health metrics every 30 seconds"""

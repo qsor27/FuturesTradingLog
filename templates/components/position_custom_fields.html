@@ -1,10 +1,7 @@
-<!-- Position Custom Fields Component -->
+<!-- Position Custom Fields Component - Auto-Save -->
 <div class="position-custom-fields" id="positionCustomFields-{{ position.id }}">
-    <div class="custom-fields-header d-flex justify-content-between align-items-center mb-3">
+    <div class="custom-fields-header mb-3">
         <h3>Custom Fields</h3>
-        <button class="btn btn-sm btn-outline-primary" id="editCustomFieldsBtn-{{ position.id }}" onclick="positionCustomFields.openEditModal({{ position.id }})">
-            <i class="fas fa-edit"></i> Edit Fields
-        </button>
     </div>
 
     <!-- Loading State -->
@@ -24,45 +21,14 @@
         </div>
     </div>
 
-    <!-- Custom Fields Display -->
-    <div id="customFieldsDisplay-{{ position.id }}" class="custom-fields-display" style="display: none;">
+    <!-- Inline Editable Custom Fields (Auto-Save) -->
+    <div id="customFieldsForm-{{ position.id }}" style="display: none;">
         <div class="row" id="customFieldsGrid-{{ position.id }}">
             <!-- Fields will be populated here -->
         </div>
     </div>
 </div>
 
-<!-- Custom Fields Edit Modal -->
-<div class="modal fade" id="customFieldsEditModal-{{ position.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content bg-dark text-light">
-            <div class="modal-header">
-                <h5 class="modal-title">Edit Custom Fields - {{ position.instrument }} Position</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="customFieldsEditForm-{{ position.id }}">
-                    <div id="customFieldsFormContainer-{{ position.id }}">
-                        <!-- Form fields will be populated here -->
-                        <div class="text-center py-3">
-                            <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                <span class="visually-hidden">Loading form...</span>
-                            </div>
-                            <small class="text-muted ms-2">Loading fields...</small>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveCustomFieldsBtn-{{ position.id }}" onclick="positionCustomFields.saveFields({{ position.id }})">
-                    <span id="saveFieldsText-{{ position.id }}">Save Fields</span>
-                    <span id="saveFieldsSpinner-{{ position.id }}" class="spinner-border spinner-border-sm ms-2" style="display: none;"></span>
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 
 <style>
 /* Position Custom Fields Styling */
@@ -183,6 +149,24 @@
     color: #e5e5e5;
 }
 
+/* Auto-save indicator styling */
+.save-indicator {
+    background-color: transparent;
+    border: none;
+    padding: 0 8px;
+    align-items: center;
+}
+
+.input-group .save-indicator {
+    background-color: #1f1f1f;
+    border: 1px solid #404040;
+    border-left: none;
+}
+
+.save-indicator i {
+    font-size: 14px;
+}
+
 /* Responsive grid for custom fields display */
 @media (min-width: 768px) {
     .custom-fields-display .row > .col-md-6:nth-child(2n+1) {
@@ -201,26 +185,25 @@
 </style>
 
 <script>
-// Position Custom Fields JavaScript
+// Position Custom Fields JavaScript - Auto-Save on Change
 class PositionCustomFields {
     constructor() {
         this.apiBaseUrl = '/api/custom-fields';
         this.fieldsData = {};
         this.fieldValues = {};
+        this.saveTimeouts = {};  // Debounce text input saves
     }
 
     async loadPositionFields(positionId) {
         const loadingElement = document.getElementById(`customFieldsLoading-${positionId}`);
         const emptyElement = document.getElementById(`customFieldsEmpty-${positionId}`);
-        const displayElement = document.getElementById(`customFieldsDisplay-${positionId}`);
+        const formElement = document.getElementById(`customFieldsForm-${positionId}`);
 
         try {
-            // Show loading state
             loadingElement.style.display = 'block';
             emptyElement.style.display = 'none';
-            displayElement.style.display = 'none';
+            formElement.style.display = 'none';
 
-            // Load custom fields and their values for this position
             const [fieldsResponse, valuesResponse] = await Promise.all([
                 fetch(`${this.apiBaseUrl}/`, { headers: { 'Accept': 'application/json' } }),
                 fetch(`${this.apiBaseUrl}/positions/${positionId}/values`, { headers: { 'Accept': 'application/json' } })
@@ -233,16 +216,12 @@ class PositionCustomFields {
                 const activeFields = fieldsData.data.filter(field => field.is_active);
 
                 if (activeFields.length === 0) {
-                    // No active fields
                     emptyElement.style.display = 'block';
                 } else {
-                    // Store data
                     this.fieldsData[positionId] = activeFields;
                     this.fieldValues[positionId] = valuesData.success ? valuesData.data : [];
-
-                    // Display fields
-                    this.displayFields(positionId, activeFields, this.fieldValues[positionId]);
-                    displayElement.style.display = 'block';
+                    this.displayInlineFields(positionId, activeFields, this.fieldValues[positionId]);
+                    formElement.style.display = 'block';
                 }
             } else {
                 console.error('Failed to load custom fields:', fieldsData.message);
@@ -256,273 +235,207 @@ class PositionCustomFields {
         }
     }
 
-    displayFields(positionId, fields, values) {
+    displayInlineFields(positionId, fields, values) {
         const gridElement = document.getElementById(`customFieldsGrid-${positionId}`);
         if (!gridElement) return;
 
         gridElement.innerHTML = '';
 
-        // Create a map of field values for quick lookup
         const valueMap = {};
         values.forEach(value => {
-            valueMap[value.field_id] = value.value;
+            valueMap[value.custom_field_id] = value.field_value;
         });
 
         fields.forEach(field => {
-            const fieldValue = valueMap[field.id] || '';
-            const fieldElement = this.createFieldDisplayElement(field, fieldValue);
+            const fieldValue = valueMap[field.id] || field.default_value || '';
+            const fieldElement = this.createInlineFieldElement(positionId, field, fieldValue);
             gridElement.appendChild(fieldElement);
         });
     }
 
-    createFieldDisplayElement(field, value) {
+    createInlineFieldElement(positionId, field, value) {
         const col = document.createElement('div');
-        col.className = 'col-md-6 col-lg-4';
-
-        const formattedValue = this.formatFieldValue(field, value);
-        const valueClass = this.getValueClass(field, value);
-
-        col.innerHTML = `
-            <div class="custom-field-item">
-                <div class="custom-field-label">
-                    ${this.escapeHtml(field.label)}
-                    ${field.is_required ? '<span class="custom-field-required-indicator">*</span>' : ''}
-                </div>
-                <div class="custom-field-value ${valueClass}">
-                    ${formattedValue}
-                </div>
-                ${field.description ? `<div class="custom-field-description">${this.escapeHtml(field.description)}</div>` : ''}
-            </div>
-        `;
-
-        return col;
-    }
-
-    formatFieldValue(field, value) {
-        if (!value || value.trim() === '') {
-            return '<span class="empty">No value set</span>';
-        }
-
-        switch (field.field_type) {
-            case 'boolean':
-                return value.toLowerCase() === 'true' ?
-                    '<i class="fas fa-check"></i> Yes' :
-                    '<i class="fas fa-times"></i> No';
-
-            case 'date':
-                try {
-                    const date = new Date(value);
-                    return date.toLocaleDateString();
-                } catch {
-                    return this.escapeHtml(value);
-                }
-
-            case 'number':
-                return this.escapeHtml(value);
-
-            case 'select':
-                // Find the label for this value
-                if (field.options) {
-                    const option = field.options.find(opt => opt.option_value === value);
-                    return this.escapeHtml(option ? option.option_label : value);
-                }
-                return this.escapeHtml(value);
-
-            default:
-                return this.escapeHtml(value);
-        }
-    }
-
-    getValueClass(field, value) {
-        const classes = [];
-
-        if (!value || value.trim() === '') {
-            classes.push('empty');
-        } else {
-            switch (field.field_type) {
-                case 'boolean':
-                    classes.push(value.toLowerCase() === 'true' ? 'boolean-true' : 'boolean-false');
-                    break;
-                case 'number':
-                    classes.push('number');
-                    break;
-                case 'date':
-                    classes.push('date');
-                    break;
-            }
-        }
-
-        return classes.join(' ');
-    }
-
-    async openEditModal(positionId) {
-        const modal = document.getElementById(`customFieldsEditModal-${positionId}`);
-        const formContainer = document.getElementById(`customFieldsFormContainer-${positionId}`);
-
-        if (!modal || !formContainer) return;
-
-        // Show modal
-        const modalInstance = new bootstrap.Modal(modal);
-        modalInstance.show();
-
-        // Load form fields
-        await this.loadEditForm(positionId);
-    }
-
-    async loadEditForm(positionId) {
-        const formContainer = document.getElementById(`customFieldsFormContainer-${positionId}`);
-        if (!formContainer) return;
-
-        try {
-            const fields = this.fieldsData[positionId] || [];
-            const values = this.fieldValues[positionId] || [];
-
-            // Create a map of field values
-            const valueMap = {};
-            values.forEach(value => {
-                valueMap[value.field_id] = value.value;
-            });
-
-            formContainer.innerHTML = '';
-
-            if (fields.length === 0) {
-                formContainer.innerHTML = `
-                    <div class="text-center py-4">
-                        <p class="text-muted">No custom fields are available.</p>
-                        <a href="${window.location.origin}/settings#custom-fields" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-plus"></i> Add Custom Fields
-                        </a>
-                    </div>
-                `;
-                return;
-            }
-
-            fields.forEach(field => {
-                const fieldValue = valueMap[field.id] || field.default_value || '';
-                const fieldElement = this.createFieldFormElement(field, fieldValue);
-                formContainer.appendChild(fieldElement);
-            });
-
-        } catch (error) {
-            console.error('Error loading edit form:', error);
-            formContainer.innerHTML = '<div class="alert alert-danger">Error loading form. Please try again.</div>';
-        }
-    }
-
-    createFieldFormElement(field, value) {
-        const div = document.createElement('div');
-        div.className = 'custom-field-form-group';
+        col.className = 'col-md-6 col-lg-4 mb-3';
+        const fieldId = `field_${positionId}_${field.id}`;
 
         let inputHtml = '';
 
         switch (field.field_type) {
             case 'text':
-                inputHtml = `<input type="text" class="form-control dark-theme" name="field_${field.id}" value="${this.escapeHtml(value)}" ${field.is_required ? 'required' : ''}>`;
+                inputHtml = `
+                    <div class="input-group">
+                        <input type="text" class="form-control dark-theme" id="${fieldId}" data-field-id="${field.id}"
+                               value="${this.escapeHtml(value)}" placeholder="Enter ${this.escapeHtml(field.label).toLowerCase()}..."
+                               ${field.is_required ? 'required' : ''}>
+                        <span class="input-group-text save-indicator" id="${fieldId}_status" style="display: none;">
+                            <i class="fas fa-check text-success"></i>
+                        </span>
+                    </div>`;
                 break;
 
             case 'number':
-                inputHtml = `<input type="number" class="form-control dark-theme" name="field_${field.id}" value="${this.escapeHtml(value)}" step="any" ${field.is_required ? 'required' : ''}>`;
+                inputHtml = `
+                    <div class="input-group">
+                        <input type="number" class="form-control dark-theme" id="${fieldId}" data-field-id="${field.id}"
+                               value="${this.escapeHtml(value)}" step="any" placeholder="0" ${field.is_required ? 'required' : ''}>
+                        <span class="input-group-text save-indicator" id="${fieldId}_status" style="display: none;">
+                            <i class="fas fa-check text-success"></i>
+                        </span>
+                    </div>`;
                 break;
 
             case 'date':
                 const dateValue = value ? new Date(value).toISOString().split('T')[0] : '';
-                inputHtml = `<input type="date" class="form-control dark-theme" name="field_${field.id}" value="${dateValue}" ${field.is_required ? 'required' : ''}>`;
+                inputHtml = `
+                    <div class="input-group">
+                        <input type="date" class="form-control dark-theme" id="${fieldId}" data-field-id="${field.id}"
+                               value="${dateValue}" ${field.is_required ? 'required' : ''}>
+                        <span class="input-group-text save-indicator" id="${fieldId}_status" style="display: none;">
+                            <i class="fas fa-check text-success"></i>
+                        </span>
+                    </div>`;
                 break;
 
             case 'boolean':
                 const checked = value && value.toLowerCase() === 'true' ? 'checked' : '';
                 inputHtml = `
-                    <div class="form-check">
-                        <input type="checkbox" class="form-check-input dark-theme" name="field_${field.id}" value="true" ${checked} id="field_${field.id}">
-                        <label class="form-check-label" for="field_${field.id}">Yes</label>
-                    </div>
-                `;
+                    <div class="d-flex align-items-center">
+                        <div class="form-check form-switch">
+                            <input type="checkbox" class="form-check-input dark-theme" id="${fieldId}" data-field-id="${field.id}"
+                                   value="true" ${checked}>
+                            <label class="form-check-label" for="${fieldId}" id="${fieldId}_label">${checked ? 'Yes' : 'No'}</label>
+                        </div>
+                        <span class="save-indicator ms-2" id="${fieldId}_status" style="display: none;">
+                            <i class="fas fa-check text-success"></i>
+                        </span>
+                    </div>`;
                 break;
 
             case 'select':
-                let options = '<option value="">Select an option...</option>';
-                if (field.options) {
-                    field.options.forEach(option => {
-                        const selected = value === option.option_value ? 'selected' : '';
-                        options += `<option value="${this.escapeHtml(option.option_value)}" ${selected}>${this.escapeHtml(option.option_label)}</option>`;
-                    });
+                let options = '<option value="">Select...</option>';
+                let fieldOptions = field.options || [];
+                if (field.validation_rules) {
+                    try {
+                        const rules = typeof field.validation_rules === 'string'
+                            ? JSON.parse(field.validation_rules)
+                            : field.validation_rules;
+                        if (rules.options && Array.isArray(rules.options)) {
+                            fieldOptions = rules.options.map(opt => ({
+                                option_value: opt,
+                                option_label: opt
+                            }));
+                        }
+                    } catch (e) {
+                        console.warn('Could not parse validation_rules:', e);
+                    }
                 }
-                inputHtml = `<select class="form-select dark-theme" name="field_${field.id}" ${field.is_required ? 'required' : ''}>${options}</select>`;
+                fieldOptions.forEach(option => {
+                    const optValue = option.option_value || option;
+                    const optLabel = option.option_label || option;
+                    const selected = value === optValue ? 'selected' : '';
+                    options += `<option value="${this.escapeHtml(optValue)}" ${selected}>${this.escapeHtml(optLabel)}</option>`;
+                });
+                inputHtml = `
+                    <div class="input-group">
+                        <select class="form-select dark-theme" id="${fieldId}" data-field-id="${field.id}"
+                                ${field.is_required ? 'required' : ''}>${options}</select>
+                        <span class="input-group-text save-indicator" id="${fieldId}_status" style="display: none;">
+                            <i class="fas fa-check text-success"></i>
+                        </span>
+                    </div>`;
                 break;
         }
 
-        div.innerHTML = `
-            <label class="custom-field-form-label">
-                ${this.escapeHtml(field.label)}
-                ${field.is_required ? '<span class="custom-field-required-indicator">*</span>' : ''}
-            </label>
-            ${inputHtml}
-            ${field.description ? `<div class="form-text">${this.escapeHtml(field.description)}</div>` : ''}
+        col.innerHTML = `
+            <div class="custom-field-form-group">
+                <label class="custom-field-form-label" for="${fieldId}">
+                    ${this.escapeHtml(field.label)}
+                    ${field.is_required ? '<span class="custom-field-required-indicator">*</span>' : ''}
+                </label>
+                ${inputHtml}
+                ${field.description ? `<small class="form-text text-muted">${this.escapeHtml(field.description)}</small>` : ''}
+            </div>
         `;
 
-        return div;
+        // Attach auto-save event listeners after element is added to DOM
+        setTimeout(() => {
+            const input = col.querySelector(`#${fieldId}`);
+            if (!input) return;
+
+            if (field.field_type === 'boolean') {
+                // Checkbox: save immediately on change
+                input.addEventListener('change', () => {
+                    const label = col.querySelector(`#${fieldId}_label`);
+                    if (label) label.textContent = input.checked ? 'Yes' : 'No';
+                    this.autoSaveField(positionId, field.id, input.checked ? 'true' : 'false', fieldId);
+                });
+            } else if (field.field_type === 'select' || field.field_type === 'date') {
+                // Select/Date: save immediately on change
+                input.addEventListener('change', () => {
+                    this.autoSaveField(positionId, field.id, input.value, fieldId);
+                });
+            } else {
+                // Text/Number: debounce save (wait 500ms after typing stops)
+                input.addEventListener('input', () => {
+                    this.debounceSaveField(positionId, field.id, input.value, fieldId);
+                });
+                // Also save on blur (when user leaves the field)
+                input.addEventListener('blur', () => {
+                    if (this.saveTimeouts[fieldId]) {
+                        clearTimeout(this.saveTimeouts[fieldId]);
+                        delete this.saveTimeouts[fieldId];
+                    }
+                    this.autoSaveField(positionId, field.id, input.value, fieldId);
+                });
+            }
+        }, 0);
+
+        return col;
     }
 
-    async saveFields(positionId) {
-        const form = document.getElementById(`customFieldsEditForm-${positionId}`);
-        const saveBtn = document.getElementById(`saveCustomFieldsBtn-${positionId}`);
-        const saveText = document.getElementById(`saveFieldsText-${positionId}`);
-        const saveSpinner = document.getElementById(`saveFieldsSpinner-${positionId}`);
+    debounceSaveField(positionId, fieldId, value, inputId) {
+        // Clear existing timeout for this field
+        if (this.saveTimeouts[inputId]) {
+            clearTimeout(this.saveTimeouts[inputId]);
+        }
+        // Set new timeout to save after 500ms of inactivity
+        this.saveTimeouts[inputId] = setTimeout(() => {
+            this.autoSaveField(positionId, fieldId, value, inputId);
+            delete this.saveTimeouts[inputId];
+        }, 500);
+    }
 
-        if (!form) return;
-
-        // Show loading state
-        saveBtn.disabled = true;
-        saveText.style.display = 'none';
-        saveSpinner.style.display = 'inline-block';
+    async autoSaveField(positionId, fieldId, value, inputId) {
+        const statusElement = document.getElementById(`${inputId}_status`);
 
         try {
-            const formData = new FormData(form);
-            const fields = this.fieldsData[positionId] || [];
-
-            // Save each field value
-            const savePromises = fields.map(async field => {
-                const fieldName = `field_${field.id}`;
-                let fieldValue = '';
-
-                if (field.field_type === 'boolean') {
-                    fieldValue = formData.has(fieldName) ? 'true' : 'false';
-                } else {
-                    fieldValue = formData.get(fieldName) || '';
-                }
-
-                // Skip empty optional fields
-                if (!field.is_required && !fieldValue.trim()) {
-                    return null;
-                }
-
-                return this.saveFieldValue(positionId, field.id, fieldValue);
-            });
-
-            const results = await Promise.all(savePromises.filter(p => p !== null));
-            const successful = results.filter(r => r).length;
-
-            if (successful > 0) {
-                this.showSuccess('Custom fields updated successfully!');
-
-                // Close modal
-                const modal = bootstrap.Modal.getInstance(document.getElementById(`customFieldsEditModal-${positionId}`));
-                modal.hide();
-
-                // Reload display
-                await this.loadPositionFields(positionId);
-            } else {
-                this.showError('No changes were saved.');
+            // Show saving indicator
+            if (statusElement) {
+                statusElement.innerHTML = '<i class="fas fa-spinner fa-spin text-muted"></i>';
+                statusElement.style.display = 'flex';
             }
 
+            const success = await this.saveFieldValue(positionId, fieldId, value);
+
+            if (statusElement) {
+                if (success) {
+                    statusElement.innerHTML = '<i class="fas fa-check text-success"></i>';
+                } else {
+                    statusElement.innerHTML = '<i class="fas fa-times text-danger"></i>';
+                }
+                // Hide after 2 seconds
+                setTimeout(() => {
+                    statusElement.style.display = 'none';
+                }, 2000);
+            }
         } catch (error) {
-            console.error('Error saving custom fields:', error);
-            this.showError('Failed to save custom fields. Please try again.');
-        } finally {
-            // Reset button state
-            saveBtn.disabled = false;
-            saveText.style.display = 'inline';
-            saveSpinner.style.display = 'none';
+            console.error('Auto-save error:', error);
+            if (statusElement) {
+                statusElement.innerHTML = '<i class="fas fa-times text-danger"></i>';
+                setTimeout(() => {
+                    statusElement.style.display = 'none';
+                }, 2000);
+            }
         }
     }
 
@@ -535,8 +448,8 @@ class PositionCustomFields {
                     'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    field_id: fieldId,
-                    value: value
+                    custom_field_id: fieldId,
+                    field_value: value
                 })
             });
 
@@ -548,7 +461,6 @@ class PositionCustomFields {
         }
     }
 
-    // Utility methods
     escapeHtml(text) {
         if (!text) return '';
         const map = {
@@ -558,26 +470,17 @@ class PositionCustomFields {
             '"': '&quot;',
             "'": '&#039;'
         };
-        return text.replace(/[&<>"']/g, m => map[m]);
-    }
-
-    showError(message) {
-        alert('Error: ' + message);
-    }
-
-    showSuccess(message) {
-        alert('Success: ' + message);
+        return String(text).replace(/[&<>"']/g, m => map[m]);
     }
 }
 
-// Initialize position custom fields manager
+// Initialize and auto-load
 const positionCustomFields = new PositionCustomFields();
 
-// Auto-load fields when component is rendered
 document.addEventListener('DOMContentLoaded', function() {
-    const positionCustomFieldsContainer = document.querySelector('[id^="positionCustomFields-"]');
-    if (positionCustomFieldsContainer) {
-        const positionId = positionCustomFieldsContainer.id.split('-')[1];
+    const container = document.querySelector('[id^="positionCustomFields-"]');
+    if (container) {
+        const positionId = container.id.split('-')[1];
         positionCustomFields.loadPositionFields(parseInt(positionId));
     }
 });

@@ -94,7 +94,8 @@ class FuturesDB:
         
         try:
             db_logger.debug(f"Connecting to database: {self.db_path}")
-            self.conn = sqlite3.connect(self.db_path)
+            # timeout=30.0 makes SQLite wait up to 30 seconds for locks instead of failing immediately
+            self.conn = sqlite3.connect(self.db_path, timeout=30.0)
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
             
@@ -131,6 +132,7 @@ class FuturesDB:
                 print("Added entry_execution_id column successfully")
         
         # Apply SQLite performance optimizations
+        self.cursor.execute("PRAGMA busy_timeout = 30000")    # Wait up to 30 seconds for locks
         self.cursor.execute("PRAGMA journal_mode = WAL")
         self.cursor.execute("PRAGMA synchronous = normal")
         self.cursor.execute("PRAGMA temp_store = memory")
@@ -340,7 +342,68 @@ class FuturesDB:
             print("Created/verified profile history index: idx_profile_history_profile_id_version_desc")
         except Exception as e:
             print(f"Warning: Could not create profile history index: {e}")
-        
+
+        # Create custom_fields table for position custom fields feature
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS custom_fields (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                field_type TEXT NOT NULL CHECK (field_type IN ('text', 'number', 'date', 'boolean', 'select')),
+                description TEXT,
+                is_required BOOLEAN NOT NULL DEFAULT 0,
+                default_value TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                validation_rules TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                created_by INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("Created/verified custom_fields table")
+
+        # Create position_custom_field_values table
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS position_custom_field_values (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                position_id INTEGER NOT NULL,
+                custom_field_id INTEGER NOT NULL,
+                field_value TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (custom_field_id) REFERENCES custom_fields (id) ON DELETE CASCADE,
+                UNIQUE(position_id, custom_field_id)
+            )
+        """)
+        print("Created/verified position_custom_field_values table")
+
+        # Create custom_field_options table
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS custom_field_options (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                custom_field_id INTEGER NOT NULL,
+                option_value TEXT NOT NULL,
+                option_label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (custom_field_id) REFERENCES custom_fields (id) ON DELETE CASCADE,
+                UNIQUE(custom_field_id, option_value)
+            )
+        """)
+        print("Created/verified custom_field_options table")
+
+        # Create indexes for custom fields tables
+        try:
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_name ON custom_fields(name)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_is_active ON custom_fields(is_active)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_position_custom_field_values_position_id ON position_custom_field_values(position_id)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_position_custom_field_values_field_id ON position_custom_field_values(custom_field_id)")
+            print("Created/verified custom fields indexes")
+        except Exception as e:
+            print(f"Warning: Could not create custom fields indexes: {e}")
+
         # Run ANALYZE to update query planner statistics
         self.cursor.execute("ANALYZE")
         self.conn.commit()

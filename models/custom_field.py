@@ -119,8 +119,8 @@ class CustomField(BaseModel):
     @model_validator(mode='after')
     def validate_field_configuration(self):
         """Cross-field validation for field configuration"""
-        # Validate default value format based on field type
-        if self.default_value is not None and self.field_type:
+        # Validate default value format based on field type (only if non-empty)
+        if self.default_value is not None and self.default_value != '' and self.field_type:
             try:
                 self._validate_field_value(self.field_type, self.default_value)
             except ValueError as e:
@@ -200,11 +200,13 @@ class CustomField(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for database storage"""
+        # Handle field_type whether it's an enum or already a string (due to use_enum_values=True)
+        field_type_value = self.field_type.value if hasattr(self.field_type, 'value') else self.field_type
         return {
             'id': self.id,
             'name': self.name,
             'label': self.label,
-            'field_type': self.field_type.value,
+            'field_type': field_type_value,
             'description': self.description,
             'is_required': self.is_required,
             'default_value': self.default_value,

@@ -26,9 +26,6 @@
                             <i class="fas fa-clipboard-list fa-3x mb-3" style="opacity: 0.3;"></i>
                             <h5>No Custom Fields Yet</h5>
                             <p>Create your first custom field to start tracking additional data on position pages.</p>
-                            <button class="btn btn-primary" onclick="openCustomFieldModal()">
-                                <i class="fas fa-plus"></i> Create First Field
-                            </button>
                         </div>
                     </div>
 
@@ -113,15 +110,9 @@
                         <div class="mb-3">
                             <label class="form-label">Dropdown Options <span class="text-danger">*</span></label>
                             <div id="optionsContainer">
-                                <div class="option-row d-flex mb-2">
-                                    <input type="text" class="form-control me-2" placeholder="Option label" name="option_label">
-                                    <input type="text" class="form-control me-2" placeholder="Option value" name="option_value">
-                                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeOption(this)">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
+                                <!-- Options are added dynamically by JavaScript -->
                             </div>
-                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="addOption()">
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="customFieldsManager.addOption()">
                                 <i class="fas fa-plus"></i> Add Option
                             </button>
                         </div>
@@ -303,174 +294,3 @@
 }
 </style>
 
-<script>
-// Custom Fields Management JavaScript
-let currentEditingFieldId = null;
-let customFieldsData = [];
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadCustomFields();
-    setupEventListeners();
-});
-
-function setupEventListeners() {
-    // Add Custom Field button
-    document.getElementById('add-custom-field-btn').addEventListener('click', function() {
-        openCustomFieldModal();
-    });
-
-    // Save Custom Field button
-    document.getElementById('saveCustomFieldBtn').addEventListener('click', function() {
-        saveCustomField();
-    });
-
-    // Confirm Delete button
-    document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
-        confirmDeleteCustomField();
-    });
-
-    // Field Type change handler
-    document.getElementById('fieldType').addEventListener('change', function() {
-        toggleSelectOptions(this.value === 'select');
-    });
-
-    // Field Name input validation
-    document.getElementById('fieldName').addEventListener('input', function() {
-        validateFieldName(this);
-    });
-
-    // Modal cleanup on close
-    document.getElementById('customFieldModal').addEventListener('hidden.bs.modal', function() {
-        resetCustomFieldForm();
-    });
-}
-
-function loadCustomFields() {
-    const loadingElement = document.getElementById('custom-fields-loading');
-    const emptyElement = document.getElementById('custom-fields-empty');
-    const listElement = document.getElementById('custom-fields-list');
-
-    // Show loading state
-    loadingElement.style.display = 'block';
-    emptyElement.style.display = 'none';
-    listElement.style.display = 'none';
-
-    // Fetch custom fields from API
-    fetch('/api/custom-fields/', {
-        method: 'GET',
-        headers: {
-            'Accept': 'application/json'
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            customFieldsData = data.data;
-            displayCustomFields(customFieldsData);
-        } else {
-            showError('Failed to load custom fields: ' + (data.message || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error loading custom fields:', error);
-        showError('Failed to load custom fields. Please try again.');
-    })
-    .finally(() => {
-        loadingElement.style.display = 'none';
-    });
-}
-
-function displayCustomFields(fields) {
-    const emptyElement = document.getElementById('custom-fields-empty');
-    const listElement = document.getElementById('custom-fields-list');
-    const tbody = document.getElementById('custom-fields-tbody');
-
-    if (!fields || fields.length === 0) {
-        emptyElement.style.display = 'block';
-        listElement.style.display = 'none';
-        return;
-    }
-
-    // Clear existing rows
-    tbody.innerHTML = '';
-
-    // Add each field as a row
-    fields.forEach(field => {
-        const row = createCustomFieldRow(field);
-        tbody.appendChild(row);
-    });
-
-    emptyElement.style.display = 'none';
-    listElement.style.display = 'block';
-}
-
-function createCustomFieldRow(field) {
-    const row = document.createElement('tr');
-
-    const typeClass = `field-type-${field.field_type}`;
-    const statusClass = field.is_active ? 'field-status-active' : 'field-status-inactive';
-    const statusText = field.is_active ? 'Active' : 'Inactive';
-
-    row.innerHTML = `
-        <td>
-            <div class="fw-bold">${escapeHtml(field.label)}</div>
-            <small class="text-muted">${escapeHtml(field.name)}</small>
-            ${field.description ? `<div class="text-muted small">${escapeHtml(field.description)}</div>` : ''}
-        </td>
-        <td>
-            <span class="field-type-badge ${typeClass}">
-                ${field.field_type}
-            </span>
-        </td>
-        <td>
-            ${field.is_required ?
-                '<span class="badge bg-warning">Required</span>' :
-                '<span class="badge bg-secondary">Optional</span>'
-            }
-        </td>
-        <td>
-            <span class="${statusClass}">${statusText}</span>
-        </td>
-        <td>
-            <small class="text-muted">0 positions</small>
-        </td>
-        <td>
-            <div class="btn-group" role="group">
-                <button class="btn btn-sm btn-outline-primary" onclick="editCustomField(${field.id})" title="Edit Field">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="toggleFieldStatus(${field.id})" title="Toggle Active Status">
-                    <i class="fas ${field.is_active ? 'fa-eye-slash' : 'fa-eye'}"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteCustomField(${field.id})" title="Delete Field">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </td>
-    `;
-
-    return row;
-}
-
-// Additional helper functions will be added in the next part
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-}
-
-function showError(message) {
-    // Simple error display - can be enhanced with toast notifications
-    alert('Error: ' + message);
-}
-
-function showSuccess(message) {
-    // Simple success display - can be enhanced with toast notifications
-    alert('Success: ' + message);
-}
-</script>

@@ -3,10 +3,16 @@
 <head>
     <title>Position Details - {{ position.instrument }} {{ position.position_type }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- Bootstrap CSS for modal and form components -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <!-- TradingView Lightweight Charts Library - must load before PriceChart.js -->
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
     <!-- Chart Settings API - must load before PriceChart.js -->
     <script src="{{ url_for('static', filename='js/ChartSettingsAPI.js') }}"></script>
+    <!-- Bootstrap JS for modal functionality -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         /* Dark mode compatible styling */
         body {
