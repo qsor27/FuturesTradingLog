@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional, Union
 import pandas as pd
 
 from config import config
+from services.import_logs_service import ImportLogsService
 
 # Import database with fallback for different environments
 try:
@@ -79,7 +80,7 @@ class UnifiedCSVImportService:
     def __init__(self, data_dir: Optional[Path] = None):
         """
         Initialize the unified CSV import service.
-        
+
         Args:
             data_dir: Directory to monitor for CSV files (defaults to config.data_dir)
         """
@@ -87,10 +88,16 @@ class UnifiedCSVImportService:
         self.processed_files = set()
         self.logger = self._setup_logger()
         self.multipliers = self._load_instrument_multipliers()
-        
+        self.import_logs_service = ImportLogsService()
+
+        # Track current import for logging
+        self.current_import_batch_id = None
+        self.current_import_start_time = None
+        self.current_row_logs = []
+
         # Ensure data directory exists
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.logger.info(f"UnifiedCSVImportService initialized. Monitoring: {self.data_dir}")
     
     def _setup_logger(self) -> logging.Logger:
@@ -342,14 +349,26 @@ class UnifiedCSVImportService:
             # Process based on file type
             if file_type in ['execution', 'execution_alt']:
                 # Process raw execution data using ExecutionProcessing
-                self.logger.info(f"Processing execution file: {file_path.name}")
+                csv_row_count = len(df)
+                self.logger.info(f"Processing execution file: {file_path.name} ({csv_row_count} CSV rows)")
 
                 # For execution_alt, we might need to add missing columns with defaults
                 if file_type == 'execution_alt':
                     df = self._normalize_execution_columns(df)
 
                 processed_trades = process_trades(df, self.multipliers)
-                self.logger.info(f"Processed {len(processed_trades)} trades from execution file {file_path.name}")
+                processed_count = len(processed_trades)
+                self.logger.info(
+                    f"Processed {processed_count} trades from execution file {file_path.name} "
+                    f"({csv_row_count} CSV rows → {processed_count} executions)"
+                )
+
+                # Warn if row count doesn't match
+                if processed_count != csv_row_count:
+                    self.logger.warning(
+                        f"Row count mismatch: CSV had {csv_row_count} rows but only {processed_count} were processed. "
+                        f"Check ExecutionProcessing logs for skipped rows."
+                    )
 
             elif file_type == 'trade_log':
                 # Process already-processed trade log data
@@ -437,10 +456,15 @@ class UnifiedCSVImportService:
                 self.logger.error("FuturesDB not available - cannot import trades")
                 return False
 
+            total_count = len(trades)
             imported_count = 0
+            skipped_count = 0
+            failed_executions = []
+
+            self.logger.info(f"Starting database import of {total_count} executions")
 
             with FuturesDB() as db:
-                for trade in trades:
+                for idx, trade in enumerate(trades, 1):
                     # Detect format: new individual execution format vs legacy trade format
                     is_individual_execution = 'execution_id' in trade and 'entry_exit' in trade
 
@@ -458,9 +482,14 @@ class UnifiedCSVImportService:
                             'dollars_gain_loss': None,  # Position builder calculates this
                             'entry_execution_id': trade.get('execution_id', ''),
                             'commission': trade.get('commission', 0.0),
-                            'account': trade.get('Account', '')
+                            'account': trade.get('Account', ''),
+                            'import_batch_id': self.current_import_batch_id
                         }
                         exec_id = trade_data['entry_execution_id']
+                        action = trade.get('action', '')
+                        quantity = trade.get('quantity', 0)
+                        price = trade.get('entry_price', 0)
+                        time = trade.get('entry_time', '')
                     else:
                         # Legacy format: Complete trade
                         trade_data = {
@@ -475,23 +504,64 @@ class UnifiedCSVImportService:
                             'dollars_gain_loss': trade.get('Gain/Loss in Dollars', 0.0),
                             'entry_execution_id': trade.get('ID', ''),
                             'commission': trade.get('Commission', 0.0),
-                            'account': trade.get('Account', '')
+                            'account': trade.get('Account', ''),
+                            'import_batch_id': self.current_import_batch_id
                         }
                         exec_id = trade_data['entry_execution_id']
+                        action = trade.get('Side of Market', '')
+                        quantity = trade.get('Quantity', 0)
+                        price = trade.get('Entry Price', 0)
+                        time = trade.get('Entry Time', '')
 
                     # Insert trade (database handles duplicates)
-                    self.logger.debug(f"Importing execution: {exec_id}")
+                    self.logger.info(f"[{idx}/{total_count}] Importing execution {exec_id}: {action} {quantity}@{price}")
                     success = db.add_trade(trade_data)
+
+                    # Log row-level result
+                    if self.current_import_batch_id:
+                        row_log_data = {
+                            'import_batch_id': self.current_import_batch_id,
+                            'row_number': idx,
+                            'status': 'success' if success else 'failed',
+                            'raw_row_data': json.dumps(trade, default=str),
+                            'created_trade_id': db.cursor.lastrowid if success else None
+                        }
+
+                        if not success:
+                            row_log_data['error_message'] = f"Failed to import trade {exec_id}"
+                            row_log_data['error_category'] = 'database_error'
+
+                        self.current_row_logs.append(row_log_data)
 
                     if success:
                         imported_count += 1
-                        self.logger.debug(f"Successfully imported execution {exec_id}")
+                        self.logger.debug(f"  ✓ Successfully imported execution {exec_id}")
                     else:
+                        skipped_count += 1
+                        failed_executions.append({
+                            'id': exec_id,
+                            'action': action,
+                            'quantity': quantity,
+                            'price': price,
+                            'time': time,
+                            'account': trade_data.get('account', ''),
+                            'instrument': trade_data.get('instrument', '')
+                        })
                         self.logger.warning(
-                            f"Failed to import execution {exec_id} - possibly duplicate"
+                            f"  ✗ Failed to import execution {exec_id}: {action} {quantity}@{price} at {time}"
                         )
 
-                self.logger.info(f"Successfully imported {imported_count} executions to database")
+                # Final summary
+                self.logger.info(f"Database import complete: {imported_count}/{total_count} imported, {skipped_count} skipped/failed")
+
+                if failed_executions:
+                    self.logger.warning(f"Failed executions details:")
+                    for failed in failed_executions:
+                        self.logger.warning(
+                            f"  - {failed['id']}: {failed['account']}/{failed['instrument']} "
+                            f"{failed['action']} {failed['quantity']}@{failed['price']} at {failed['time']}"
+                        )
+
                 return True
 
         except Exception as e:
@@ -597,6 +667,15 @@ class UnifiedCSVImportService:
                 f"Detected {len(detected_issues)} potential issues in imported trades. "
                 "Review recommended in Execution Review screen."
             )
+            # Log details of each issue
+            for issue_detail in detected_issues:
+                exec_id = trade.get('execution_id', trade.get('entry_execution_id', 'Unknown'))
+                self.logger.warning(
+                    f"  Issue: {issue_detail['issue']} - {issue_detail['account']}/{issue_detail['instrument']} "
+                    f"Action={issue_detail['action']} Qty={issue_detail['quantity']} "
+                    f"(prev_qty={issue_detail['prev_qty']} → running_qty={issue_detail['running_qty']}) "
+                    f"at {issue_detail['time']}"
+                )
 
         return detected_issues
 
@@ -716,14 +795,14 @@ class UnifiedCSVImportService:
     def process_all_new_files(self) -> Dict[str, Any]:
         """
         Process all new CSV files found in the data directory.
-        
+
         Returns:
             Dictionary with processing results
         """
         try:
             # Find new files
             new_files = self._find_new_csv_files()
-            
+
             if not new_files:
                 return {
                     'success': True,
@@ -732,22 +811,83 @@ class UnifiedCSVImportService:
                     'positions_created': 0,
                     'message': 'No new files to process'
                 }
-            
+
             # Process all files
             all_trades = []
             processed_files = []
-            
+
             for file_path in new_files:
+                # Initialize import logging for this file
+                self.current_import_batch_id = self.import_logs_service.generate_batch_id(str(file_path))
+                self.current_import_start_time = datetime.now()
+                self.current_row_logs = []
+
+                # Create initial import log
+                file_hash = self.import_logs_service.compute_file_hash(file_path)
+                import_log_data = {
+                    'import_batch_id': self.current_import_batch_id,
+                    'file_name': file_path.name,
+                    'file_path': str(file_path),
+                    'file_hash': file_hash,
+                    'import_time': self.current_import_start_time,
+                    'status': 'success',  # Will update if errors occur
+                    'total_rows': 0,
+                    'success_rows': 0,
+                    'failed_rows': 0,
+                    'skipped_rows': 0
+                }
+                self.import_logs_service.create_import_log(import_log_data)
+
                 trades = self._process_csv_file(file_path)
                 all_trades.extend(trades)
                 processed_files.append(file_path)
-                
+
                 # Mark as processed
                 self.processed_files.add(file_path.name)
-            
+
             # Import trades to database
             if all_trades:
                 import_success = self._import_trades_to_database(all_trades)
+
+                # Finalize import log
+                if self.current_import_batch_id and self.current_row_logs:
+                    # Save row logs in batch
+                    self.import_logs_service.create_row_logs_batch(self.current_row_logs)
+
+                    # Calculate statistics
+                    success_rows = sum(1 for log in self.current_row_logs if log['status'] == 'success')
+                    failed_rows = sum(1 for log in self.current_row_logs if log['status'] == 'failed')
+                    skipped_rows = sum(1 for log in self.current_row_logs if log['status'] == 'skipped')
+                    total_rows = len(self.current_row_logs)
+
+                    # Compute processing time
+                    processing_time_ms = int((datetime.now() - self.current_import_start_time).total_seconds() * 1000)
+
+                    # Determine status
+                    if failed_rows == 0:
+                        status = 'success'
+                    elif success_rows > 0:
+                        status = 'partial'
+                    else:
+                        status = 'failed'
+
+                    # Extract affected accounts
+                    accounts = set()
+                    for trade in all_trades:
+                        account = trade.get('Account', trade.get('account'))
+                        if account:
+                            accounts.add(account)
+
+                    # Update import log
+                    self.import_logs_service.update_import_log(self.current_import_batch_id, {
+                        'total_rows': total_rows,
+                        'success_rows': success_rows,
+                        'failed_rows': failed_rows,
+                        'skipped_rows': skipped_rows,
+                        'processing_time_ms': processing_time_ms,
+                        'status': status,
+                        'affected_accounts': json.dumps(list(accounts))
+                    })
 
                 if not import_success:
                     return {
@@ -792,7 +932,7 @@ class UnifiedCSVImportService:
                     'positions_created': 0,
                     'message': 'No trades found in processed files'
                 }
-                
+
         except Exception as e:
             self.logger.error(f"Error in process_all_new_files: {e}")
             return {
@@ -805,30 +945,91 @@ class UnifiedCSVImportService:
     def manual_reprocess_file(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """
         Manually reprocess a specific CSV file.
-        
+
         Args:
             file_path: Path to the file to reprocess
-            
+
         Returns:
             Dictionary with reprocessing results
         """
         try:
             file_path = Path(file_path)
-            
+
             if not file_path.exists():
                 return {
                     'success': False,
                     'error': f'File not found: {file_path}'
                 }
-            
+
             self.logger.info(f"Manual reprocessing requested for: {file_path.name}")
-            
+
+            # Initialize import logging for this file
+            self.current_import_batch_id = self.import_logs_service.generate_batch_id(str(file_path))
+            self.current_import_start_time = datetime.now()
+            self.current_row_logs = []
+
+            # Create initial import log
+            file_hash = self.import_logs_service.compute_file_hash(file_path)
+            import_log_data = {
+                'import_batch_id': self.current_import_batch_id,
+                'file_name': file_path.name,
+                'file_path': str(file_path),
+                'file_hash': file_hash,
+                'import_time': self.current_import_start_time,
+                'status': 'success',
+                'total_rows': 0,
+                'success_rows': 0,
+                'failed_rows': 0,
+                'skipped_rows': 0
+            }
+            self.import_logs_service.create_import_log(import_log_data)
+
             # Process the file
             trades = self._process_csv_file(file_path)
-            
+
             if trades:
                 # Import to database
                 import_success = self._import_trades_to_database(trades)
+
+                # Finalize import log
+                if self.current_import_batch_id and self.current_row_logs:
+                    # Save row logs in batch
+                    self.import_logs_service.create_row_logs_batch(self.current_row_logs)
+
+                    # Calculate statistics
+                    success_rows = sum(1 for log in self.current_row_logs if log['status'] == 'success')
+                    failed_rows = sum(1 for log in self.current_row_logs if log['status'] == 'failed')
+                    skipped_rows = sum(1 for log in self.current_row_logs if log['status'] == 'skipped')
+                    total_rows = len(self.current_row_logs)
+
+                    # Compute processing time
+                    processing_time_ms = int((datetime.now() - self.current_import_start_time).total_seconds() * 1000)
+
+                    # Determine status
+                    if failed_rows == 0:
+                        status = 'success'
+                    elif success_rows > 0:
+                        status = 'partial'
+                    else:
+                        status = 'failed'
+
+                    # Extract affected accounts
+                    accounts = set()
+                    for trade in trades:
+                        account = trade.get('Account', trade.get('account'))
+                        if account:
+                            accounts.add(account)
+
+                    # Update import log
+                    self.import_logs_service.update_import_log(self.current_import_batch_id, {
+                        'total_rows': total_rows,
+                        'success_rows': success_rows,
+                        'failed_rows': failed_rows,
+                        'skipped_rows': skipped_rows,
+                        'processing_time_ms': processing_time_ms,
+                        'status': status,
+                        'affected_accounts': json.dumps(list(accounts))
+                    })
 
                 if not import_success:
                     return {
@@ -868,7 +1069,7 @@ class UnifiedCSVImportService:
                     'positions_created': 0,
                     'message': f'No trades found in {file_path.name}'
                 }
-                
+
         except Exception as e:
             self.logger.error(f"Error in manual_reprocess_file: {e}")
             return {

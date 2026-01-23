@@ -338,6 +338,15 @@ class DatabaseManager:
         # Migration 2: Create import_history table
         self._migrate_import_history_table()
 
+        # Migration 3: Create import_execution_logs table
+        self._migrate_import_execution_logs_table()
+
+        # Migration 4: Create import_execution_row_logs table
+        self._migrate_import_execution_row_logs_table()
+
+        # Migration 5: Add import_row_log_id column to trades table
+        self._migrate_trades_import_row_log_id()
+
         db_logger.info("Database migrations completed")
 
     def _migrate_trades_source_tracking(self):
@@ -377,6 +386,95 @@ class DatabaseManager:
                 accounts_affected TEXT
             )
         """)
+
+    def _migrate_import_execution_logs_table(self):
+        """Create import_execution_logs table for detailed import logging"""
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS import_execution_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_batch_id TEXT NOT NULL UNIQUE,
+                file_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL CHECK(status IN ('success', 'partial', 'failed')),
+                total_rows INTEGER NOT NULL DEFAULT 0,
+                success_rows INTEGER NOT NULL DEFAULT 0,
+                failed_rows INTEGER NOT NULL DEFAULT 0,
+                skipped_rows INTEGER NOT NULL DEFAULT 0,
+                processing_time_ms INTEGER,
+                affected_accounts TEXT,
+                error_summary TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create indexes for import_execution_logs
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_import_execution_logs_batch_id ON import_execution_logs(import_batch_id)",
+            "CREATE INDEX IF NOT EXISTS idx_import_execution_logs_status ON import_execution_logs(status)",
+            "CREATE INDEX IF NOT EXISTS idx_import_execution_logs_import_time ON import_execution_logs(import_time DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_import_execution_logs_file_name ON import_execution_logs(file_name)"
+        ]
+
+        for index_sql in indexes:
+            try:
+                self.cursor.execute(index_sql)
+            except Exception as e:
+                db_logger.warning(f"Could not create index: {e}")
+
+        db_logger.info("Created import_execution_logs table with indexes")
+
+    def _migrate_import_execution_row_logs_table(self):
+        """Create import_execution_row_logs table for row-level import logging"""
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS import_execution_row_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_batch_id TEXT NOT NULL,
+                row_number INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'skipped')),
+                error_message TEXT,
+                error_category TEXT CHECK(error_category IN ('validation_error', 'parsing_error', 'duplicate_error', 'database_error', 'business_logic_error', NULL)),
+                raw_row_data TEXT,
+                validation_errors TEXT,
+                created_trade_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (import_batch_id) REFERENCES import_execution_logs(import_batch_id) ON DELETE CASCADE,
+                FOREIGN KEY (created_trade_id) REFERENCES trades(id) ON DELETE SET NULL
+            )
+        """)
+
+        # Create indexes for import_execution_row_logs
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_import_row_logs_batch_id ON import_execution_row_logs(import_batch_id)",
+            "CREATE INDEX IF NOT EXISTS idx_import_row_logs_status ON import_execution_row_logs(status)",
+            "CREATE INDEX IF NOT EXISTS idx_import_row_logs_trade_id ON import_execution_row_logs(created_trade_id)"
+        ]
+
+        for index_sql in indexes:
+            try:
+                self.cursor.execute(index_sql)
+            except Exception as e:
+                db_logger.warning(f"Could not create index: {e}")
+
+        db_logger.info("Created import_execution_row_logs table with indexes")
+
+    def _migrate_trades_import_row_log_id(self):
+        """Add import_row_log_id column to trades table"""
+        # Check if column exists
+        self.cursor.execute("PRAGMA table_info(trades)")
+        existing_columns = {row[1] for row in self.cursor.fetchall()}
+
+        if 'import_row_log_id' not in existing_columns:
+            try:
+                self.cursor.execute("ALTER TABLE trades ADD COLUMN import_row_log_id INTEGER")
+                db_logger.info("Added import_row_log_id column to trades table")
+
+                # Create index
+                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_import_row_log_id ON trades(import_row_log_id)")
+                db_logger.info("Created index on import_row_log_id column")
+            except Exception as e:
+                db_logger.warning(f"Could not add import_row_log_id column: {e}")
     
     def _initialize_repositories(self):
         """Initialize all repository instances"""
