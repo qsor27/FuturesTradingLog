@@ -22,6 +22,77 @@ positions_bp = Blueprint('positions', __name__)
 logger = logging.getLogger('positions')
 
 
+def _trigger_position_data_fetch(position_ids: list):
+    """
+    Trigger background OHLC data fetch for newly imported positions.
+    Called after successful position import to ensure chart data is available.
+
+    Args:
+        position_ids: List of position IDs that were created/updated
+    """
+    try:
+        from tasks.gap_filling import fetch_position_ohlc_data
+
+        if not position_ids:
+            return
+
+        logger.info(f"Triggering OHLC data fetch for {len(position_ids)} positions")
+
+        # Get position details for each position
+        with FuturesDB() as db:
+            for position_id in position_ids:
+                try:
+                    # Get position info
+                    trade = db.get_trade_by_id(position_id)
+                    if not trade:
+                        continue
+
+                    instrument = trade.get('instrument')
+                    if not instrument:
+                        continue
+
+                    # Calculate date range with padding
+                    # Entry time - 4 hours to exit time + 1 hour
+                    entry_time = trade.get('entry_time')
+                    exit_time = trade.get('exit_time')
+
+                    if entry_time:
+                        if isinstance(entry_time, str):
+                            entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+                        start_date = entry_time - timedelta(hours=4)
+                    else:
+                        # No entry time, use yesterday as fallback
+                        start_date = datetime.now() - timedelta(days=1)
+
+                    if exit_time:
+                        if isinstance(exit_time, str):
+                            exit_time = datetime.fromisoformat(exit_time.replace('Z', '+00:00'))
+                        end_date = exit_time + timedelta(hours=1)
+                    else:
+                        # Open position, use current time + 1 hour
+                        end_date = datetime.now() + timedelta(hours=1)
+
+                    # Queue async task (doesn't block import)
+                    fetch_position_ohlc_data.delay(
+                        position_id=position_id,
+                        instrument=instrument,
+                        start_date=start_date.isoformat(),
+                        end_date=end_date.isoformat(),
+                        timeframes=['1m', '5m', '15m', '1h'],
+                        priority='high'
+                    )
+
+                    logger.info(f"Queued OHLC fetch for position {position_id} ({instrument})")
+
+                except Exception as e:
+                    logger.error(f"Error queuing OHLC fetch for position {position_id}: {e}")
+                    continue
+
+    except Exception as e:
+        logger.error(f"Error in _trigger_position_data_fetch: {e}")
+        # Don't re-raise - this is a background task that shouldn't fail the import
+
+
 def calculate_position_chart_date_range(position):
     """
     Calculate optimal chart date range for a position with intelligent padding.
@@ -106,6 +177,47 @@ def calculate_position_chart_date_range(position):
         else:
             # Open position: don't add padding to "now"
             chart_end_date = exit_time
+
+        # Fallback logic: Check if we have market data for this date range
+        # If the position is outside available market data (e.g., future dated or data not yet available),
+        # fallback to showing the most recent available data
+        instrument = position.get('instrument')
+        if instrument:
+            try:
+                with FuturesDB() as db:
+                    # Check what OHLC data we actually have for this instrument
+                    db.cursor.execute('''
+                        SELECT MAX(timestamp), MIN(timestamp)
+                        FROM ohlc_data
+                        WHERE instrument = ?
+                    ''', (instrument,))
+
+                    result = db.cursor.fetchone()
+                    if result and result[0]:
+                        latest_data_ts = result[0]
+                        earliest_data_ts = result[1]
+                        latest_data_dt = datetime.fromtimestamp(latest_data_ts, tz=utc_tz)
+                        earliest_data_dt = datetime.fromtimestamp(earliest_data_ts, tz=utc_tz)
+
+                        # If position entry is AFTER latest available data, use fallback
+                        if entry_time > latest_data_dt:
+                            logger.info(f"Position entry ({entry_time}) is after latest market data ({latest_data_dt}). Using fallback range.")
+                            # Show recent available data with smart range based on typical usage
+                            # For minute charts, show last trading day (6.5 hours)
+                            # For hourly/daily, show more context
+                            chart_end_date = latest_data_dt
+                            chart_start_date = max(earliest_data_dt, latest_data_dt - timedelta(hours=8))
+
+                        # If position entry is BEFORE earliest available data, use fallback
+                        elif exit_time < earliest_data_dt:
+                            logger.info(f"Position exit ({exit_time}) is before earliest market data ({earliest_data_dt}). Using fallback range.")
+                            # Show the first 7 days of available data
+                            chart_start_date = earliest_data_dt
+                            chart_end_date = min(datetime.now(utc_tz), earliest_data_dt + timedelta(days=7))
+
+            except Exception as fallback_error:
+                logger.warning(f"Could not check market data availability for fallback: {fallback_error}")
+                # Continue with original date range
 
         # Return naive UTC datetimes (remove tzinfo for compatibility with existing code)
         return {
@@ -671,6 +783,14 @@ def reimport_csv():
             # Rebuild positions after successful import
             with PositionService() as pos_service:
                 result = pos_service.rebuild_positions_from_trades()
+
+            # Trigger OHLC data fetch for newly imported positions
+            if result['positions_created'] > 0:
+                try:
+                    _trigger_position_data_fetch(result.get('position_ids', []))
+                except Exception as e:
+                    logger.warning(f"Failed to trigger OHLC data fetch for positions: {e}")
+                    # Don't fail the import if background fetch fails
 
             return jsonify({
                 'success': True,

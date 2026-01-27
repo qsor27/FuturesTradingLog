@@ -35,6 +35,9 @@ class PriceChart {
     }
 
     buildChartOptions() {
+        // Define valid timeframes
+        this.VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+
         // Check if TradingView library and its properties are fully loaded
         const crosshairMode = (typeof LightweightCharts !== 'undefined' &&
                               LightweightCharts.CrosshairMode &&
@@ -46,10 +49,17 @@ class PriceChart {
                           LightweightCharts.CrosshairLineStyle.Solid) ?
                           LightweightCharts.CrosshairLineStyle.Solid : 0; // fallback to solid
 
+        // Validate initial timeframe from options
+        let initialTimeframe = this.userOptions.timeframe || this.container.dataset.timeframe || '1h';
+        if (!this.VALID_TIMEFRAMES.includes(initialTimeframe)) {
+            console.warn(`⚠️ Invalid initial timeframe '${initialTimeframe}', using default '1h'`);
+            initialTimeframe = '1h';
+        }
+
         // Build default options (now that TradingView library is available)
         this.options = {
             instrument: 'MNQ',
-            timeframe: '1h', // Default timeframe
+            timeframe: initialTimeframe, // Validated timeframe
             days: 7, // Default to 1 week
             start_date: null, // Auto-centered start date from backend
             end_date: null, // Auto-centered end date from backend
@@ -235,8 +245,14 @@ class PriceChart {
 
                 // Apply timeframe if not explicitly set
                 if (!container.dataset.timeframe && settings.default_timeframe) {
-                    this.options.timeframe = settings.default_timeframe;
-                    console.log(`🎯 Applied user default timeframe: ${settings.default_timeframe}`);
+                    // Validate the timeframe from settings
+                    if (this.VALID_TIMEFRAMES.includes(settings.default_timeframe)) {
+                        this.options.timeframe = settings.default_timeframe;
+                        console.log(`🎯 Applied user default timeframe: ${settings.default_timeframe}`);
+                    } else {
+                        console.warn(`⚠️ Invalid user default timeframe '${settings.default_timeframe}', using '1h'`);
+                        this.options.timeframe = '1h';
+                    }
                 }
 
                 // Apply data range if not explicitly set
@@ -264,6 +280,15 @@ class PriceChart {
 
     async loadData() {
         try {
+            // Cancel any ongoing request from previous load
+            if (this.loadController) {
+                console.log('🚫 Aborting previous data load request');
+                this.loadController.abort();
+            }
+
+            // Create new AbortController for this load
+            this.loadController = new AbortController();
+
             const loadingMessage = `Loading ${this.options.timeframe} data...`;
             this.updateStatus('loading', loadingMessage);
             console.log(`📡 Loading chart data for ${this.options.instrument}, timeframe: ${this.options.timeframe}, days: ${this.options.days}`);
@@ -289,12 +314,11 @@ class PriceChart {
                 this.showLoadingOverlay(`Loading ${this.options.days}-day ${this.options.timeframe} chart...`);
             }
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            const timeoutId = setTimeout(() => this.loadController.abort(), 10000); // 10 second timeout
 
             try {
                 const response = await fetch(url, {
-                    signal: controller.signal,
+                    signal: this.loadController.signal,
                     headers: {
                         'Content-Type': 'application/json'
                     }
@@ -339,13 +363,17 @@ class PriceChart {
 
                         // Only auto-fallback if we haven't already tried this timeframe
                         if (bestTimeframe && bestTimeframe !== this.options.timeframe) {
-                            console.log(`⚠️ No data for ${this.options.timeframe}, auto-switching to available timeframe: ${bestTimeframe}`);
-                            this.updateStatus('loading', `No ${this.options.timeframe} data, trying ${bestTimeframe}...`);
+                            const originalTimeframe = this.options.timeframe;
+                            console.log(`⚠️ No data for ${originalTimeframe}, auto-switching to available timeframe: ${bestTimeframe}`);
+                            this.updateStatus('loading', `No ${originalTimeframe} data, trying ${bestTimeframe}...`);
 
                             // Update timeframe directly (bypass updateTimeframe() which blocks during loading)
                             this.options.timeframe = bestTimeframe;
                             this.currentTimeframe = bestTimeframe;
                             this.updateTimeframeSelect(bestTimeframe);
+
+                            // Show warning banner about timeframe change
+                            this.showTimeframeChangeWarning(originalTimeframe, bestTimeframe);
 
                             // Recursively call loadData with new timeframe
                             // Use a flag to prevent infinite loops
@@ -357,8 +385,25 @@ class PriceChart {
                         }
                     }
 
-                    // No available timeframes or already tried - show error
+                    // No available timeframes or already tried - attempt auto gap fill
                     this._fallbackAttempted = false; // Reset flag
+
+                    // Try to trigger gap fill if we haven't already attempted it
+                    console.log(`🔍 DEBUG: Checking gap fill - _gapFillAttempted = ${this._gapFillAttempted}`);
+                    if (!this._gapFillAttempted) {
+                        console.log(`🔧 No data available for ${this.options.instrument}, attempting auto gap fill...`);
+                        this._gapFillAttempted = true;
+
+                        this.updateStatus('loading', `Fetching missing market data for ${this.options.instrument}...`);
+                        this.showLoadingOverlay(`Downloading market data...\nThis may take 10-30 seconds.`);
+
+                        // Trigger gap fill and retry
+                        this.triggerGapFillAndRetry();
+                        return;
+                    }
+
+                    // Gap fill already attempted or failed - show error
+                    this._gapFillAttempted = false; // Reset for next attempt
                     const noDataMessage = this.getNoDataMessage(data);
                     this.showError(noDataMessage, data.available_timeframes);
                     return;
@@ -373,12 +418,14 @@ class PriceChart {
                 this.hideLoadingOverlay();
 
                 // Check for contract fallback and show warning if applicable
-                if (data.metadata && data.metadata.is_fallback) {
-                    this.showContractWarning(
-                        data.metadata.requested_instrument,
-                        data.metadata.actual_instrument,
-                        data.metadata.is_continuous_fallback
-                    );
+                // Check both metadata (old format) and top-level fields (new format)
+                const isFallback = (data.metadata && data.metadata.is_fallback) || data.is_continuous_fallback;
+                const requestedInst = (data.metadata && data.metadata.requested_instrument) || data.requested_instrument;
+                const actualInst = (data.metadata && data.metadata.actual_instrument) || data.actual_instrument;
+                const isContinuous = (data.metadata && data.metadata.is_continuous_fallback) || data.is_continuous_fallback;
+
+                if (isFallback) {
+                    this.showContractWarning(requestedInst, actualInst, isContinuous);
                 } else {
                     this.hideContractWarning();
                 }
@@ -386,17 +433,92 @@ class PriceChart {
             } catch (fetchError) {
                 clearTimeout(timeoutId);
                 if (fetchError.name === 'AbortError') {
+                    // Check if this was a user-initiated cancellation (timeframe switch)
+                    // or a timeout. User cancellations should be silent.
+                    if (this.loadController && this.loadController.signal.aborted) {
+                        console.log('📍 Request cancelled (timeframe switch or new load started)');
+                        return; // Silent exit, don't show error
+                    }
                     throw new Error('Request timed out. Please try again.');
                 }
                 throw fetchError;
             }
 
         } catch (error) {
+            // Ignore AbortErrors from cancelled requests
+            if (error.name === 'AbortError') {
+                console.log('📍 Load cancelled gracefully');
+                return;
+            }
+
             console.error('❌ Error loading chart data:', error);
             const friendlyMessage = this.getFriendlyErrorMessage(error);
             this.updateStatus('error', friendlyMessage);
             this.showError(friendlyMessage);
             this.hideLoadingOverlay();
+        }
+    }
+
+    async triggerGapFillAndRetry() {
+        /**
+         * Trigger a gap fill for the current instrument and retry loading data
+         * This is called automatically when the chart detects missing data
+         */
+        try {
+            console.log(`📡 Triggering data update for ${this.options.instrument}...`);
+
+            // Build API URL with timeframe parameter
+            const updateUrl = `/api/update-data/${encodeURIComponent(this.options.instrument)}?timeframes=${this.options.timeframe}`;
+
+            console.log(`🔗 Update URL: ${updateUrl}`);
+
+            // Call the update data endpoint
+            const response = await fetch(updateUrl, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                console.log(`✅ Data update successful:`, result);
+
+                // Show progress message
+                this.updateStatus('loading', `Data fetched successfully! Loading chart...`);
+
+                // Wait a moment for the data to be indexed
+                setTimeout(() => {
+                    console.log(`🔄 Retrying chart data load after data update...`);
+                    this.loadData();
+                }, 2000);
+
+            } else {
+                console.error(`❌ Data update failed:`, result);
+                this._gapFillAttempted = false; // Reset so user can try again
+
+                // Show error with helpful message
+                this.hideLoadingOverlay();
+                this.showError(
+                    `Unable to fetch market data: ${result.error || 'Unknown error'}\n\n` +
+                    `This could mean:\n` +
+                    `• Market data is not available from data provider\n` +
+                    `• The instrument symbol may be incorrect\n` +
+                    `• Rate limits may have been exceeded\n\n` +
+                    `Try selecting a different timeframe or date range.`
+                );
+            }
+
+        } catch (error) {
+            console.error('❌ Error triggering data update:', error);
+            this._gapFillAttempted = false; // Reset so user can try again
+
+            this.hideLoadingOverlay();
+            this.showError(
+                `Failed to fetch market data: ${error.message}\n\n` +
+                `Please try refreshing the page or selecting a different timeframe.`
+            );
         }
     }
 
@@ -759,6 +881,37 @@ class PriceChart {
 
     hideContractWarning() {
         const existingWarning = document.getElementById(`contract-warning-${this.containerId}`);
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+    }
+
+    showTimeframeChangeWarning(originalTimeframe, newTimeframe) {
+        // Remove any existing timeframe warning
+        this.hideTimeframeChangeWarning();
+
+        const warningDiv = document.createElement('div');
+        warningDiv.className = 'chart-contract-warning'; // Reuse contract warning styles
+        warningDiv.id = `timeframe-warning-${this.containerId}`;
+        warningDiv.style.background = 'rgba(33, 150, 243, 0.95)'; // Blue background
+
+        const warningText = `No ${originalTimeframe} data available for this date range. Showing ${newTimeframe} instead.`;
+
+        warningDiv.innerHTML = `
+            <span class="warning-icon">ℹ️</span>
+            <span class="warning-text">${warningText}</span>
+            <button class="warning-dismiss" onclick="this.parentElement.remove()" title="Dismiss">&times;</button>
+        `;
+
+        // Insert at top of chart container
+        if (this.container) {
+            this.container.style.position = 'relative';
+            this.container.insertBefore(warningDiv, this.container.firstChild);
+        }
+    }
+
+    hideTimeframeChangeWarning() {
+        const existingWarning = document.getElementById(`timeframe-warning-${this.containerId}`);
         if (existingWarning) {
             existingWarning.remove();
         }
@@ -1617,9 +1770,9 @@ class PriceChart {
     }
 
     updateTimeframe(timeframe) {
-        if (this.state === 'loading') {
-            console.warn('Chart is loading, ignoring timeframe change');
-            return;
+        // Cancel any ongoing load - loadData() will handle aborting the current request
+        if (this.state === 'loading' && this.loadController) {
+            console.log(`🔄 Cancelling current load to switch timeframe: ${this.options.timeframe} → ${timeframe}`);
         }
 
         console.log(`Updating timeframe from ${this.options.timeframe} to ${timeframe}`);
@@ -1642,9 +1795,9 @@ class PriceChart {
     }
 
     updateDays(days) {
-        if (this.state === 'loading') {
-            console.warn('Chart is loading, ignoring period change');
-            return;
+        // Cancel any ongoing load - loadData() will handle aborting the current request
+        if (this.state === 'loading' && this.loadController) {
+            console.log(`🔄 Cancelling current load to switch period: ${this.options.days} → ${days} days`);
         }
 
         console.log(`Updating period from ${this.options.days} to ${days}`);

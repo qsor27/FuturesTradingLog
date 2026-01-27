@@ -151,13 +151,18 @@ class EnhancedPositionServiceV2:
             'total_positions': 0,
             'accounts_processed': 0,
             'instruments_processed': 0,
-            'validation_errors': []
+            'validation_errors': [],
+            'position_ids': []  # Track created position IDs
         }
 
         for (account, instrument), trades in grouped_trades.items():
             try:
                 result = self._process_trades_for_instrument(trades, account, instrument)
                 stats['total_positions'] += result['positions_created']
+
+                # Collect position IDs if returned
+                if 'position_ids' in result:
+                    stats['position_ids'].extend(result['position_ids'])
 
                 if result['validation_errors']:
                     stats['validation_errors'].extend(result['validation_errors'])
@@ -174,7 +179,7 @@ class EnhancedPositionServiceV2:
         stats['positions_created'] = stats['total_positions']
         stats['trades_processed'] = len(all_trades)
 
-        logger.info(f"Position rebuild completed: {stats}")
+        logger.info(f"Position rebuild completed: {stats['total_positions']} positions created, {len(stats['position_ids'])} IDs tracked")
         return stats
 
     def _deduplicate_trades(self, trades: List[Dict]) -> List[Dict]:
@@ -241,7 +246,7 @@ class EnhancedPositionServiceV2:
     def _process_trades_for_instrument(self, trades: List[Dict], account: str, instrument: str) -> Dict[str, Any]:
         """Process trades for a single account/instrument combination using PositionBuilder with quantity flow analysis"""
         if not trades:
-            return {'positions_created': 0, 'validation_errors': []}
+            return {'positions_created': 0, 'position_ids': [], 'validation_errors': []}
 
         logger.info(f"Processing {len(trades)} trades for {account}/{instrument} using PositionBuilder")
 
@@ -294,7 +299,7 @@ class EnhancedPositionServiceV2:
 
             if not trade_objects:
                 logger.warning(f"No valid trade objects created for {account}/{instrument}")
-                return {'positions_created': 0, 'validation_errors': ['No valid trades to process']}
+                return {'positions_created': 0, 'position_ids': [], 'validation_errors': ['No valid trades to process']}
 
             # Use PositionBuilder to build positions from trades using quantity flow analysis
             pnl_calculator = PnLCalculator()
@@ -311,12 +316,14 @@ class EnhancedPositionServiceV2:
             # Save positions to database with trade mappings
             positions_created = 0
             validation_errors = []
+            position_ids = []  # Track created position IDs
 
             for position, trade_ids in positions_with_trades:
                 try:
                     position_id = self._save_position_to_db(position, trade_ids)
                     if position_id:
                         positions_created += 1
+                        position_ids.append(position_id)
                         logger.info(f"Saved position {position_id} with {len(trade_ids)} trade mappings for {account}/{instrument}")
                     else:
                         logger.warning(f"Failed to save position for {account}/{instrument}")
@@ -327,6 +334,7 @@ class EnhancedPositionServiceV2:
 
             return {
                 'positions_created': positions_created,
+                'position_ids': position_ids,
                 'validation_errors': validation_errors
             }
 
@@ -335,6 +343,7 @@ class EnhancedPositionServiceV2:
             logger.error(error_msg)
             return {
                 'positions_created': 0,
+                'position_ids': [],
                 'validation_errors': [error_msg]
             }
 
