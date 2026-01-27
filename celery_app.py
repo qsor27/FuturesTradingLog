@@ -65,14 +65,17 @@ app.conf.update(
     
     # Beat schedule for periodic tasks
     beat_schedule={
+        # Fill recent gaps during market hours (6 AM - 6 PM CT = 12-00 UTC)
+        # Futures markets trade nearly 24/5, but focus on peak hours to minimize API usage
         'fill-recent-gaps': {
             'task': 'tasks.gap_filling.fill_recent_gaps',
-            'schedule': crontab(minute='*/15'),  # Every 15 minutes
+            'schedule': crontab(minute='*/15', hour='12-23,0'),  # Every 15 min during market hours
             'options': {'queue': 'gap_filling'}
         },
+        # Extended gap filling during off-peak hours to spread API load
         'fill-extended-gaps': {
             'task': 'tasks.gap_filling.fill_extended_gaps',
-            'schedule': crontab(minute=0, hour='*/4'),  # Every 4 hours
+            'schedule': crontab(minute=0, hour='2,6,10,14,18,22'),  # Every 4 hours at specific times
             'options': {'queue': 'gap_filling'}
         },
         'check-for-new-files': {
