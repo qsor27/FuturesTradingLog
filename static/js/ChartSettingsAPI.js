@@ -7,6 +7,7 @@ class ChartSettingsAPI {
     constructor() {
         this.cacheKey = 'chartSettings';
         this.apiEndpoint = '/api/v1/settings/chart';
+        this.VALID_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
         this.defaultSettings = {
             default_timeframe: '1h',
             default_data_range: '1week',
@@ -23,27 +24,30 @@ class ChartSettingsAPI {
     async getSettings() {
         try {
             const startTime = performance.now();
-            
+
             // Check localStorage first for immediate response
             const cached = localStorage.getItem(this.cacheKey);
             if (cached) {
                 const loadTime = performance.now() - startTime;
                 console.log(`📋 Using cached chart settings (${loadTime.toFixed(2)}ms)`);
-                return JSON.parse(cached);
+                const settings = JSON.parse(cached);
+                // Validate timeframe
+                return this.validateSettings(settings);
             }
 
             // Fallback to API request
             console.log('🌐 Fetching chart settings from API...');
             const response = await fetch(this.apiEndpoint);
-            
+
             if (response.ok) {
                 const data = await response.json();
                 if (data.success && data.settings) {
-                    // Cache the settings for next time
-                    localStorage.setItem(this.cacheKey, JSON.stringify(data.settings));
+                    // Validate and cache the settings for next time
+                    const validatedSettings = this.validateSettings(data.settings);
+                    localStorage.setItem(this.cacheKey, JSON.stringify(validatedSettings));
                     const loadTime = performance.now() - startTime;
                     console.log(`✅ Chart settings loaded from API and cached (${loadTime.toFixed(2)}ms)`);
-                    return data.settings;
+                    return validatedSettings;
                 }
             }
 
@@ -55,6 +59,21 @@ class ChartSettingsAPI {
             console.error('❌ Error getting chart settings:', error);
             return this.defaultSettings;
         }
+    }
+
+    /**
+     * Validate settings and fix invalid values
+     */
+    validateSettings(settings) {
+        const validated = { ...settings };
+
+        // Validate timeframe
+        if (!validated.default_timeframe || !this.VALID_TIMEFRAMES.includes(validated.default_timeframe)) {
+            console.warn(`⚠️ Invalid timeframe '${validated.default_timeframe}', using default '1h'`);
+            validated.default_timeframe = '1h';
+        }
+
+        return validated;
     }
 
     /**

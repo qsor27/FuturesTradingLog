@@ -2,12 +2,15 @@
 Instrument Mapper Service
 
 Maps NinjaTrader instrument names to Yahoo Finance symbols for OHLC data fetching.
+Handles contract-specific naming (MNQ MAR26) and continuous contracts (MNQ=F).
 Uses configuration from data/config/instrument_multipliers.json
 """
 
 import json
 import logging
-from typing import List, Dict, Optional
+import re
+from datetime import datetime
+from typing import List, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -199,3 +202,144 @@ class InstrumentMapper:
             Mapping dictionary or None if not found
         """
         return self.mappings.get(base_symbol)
+
+    def get_root_symbol(self, instrument: str) -> str:
+        """
+        Extract root symbol from contract-specific or any instrument name
+
+        This is the continuous contract symbol without expiration date.
+
+        Examples:
+        - "MNQ MAR26" -> "MNQ"
+        - "MES DEC25" -> "MES"
+        - "ES 12-24" -> "ES"
+        - "NQ" -> "NQ"
+
+        Args:
+            instrument: Any instrument format
+
+        Returns:
+            Root symbol (base symbol without contract month/year)
+        """
+        return self._extract_base_symbol(instrument)
+
+    # Contract-specific methods
+
+    MONTH_CODES = {
+        'JAN': 'F', 'FEB': 'G', 'MAR': 'H', 'APR': 'J',
+        'MAY': 'K', 'JUN': 'M', 'JUL': 'N', 'AUG': 'Q',
+        'SEP': 'U', 'OCT': 'V', 'NOV': 'X', 'DEC': 'Z'
+    }
+
+    def parse_contract(self, instrument: str) -> Optional[Dict[str, str]]:
+        """
+        Parse contract-specific instrument name
+
+        Formats supported:
+        - "MNQ MAR26" -> base=MNQ, month=MAR, year=26
+        - "MNQ DEC25" -> base=MNQ, month=DEC, year=25
+        - "ES JUN26" -> base=ES, month=JUN, year=26
+
+        Args:
+            instrument: Contract instrument name
+
+        Returns:
+            Dict with 'base', 'month', 'year' or None if not a contract format
+        """
+        # Pattern: BASE MONTHYEAR (e.g., "MNQ MAR26" or "ES DEC25")
+        pattern = r'^([A-Z]+)\s+([A-Z]{3})(\d{2})$'
+        match = re.match(pattern, instrument.strip().upper())
+
+        if match:
+            base, month, year = match.groups()
+            if month in self.MONTH_CODES:
+                return {
+                    'base': base,
+                    'month': month,
+                    'year': year,
+                    'full_year': f"20{year}"
+                }
+
+        return None
+
+    def normalize_to_contract(self, instrument: str, default_contract: Optional[str] = None) -> str:
+        """
+        Normalize instrument name to contract format
+
+        Args:
+            instrument: Any instrument format
+            default_contract: Default contract to use if instrument is continuous (e.g., "MAR26")
+
+        Returns:
+            Normalized contract format: "BASE MONTHYY" (e.g., "MNQ MAR26")
+        """
+        # Already in contract format?
+        if self.parse_contract(instrument):
+            return instrument.upper()
+
+        # Extract base symbol
+        base = self._extract_base_symbol(instrument)
+
+        # If default contract provided, use it
+        if default_contract:
+            return f"{base} {default_contract}".upper()
+
+        # Infer current quarter contract
+        now = datetime.now()
+        year = now.strftime('%y')
+
+        # Futures quarterly months: MAR, JUN, SEP, DEC
+        month = now.month
+        if month <= 3:
+            contract_month = 'MAR'
+        elif month <= 6:
+            contract_month = 'JUN'
+        elif month <= 9:
+            contract_month = 'SEP'
+        else:
+            contract_month = 'DEC'
+
+        return f"{base} {contract_month}{year}"
+
+    def get_yahoo_for_contract(self, instrument: str) -> Tuple[str, str]:
+        """
+        Get Yahoo Finance symbol and storage instrument name for a contract
+
+        Args:
+            instrument: NinjaTrader instrument (e.g., "MNQ MAR26" or "MNQ 12-24")
+
+        Returns:
+            Tuple of (yahoo_symbol, storage_instrument)
+            - yahoo_symbol: Symbol to use for fetching data (e.g., "NQ=F")
+            - storage_instrument: Normalized name for storage (e.g., "MNQ MAR26")
+        """
+        # Parse if contract format
+        parsed = self.parse_contract(instrument)
+        if parsed:
+            # It's a contract - use it for storage
+            storage_instrument = f"{parsed['base']} {parsed['month']}{parsed['year']}"
+            # Get Yahoo symbol for the base
+            yahoo_symbol = self._lookup_yahoo_symbol(parsed['base'])
+            return (yahoo_symbol or f"{parsed['base']}=F", storage_instrument)
+
+        # Not contract format - extract base and normalize
+        base = self._extract_base_symbol(instrument)
+        yahoo_symbol = self._lookup_yahoo_symbol(base)
+
+        # Try to extract contract from old format "MNQ 12-24"
+        pattern = r'(\d{2})-(\d{2})'
+        match = re.search(pattern, instrument)
+        if match:
+            month_num, year = match.groups()
+            # Convert month number to name (12->DEC, 03->MAR, etc.)
+            month_names = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+                          'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+            month_idx = int(month_num) - 1
+            if 0 <= month_idx < 12:
+                month_name = month_names[month_idx]
+                storage_instrument = f"{base} {month_name}{year}"
+                return (yahoo_symbol or f"{base}=F", storage_instrument)
+
+        # Fallback: infer current contract
+        storage_instrument = self.normalize_to_contract(instrument)
+        return (yahoo_symbol or f"{base}=F", storage_instrument)

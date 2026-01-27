@@ -104,41 +104,62 @@ def get_execution_overlay_for_chart(position_id: int, timeframe: str, instrument
 @chart_data_bp.route('/api/chart-data/<instrument>')
 def get_chart_data(instrument):
     """
-    API endpoint for chart OHLC data - CACHE-ONLY MODE
+    API endpoint for chart OHLC data - CACHE-ONLY MODE with continuous contract fallback
     This endpoint NEVER triggers Yahoo Finance API calls
+    Automatically falls back to continuous contract (root symbol) when specific contract has no data
     """
     try:
         # Get parameters
         timeframe = request.args.get('timeframe', '1m')
         days = int(request.args.get('days', 1))
         position_id = request.args.get('position_id')  # Optional position ID for execution overlays
-        
+
         # Allow explicit start_date and end_date parameters
         start_date_param = request.args.get('start_date')
         end_date_param = request.args.get('end_date')
-        
+
+        # Determine requested instrument and potential fallback
+        requested_instrument = instrument
+        root_symbol = get_root_symbol(instrument)
+        is_continuous_fallback = False
+        actual_instrument = requested_instrument
+
         if start_date_param and end_date_param:
             # Use provided date range
             start_date = datetime.fromisoformat(start_date_param)
             end_date = datetime.fromisoformat(end_date_param)
         else:
             # Check if we have data for this instrument and use available range if recent data doesn't exist
+            # Try specific contract first, then fall back to root symbol
             with FuturesDB() as db:
                 db.cursor.execute(
                     'SELECT MIN(timestamp), MAX(timestamp) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
                     (instrument, timeframe)
                 )
                 result = db.cursor.fetchone()
-                
+
+                # If no data for specific contract, try root symbol
+                if not result[0] and root_symbol != instrument:
+                    logger.info(f"No data for specific contract {instrument}, trying root symbol {root_symbol}")
+                    db.cursor.execute(
+                        'SELECT MIN(timestamp), MAX(timestamp) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                        (root_symbol, timeframe)
+                    )
+                    result = db.cursor.fetchone()
+                    if result[0]:
+                        is_continuous_fallback = True
+                        actual_instrument = root_symbol
+                        logger.info(f"Using continuous contract fallback: {root_symbol}")
+
                 if result[0] and result[1]:
                     # We have data - check if it's recent (within last 7 days)
                     available_start = datetime.fromtimestamp(result[0])
                     available_end = datetime.fromtimestamp(result[1])
                     now = datetime.now()
-                    
+
                     # If latest data is more than 1 day old, use available range instead of "now"
                     if (now - available_end).days > 1:
-                        logger.info(f"Using available data range for {instrument} ({available_start} to {available_end}) instead of current dates")
+                        logger.info(f"Using available data range for {actual_instrument} ({available_start} to {available_end}) instead of current dates")
                         end_date = available_end
                         start_date = max(available_start, available_end - timedelta(days=days))
                     else:
@@ -149,12 +170,29 @@ def get_chart_data(instrument):
                     # No data available, use current date range (will return empty)
                     end_date = datetime.now()
                     start_date = end_date - timedelta(days=days)
-        
+
         # Use cache-only chart service (NEVER triggers API calls)
         if PAGE_LOAD_CONFIG['cache_only_mode']:
+            # Try specific contract first
             response = cache_only_chart_service.get_chart_data(
-                instrument, timeframe, start_date, end_date
+                requested_instrument, timeframe, start_date, end_date
             )
+
+            # If no data and we have a different root symbol, try fallback
+            if (response.get('count', 0) == 0 or not response.get('data')) and root_symbol != requested_instrument:
+                logger.info(f"No data for {requested_instrument}, falling back to continuous contract {root_symbol}")
+                response = cache_only_chart_service.get_chart_data(
+                    root_symbol, timeframe, start_date, end_date
+                )
+                if response.get('count', 0) > 0:
+                    is_continuous_fallback = True
+                    actual_instrument = root_symbol
+                    logger.info(f"Successfully loaded {response.get('count')} records from continuous contract {root_symbol}")
+
+            # Add fallback metadata to response
+            response['is_continuous_fallback'] = is_continuous_fallback
+            response['requested_instrument'] = requested_instrument
+            response['actual_instrument'] = actual_instrument
 
             # Add execution overlay if position_id is provided
             if position_id and response.get('success'):
@@ -176,35 +214,45 @@ def get_chart_data(instrument):
                 end_ts = int(end_date.timestamp()) if end_date else None
 
                 with FuturesDB() as db:
-                    for tf in preferred_order:
-                        # First check total count (for available_timeframes display)
-                        db.cursor.execute(
-                            'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
-                            (instrument, tf)
-                        )
-                        total_count = db.cursor.fetchone()[0]
-                        if total_count > 0:
-                            available_timeframes[tf] = total_count
+                    # Check both specific contract and continuous contract for available timeframes
+                    instruments_to_check = [requested_instrument]
+                    if root_symbol != requested_instrument:
+                        instruments_to_check.append(root_symbol)
 
-                            # Then check count within date range (for best_timeframe selection)
-                            if start_ts and end_ts:
-                                db.cursor.execute(
-                                    'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?',
-                                    (instrument, tf, start_ts, end_ts)
-                                )
-                                range_count = db.cursor.fetchone()[0]
-                                if range_count > 0:
-                                    date_range_timeframes[tf] = range_count
+                    for check_instrument in instruments_to_check:
+                        for tf in preferred_order:
+                            # First check total count (for available_timeframes display)
+                            db.cursor.execute(
+                                'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ?',
+                                (check_instrument, tf)
+                            )
+                            total_count = db.cursor.fetchone()[0]
+                            if total_count > 0:
+                                available_timeframes[tf] = total_count
+
+                                # Then check count within date range (for best_timeframe selection)
+                                if start_ts and end_ts:
+                                    db.cursor.execute(
+                                        'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?',
+                                        (check_instrument, tf, start_ts, end_ts)
+                                    )
+                                    range_count = db.cursor.fetchone()[0]
+                                    if range_count > 0:
+                                        date_range_timeframes[tf] = range_count
+                                        if best_timeframe is None:
+                                            best_timeframe = tf
+                                else:
+                                    # No date range specified, use total count
                                     if best_timeframe is None:
                                         best_timeframe = tf
-                            else:
-                                # No date range specified, use total count
-                                if best_timeframe is None:
-                                    best_timeframe = tf
+
+                                # If we found data for continuous contract, note it
+                                if check_instrument == root_symbol and check_instrument != requested_instrument:
+                                    response['fallback_instrument_available'] = root_symbol
 
                 response['available_timeframes'] = available_timeframes
                 response['best_timeframe'] = best_timeframe
-                logger.info(f"No data for {instrument}/{timeframe}, available timeframes: {available_timeframes}, date-range timeframes: {date_range_timeframes}")
+                logger.info(f"No data for {requested_instrument}/{timeframe}, available timeframes: {available_timeframes}, date-range timeframes: {date_range_timeframes}")
 
             # Add cache status headers for debugging
             if response.get('cache_status'):
@@ -824,18 +872,33 @@ def get_available_instruments():
 @chart_data_bp.route('/api/available-timeframes/<instrument>')
 def get_available_timeframes(instrument):
     """
-    Get available timeframes for an instrument. If no data exists,
-    it triggers a fetch and then returns the available timeframes.
+    Get available timeframes for an instrument with date range filtering and continuous contract fallback.
+    Supports optional date range parameters to return counts for specific time periods.
     """
     try:
+        # Get optional date range parameters
+        start_date_param = request.args.get('start_date')
+        end_date_param = request.args.get('end_date')
+
+        start_ts = None
+        end_ts = None
+        if start_date_param and end_date_param:
+            start_date = datetime.fromisoformat(start_date_param)
+            end_date = datetime.fromisoformat(end_date_param)
+            start_ts = int(start_date.timestamp())
+            end_ts = int(end_date.timestamp())
+            logger.info(f"Date range filter applied: {start_date} to {end_date}")
+
+        requested_instrument = instrument
         root_symbol = get_root_symbol(instrument)
+        is_using_fallback = False
         logger.info(f"Getting available timeframes for {instrument} (root: {root_symbol})")
-        
+
         with FuturesDB() as db:
             # 1. Check if any data exists for the root symbol
             fetch_attempted = False
             fetch_error = None
-            
+
             if db.get_ohlc_count(root_symbol) == 0:
                 logger.info(f"No OHLC data found for {root_symbol}. Triggering on-demand fetch.")
                 fetch_attempted = True
@@ -843,25 +906,47 @@ def get_available_timeframes(instrument):
                     # 2. If not, fetch and store it
                     ohlc_service = OHLCOnDemandService(db)
                     ohlc_service.fetch_and_store_ohlc(instrument)
-                    
+
                     # Verify data was actually fetched
                     if db.get_ohlc_count(root_symbol) == 0:
                         fetch_error = "Data fetch completed but no records were stored"
                         logger.warning(f"On-demand fetch for {instrument} completed but no data was stored")
                     else:
                         logger.info(f"On-demand fetch for {instrument} succeeded, {db.get_ohlc_count(root_symbol)} records stored")
-                        
+
                 except Exception as e:
                     fetch_error = str(e)
                     logger.error(f"On-demand fetch failed for {instrument}: {e}")
 
-            # 3. Now, query for the available timeframes with the (potentially) new data
+            # 3. Query for available timeframes - check specific contract first, then continuous contract
             available_timeframes = []
-            for timeframe in SUPPORTED_TIMEFRAMES:
-                count = db.get_ohlc_count(root_symbol, timeframe)
-                if count > 0:
-                    available_timeframes.append({'timeframe': timeframe, 'count': count})
-        
+            instruments_to_check = [requested_instrument]
+            if root_symbol != requested_instrument:
+                instruments_to_check.append(root_symbol)
+
+            for check_instrument in instruments_to_check:
+                for timeframe in SUPPORTED_TIMEFRAMES:
+                    # Check if we already found this timeframe with the specific contract
+                    if any(tf['timeframe'] == timeframe for tf in available_timeframes):
+                        continue
+
+                    if start_ts and end_ts:
+                        # Count records within date range
+                        db.cursor.execute(
+                            'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?',
+                            (check_instrument, timeframe, start_ts, end_ts)
+                        )
+                        count = db.cursor.fetchone()[0]
+                    else:
+                        # Count all records for this timeframe
+                        count = db.get_ohlc_count(check_instrument, timeframe)
+
+                    if count > 0:
+                        available_timeframes.append({'timeframe': timeframe, 'count': count})
+                        # Track if we're using fallback
+                        if check_instrument == root_symbol and check_instrument != requested_instrument:
+                            is_using_fallback = True
+
         # Determine best timeframe from the populated list
         # Preference: hourly intervals, then daily, then shorter intervals
         timeframe_preference = ['1h', '1d', '15m', '5m', '30m', '4h', '2h', '1m', '2m']
@@ -871,16 +956,16 @@ def get_available_timeframes(instrument):
                 if any(tf['timeframe'] == pref for tf in available_timeframes):
                     best_timeframe = pref
                     break
-        
+
         # Convert to old format for backward compatibility
         available = {}
         for tf in available_timeframes:
             available[tf['timeframe']] = tf['count']
-        
+
         # Determine overall success state
         has_data = len(available) > 0
         success = has_data or not fetch_attempted  # Success if we have data OR if we didn't need to fetch
-        
+
         result = {
             'success': success,
             'instrument': instrument,
@@ -889,10 +974,22 @@ def get_available_timeframes(instrument):
             'total_timeframes': len(available),
             'fetch_attempted': fetch_attempted,
             'fetch_error': fetch_error,
-            'has_data': has_data
+            'has_data': has_data,
+            'requested_instrument': requested_instrument,
+            'actual_instrument': root_symbol if is_using_fallback else requested_instrument,
+            'is_continuous_fallback': is_using_fallback,
+            'date_range_filtered': start_ts is not None and end_ts is not None
         }
-        
-        logger.info(f"Final available timeframes for {root_symbol}: {list(available.keys())}")
+
+        if is_using_fallback:
+            result['fallback_info'] = {
+                'using_continuous_contract': True,
+                'requested': requested_instrument,
+                'using': root_symbol,
+                'reason': 'No data available for specific contract'
+            }
+
+        logger.info(f"Final available timeframes for {requested_instrument}: {list(available.keys())}, fallback: {is_using_fallback}")
         return jsonify(result)
         
     except Exception as e:
