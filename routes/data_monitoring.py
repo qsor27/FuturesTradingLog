@@ -434,3 +434,347 @@ def get_sync_health():
             'success': False,
             'error': str(e)
         }), 500
+
+
+# =============================================================================
+# Data Freshness Health Endpoint
+# =============================================================================
+
+@data_monitoring_bp.route('/api/v1/health/data-freshness')
+def get_data_freshness_health():
+    """
+    Comprehensive data freshness health endpoint.
+
+    Returns:
+        - API quota status (daily limit: 2000 calls)
+        - Staleness detection for all instruments
+        - Overall health status
+        - Last data fetch timestamps
+        - Recommended actions
+    """
+    try:
+        # Get API quota status from Redis
+        quota_status = _get_quota_status()
+
+        # Get staleness detection for instruments
+        staleness_info = _detect_stale_instruments()
+
+        # Calculate overall health score
+        health_score = _calculate_freshness_health_score(quota_status, staleness_info)
+
+        # Determine overall status
+        if health_score >= 90:
+            overall_status = 'healthy'
+            status_color = 'green'
+        elif health_score >= 70:
+            overall_status = 'degraded'
+            status_color = 'yellow'
+        elif health_score >= 50:
+            overall_status = 'warning'
+            status_color = 'orange'
+        else:
+            overall_status = 'critical'
+            status_color = 'red'
+
+        # Build response
+        response = {
+            'success': True,
+            'timestamp': datetime.now().isoformat(),
+            'overall_status': overall_status,
+            'status_color': status_color,
+            'health_score': round(health_score, 1),
+            'quota': quota_status,
+            'staleness': staleness_info,
+            'recommendations': _get_freshness_recommendations(quota_status, staleness_info)
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        logger.error(f"Error getting data freshness health: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+def _get_quota_status():
+    """Get API quota status from Redis cache"""
+    try:
+        from redis_cache_service import get_cache_service
+
+        cache = get_cache_service()
+        if not cache:
+            return {
+                'status': 'unavailable',
+                'message': 'Cache service not available',
+                'used': 0,
+                'limit': 2000,
+                'remaining': 2000,
+                'percentage_used': 0
+            }
+
+        # Get today's quota key
+        today_key = f"api_quota:{datetime.now().strftime('%Y-%m-%d')}"
+        current_count = cache.get(today_key)
+
+        if current_count is None:
+            current_count = 0
+        else:
+            current_count = int(current_count)
+
+        daily_limit = 2000
+        remaining = max(0, daily_limit - current_count)
+        percentage_used = (current_count / daily_limit) * 100 if daily_limit > 0 else 0
+
+        # Determine quota status
+        if percentage_used >= 95:
+            status = 'critical'
+        elif percentage_used >= 80:
+            status = 'warning'
+        elif percentage_used >= 60:
+            status = 'moderate'
+        else:
+            status = 'healthy'
+
+        return {
+            'status': status,
+            'used': current_count,
+            'limit': daily_limit,
+            'remaining': remaining,
+            'percentage_used': round(percentage_used, 1),
+            'resets_at': (datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting quota status: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'used': 0,
+            'limit': 2000,
+            'remaining': 2000,
+            'percentage_used': 0
+        }
+
+
+def _detect_stale_instruments():
+    """Detect stale instruments based on last OHLC data timestamp"""
+    try:
+        with FuturesDB() as db:
+            # Get active instruments (traded in last 30 days)
+            cutoff_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+
+            instruments_query = db.execute_query("""
+                SELECT DISTINCT instrument
+                FROM trades
+                WHERE entry_time >= ?
+                AND deleted = 0
+                AND instrument IS NOT NULL
+                ORDER BY instrument
+            """, (cutoff_date,))
+
+            active_instruments = [row[0] for row in instruments_query]
+
+            if not active_instruments:
+                return {
+                    'status': 'no_active_instruments',
+                    'total_instruments': 0,
+                    'stale_instruments': [],
+                    'stale_count': 0,
+                    'fresh_count': 0
+                }
+
+            # Check staleness for each instrument
+            stale_instruments = []
+            fresh_count = 0
+
+            for instrument in active_instruments:
+                # Get latest OHLC data for priority timeframes
+                latest_query = db.execute_query("""
+                    SELECT timeframe, MAX(timestamp) as latest_ts
+                    FROM ohlc_data
+                    WHERE instrument = ?
+                    AND timeframe IN ('1m', '5m', '15m', '1h')
+                    GROUP BY timeframe
+                """, (instrument,))
+
+                if not latest_query:
+                    # No OHLC data at all - very stale
+                    stale_instruments.append({
+                        'instrument': instrument,
+                        'status': 'missing',
+                        'severity': 'critical',
+                        'days_stale': 999,
+                        'timeframes_stale': ['1m', '5m', '15m', '1h'],
+                        'message': 'No OHLC data available'
+                    })
+                    continue
+
+                # Check each timeframe for staleness
+                stale_timeframes = []
+                max_days_stale = 0
+
+                for timeframe, latest_ts in latest_query:
+                    if latest_ts:
+                        latest_date = datetime.fromtimestamp(latest_ts)
+                        days_stale = (datetime.now() - latest_date).days
+
+                        # Consider stale if > 2 days old
+                        if days_stale > 2:
+                            stale_timeframes.append({
+                                'timeframe': timeframe,
+                                'days_stale': days_stale,
+                                'last_update': latest_date.isoformat()
+                            })
+                            max_days_stale = max(max_days_stale, days_stale)
+
+                if stale_timeframes:
+                    # Determine severity
+                    if max_days_stale > 7:
+                        severity = 'critical'
+                    elif max_days_stale > 4:
+                        severity = 'warning'
+                    else:
+                        severity = 'moderate'
+
+                    stale_instruments.append({
+                        'instrument': instrument,
+                        'status': 'stale',
+                        'severity': severity,
+                        'days_stale': max_days_stale,
+                        'stale_timeframes': stale_timeframes,
+                        'message': f'Data is {max_days_stale} days old'
+                    })
+                else:
+                    fresh_count += 1
+
+            return {
+                'status': 'ok',
+                'total_instruments': len(active_instruments),
+                'stale_instruments': stale_instruments,
+                'stale_count': len(stale_instruments),
+                'fresh_count': fresh_count,
+                'staleness_threshold_days': 2
+            }
+
+    except Exception as e:
+        logger.error(f"Error detecting stale instruments: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'total_instruments': 0,
+            'stale_count': 0,
+            'fresh_count': 0
+        }
+
+
+def _calculate_freshness_health_score(quota_status, staleness_info):
+    """Calculate overall health score based on quota and staleness"""
+    try:
+        # Start with perfect score
+        score = 100.0
+
+        # Deduct points for quota usage
+        quota_percentage = quota_status.get('percentage_used', 0)
+        if quota_percentage >= 95:
+            score -= 40  # Critical quota usage
+        elif quota_percentage >= 80:
+            score -= 20  # High quota usage
+        elif quota_percentage >= 60:
+            score -= 10  # Moderate quota usage
+
+        # Deduct points for stale instruments
+        total_instruments = staleness_info.get('total_instruments', 0)
+        stale_count = staleness_info.get('stale_count', 0)
+
+        if total_instruments > 0:
+            staleness_percentage = (stale_count / total_instruments) * 100
+
+            if staleness_percentage >= 50:
+                score -= 40  # Half or more instruments stale
+            elif staleness_percentage >= 25:
+                score -= 25  # Quarter stale
+            elif staleness_percentage >= 10:
+                score -= 15  # Some staleness
+            elif staleness_percentage > 0:
+                score -= 5  # Minimal staleness
+
+        # Check for critical stale instruments
+        stale_instruments = staleness_info.get('stale_instruments', [])
+        critical_count = len([i for i in stale_instruments if i.get('severity') == 'critical'])
+
+        if critical_count > 0:
+            score -= (critical_count * 5)  # 5 points per critical instrument
+
+        return max(0, min(100, score))  # Clamp between 0-100
+
+    except Exception as e:
+        logger.error(f"Error calculating health score: {e}")
+        return 50  # Return moderate score on error
+
+
+def _get_freshness_recommendations(quota_status, staleness_info):
+    """Generate recommendations based on quota and staleness status"""
+    recommendations = []
+
+    try:
+        # Quota recommendations
+        quota_percentage = quota_status.get('percentage_used', 0)
+
+        if quota_percentage >= 95:
+            recommendations.append({
+                'type': 'quota',
+                'severity': 'critical',
+                'message': 'API quota nearly exhausted - reduce gap filling frequency',
+                'action': 'Disable non-essential data fetching until quota resets'
+            })
+        elif quota_percentage >= 80:
+            recommendations.append({
+                'type': 'quota',
+                'severity': 'warning',
+                'message': 'API quota at 80% - monitor usage carefully',
+                'action': 'Prioritize only critical instruments for gap filling'
+            })
+
+        # Staleness recommendations
+        stale_instruments = staleness_info.get('stale_instruments', [])
+        critical_stale = [i for i in stale_instruments if i.get('severity') == 'critical']
+
+        if critical_stale:
+            recommendations.append({
+                'type': 'staleness',
+                'severity': 'critical',
+                'message': f'{len(critical_stale)} instruments have critically stale data (>7 days)',
+                'action': f'Trigger manual gap fill for: {", ".join([i["instrument"] for i in critical_stale[:3]])}',
+                'instruments': [i['instrument'] for i in critical_stale]
+            })
+
+        if staleness_info.get('stale_count', 0) > 0 and not critical_stale:
+            recommendations.append({
+                'type': 'staleness',
+                'severity': 'moderate',
+                'message': f'{staleness_info["stale_count"]} instruments have stale data',
+                'action': 'Wait for scheduled gap filling or trigger manual sync'
+            })
+
+        # Positive feedback
+        if not recommendations:
+            recommendations.append({
+                'type': 'status',
+                'severity': 'info',
+                'message': 'Data freshness is healthy',
+                'action': 'No action required - continue normal operations'
+            })
+
+        return recommendations
+
+    except Exception as e:
+        logger.error(f"Error generating recommendations: {e}")
+        return [{
+            'type': 'error',
+            'severity': 'warning',
+            'message': 'Unable to generate recommendations',
+            'error': str(e)
+        }]
