@@ -102,6 +102,7 @@ class TestChartAPI:
         assert call_args[0][0] == 'MNQ'
         assert call_args[0][1] == '1m'  # default timeframe
     
+    @pytest.mark.integration
     @patch('routes.chart_data.ohlc_service')
     def test_get_chart_data_service_error(self, mock_service, client):
         """Test chart data API when service raises exception"""

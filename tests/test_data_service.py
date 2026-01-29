@@ -61,6 +61,7 @@ class TestOHLCDataService:
             result = service._convert_timeframe_to_yfinance(timeframe)
             assert result == expected, f"Expected {expected} for {timeframe}, got {result}"
     
+    @pytest.mark.integration
     def test_rate_limiting(self, service):
         """Test rate limiting between API requests"""
         # Set a short delay for testing
