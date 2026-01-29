@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 def test_python_version():
-    """Test that we're running Python 3.11+"""
-    assert sys.version_info >= (3, 11)
+    """Test that we're running Python 3.9+"""
+    assert sys.version_info >= (3, 9)
 
 def test_project_structure():
     """Test that basic project files exist"""

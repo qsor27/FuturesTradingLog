@@ -43,6 +43,7 @@ class TestChartAPI:
             }
         ]
     
+    @pytest.mark.integration
     @patch('routes.chart_data.ohlc_service')
     def test_get_chart_data_success(self, mock_service, client, sample_ohlc_data):
         """Test successful chart data retrieval"""
