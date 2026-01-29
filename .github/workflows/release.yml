@@ -54,7 +54,7 @@ jobs:
     - name: Run tests
       timeout-minutes: 30
       run: |
-        pytest tests/ -v --tb=short -m "not slow and not integration" --maxfail=5 -x
+        pytest tests/ -v --tb=short -m "not slow and not integration" -n auto --no-cov --maxfail=5 -x
 
     - name: Upload coverage
       if: always()
