@@ -30,6 +30,7 @@ class TestOHLCDataService:
         }, index=dates)
         return data
     
+    @pytest.mark.integration
     def test_symbol_mapping(self, service):
         """Test instrument symbol mapping to yfinance symbols"""
         test_cases = {

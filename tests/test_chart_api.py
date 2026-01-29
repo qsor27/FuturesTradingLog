@@ -76,6 +76,7 @@ class TestChartAPI:
         assert chart_point['close'] == 100.5
         assert chart_point['volume'] == 1000
     
+    @pytest.mark.integration
     @patch('routes.chart_data.ohlc_service')
     def test_get_chart_data_with_parameters(self, mock_service, client):
         """Test chart data API with different parameters"""
