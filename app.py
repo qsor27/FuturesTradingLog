@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, g
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 import time
 import os
+import sys
 import psutil
 import threading
 from config import config
@@ -234,9 +235,11 @@ def collect_system_metrics():
 
         time.sleep(30)
 
-# Start system metrics collection thread
-metrics_thread = threading.Thread(target=collect_system_metrics, daemon=True)
-metrics_thread.start()
+# Start system metrics collection thread (only if not in test mode)
+# Check both FLASK_ENV and if pytest is running
+if os.getenv('FLASK_ENV') != 'test_local' and 'pytest' not in sys.modules:
+    metrics_thread = threading.Thread(target=collect_system_metrics, daemon=True)
+    metrics_thread.start()
 
 # Blueprint registration
 app.register_blueprint(main_bp)  # Main routes (no prefix)
@@ -800,8 +803,10 @@ def start_alert_monitoring():
     alert_thread.start()
     logger.info("Alert monitoring started")
 
-# Start alert monitoring
-start_alert_monitoring()
+# Start alert monitoring (only if not in test mode)
+# Check both FLASK_ENV and if pytest is running
+if os.getenv('FLASK_ENV') != 'test_local' and 'pytest' not in sys.modules:
+    start_alert_monitoring()
 
 if __name__ == '__main__':
     # Log system information for troubleshooting
