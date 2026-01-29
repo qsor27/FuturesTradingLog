@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from datetime import datetime, timedelta
 from app import app
 
+@pytest.mark.integration
 class TestOHLCIntegration:
     """Integration tests for complete OHLC functionality"""
     
