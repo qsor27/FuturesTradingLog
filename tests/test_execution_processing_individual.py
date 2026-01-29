@@ -71,6 +71,7 @@ class TestIndividualExecutionOutput:
         assert entry_exec['exit_time'] is None, "Entry executions should have exit_time=None"
         assert entry_exec['commission'] == 1.24
 
+    @pytest.mark.integration
     def test_exit_execution_format(self, sample_executions_df, multipliers):
         """Test that Exit executions are stored as individual records (not paired)"""
         result = process_trades(sample_executions_df, multipliers)

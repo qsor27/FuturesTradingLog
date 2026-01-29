@@ -383,6 +383,7 @@ class TestChartAPI:
             # Should not return 404 (endpoint exists)
             assert response.status_code != 404, f"Endpoint {endpoint} should exist"
     
+    @pytest.mark.integration
     @patch('routes.chart_data.ohlc_service')
     def test_chart_data_volume_handling(self, mock_service, client):
         """Test chart data API handles missing volume correctly"""
