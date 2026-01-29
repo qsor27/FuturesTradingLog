@@ -109,6 +109,7 @@ class TestOHLCDataService:
         mock_ticker.assert_called_once_with('NQ=F')
         mock_instance.history.assert_called_once()
     
+    @pytest.mark.integration
     @patch('data_service.yf.Ticker')
     def test_fetch_ohlc_data_empty_response(self, mock_ticker, service):
         """Test handling of empty yfinance response"""
