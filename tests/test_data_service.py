@@ -79,6 +79,7 @@ class TestOHLCDataService:
         second_call_time = time.time() - start_time
         assert second_call_time >= 0.1, "Second call should be delayed by rate limit"
     
+    @pytest.mark.integration
     @patch('data_service.yf.Ticker')
     def test_fetch_ohlc_data_success(self, mock_ticker, service, mock_yfinance_data):
         """Test successful OHLC data fetching"""

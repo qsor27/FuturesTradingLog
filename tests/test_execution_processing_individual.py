@@ -199,6 +199,7 @@ class TestExecutionFieldMapping:
         actual_time = entry['entry_time']
         assert actual_time == expected_time
 
+    @pytest.mark.integration
     def test_exit_field_mapping(self, single_exit_df):
         """Test field mapping for exit execution"""
         result = process_trades(single_exit_df, {'MES': 5.0})
