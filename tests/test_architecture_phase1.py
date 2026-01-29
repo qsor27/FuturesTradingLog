@@ -475,14 +475,15 @@ class TestDependencyInjectionIntegration:
         if os.path.exists(self.db_path):
             os.unlink(self.db_path)
     
+    @pytest.mark.slow
     def test_full_integration(self):
         """Test full integration of DI container with services"""
         # Get service from container
         position_service = self.container.get(IPositionService)
-        
+
         assert position_service is not None
         assert isinstance(position_service, PositionService)
-        
+
         # Test service functionality
         result = position_service.get_position_statistics()
         assert 'total_positions' in result
