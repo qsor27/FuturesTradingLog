@@ -239,6 +239,7 @@ def positions_dashboard():
     account_filter = request.args.get('account')
     instrument_filter = request.args.get('instrument')
     status_filter = request.args.get('status')  # 'open', 'closed', or None for all
+    validation_filter = request.args.get('validation_status')  # Task 9.2: Add validation filter
 
     # Get pagination parameters
     try:
@@ -254,18 +255,56 @@ def positions_dashboard():
         page_size = 50
 
     with PositionService() as pos_service:
-        # Get positions
-        result = pos_service.get_positions(
-            page_size=page_size,
-            page=page,
-            account=account_filter,
-            instrument=instrument_filter,
-            status=status_filter
-        )
+        # Build WHERE clause with all filters including validation_status
+        where_conditions = []
+        params = []
 
-        positions = result['positions']
-        total_count = result['total_count']
-        total_pages = result['total_pages']
+        if account_filter:
+            where_conditions.append("account = ?")
+            params.append(account_filter)
+
+        if instrument_filter:
+            where_conditions.append("instrument = ?")
+            params.append(instrument_filter)
+
+        if status_filter:
+            where_conditions.append("position_status = ?")
+            params.append(status_filter)
+
+        # Task 9.2: Add validation_status filter
+        if validation_filter:
+            # Convert query param to proper case for database
+            if validation_filter.lower() == 'valid':
+                where_conditions.append("validation_status = 'Valid'")
+            elif validation_filter.lower() == 'invalid':
+                where_conditions.append("validation_status = 'Invalid'")
+            elif validation_filter.lower() == 'mixed':
+                where_conditions.append("validation_status = 'Mixed'")
+            elif validation_filter.lower() == 'null' or validation_filter.lower() == 'unreviewed':
+                where_conditions.append("validation_status IS NULL")
+
+        where_clause = " AND ".join(where_conditions)
+        if where_clause:
+            where_clause = "WHERE " + where_clause
+
+        # Get total count
+        count_sql = f"SELECT COUNT(*) FROM positions {where_clause}"
+        pos_service.cursor.execute(count_sql, params)
+        total_count = pos_service.cursor.fetchone()[0]
+
+        # Calculate pagination
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+
+        # Get positions with pagination
+        offset = (page - 1) * page_size
+        positions_sql = f"""
+            SELECT * FROM positions
+            {where_clause}
+            ORDER BY {sort_by} {sort_order}
+            LIMIT ? OFFSET ?
+        """
+        pos_service.cursor.execute(positions_sql, params + [page_size, offset])
+        positions = [dict(row) for row in pos_service.cursor.fetchall()]
 
         # Get statistics
         position_stats = pos_service.get_position_statistics(account=account_filter)
@@ -284,7 +323,8 @@ def positions_dashboard():
             sort_order=sort_order,
             account=account_filter,
             instrument=instrument_filter,
-            status=status_filter
+            status=status_filter,
+            validation_status=validation_filter
         ))
 
     return render_template(
@@ -298,6 +338,7 @@ def positions_dashboard():
         selected_account=account_filter,
         selected_instrument=instrument_filter,
         selected_status=status_filter,
+        selected_validation=validation_filter,  # Task 9.2: Pass validation filter to template
         current_page=page,
         total_pages=total_pages,
         page_size=page_size,
@@ -565,6 +606,264 @@ def api_position_executions_chart(position_id):
 
     except Exception as e:
         logger.error(f"Error getting position execution chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# Trade Validation API Endpoints (Task Group 4)
+
+@positions_bp.route('/api/positions')
+def api_positions_with_validation_filter():
+    """
+    GET /api/positions with optional validation_status filter
+
+    Query Parameters:
+        validation_status: Filter by validation status (valid|invalid|mixed|null)
+        account: Filter by account
+        instrument: Filter by instrument
+        status: Filter by position status (open|closed)
+        page: Page number (default: 1)
+        page_size: Items per page (default: 50)
+
+    Returns:
+        JSON response with positions list and pagination info
+    """
+    try:
+        # Get filter parameters
+        validation_status = request.args.get('validation_status')
+        account = request.args.get('account')
+        instrument = request.args.get('instrument')
+        status = request.args.get('status')
+
+        # Get pagination parameters
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+            page_size = int(request.args.get('page_size', 50))
+        except (ValueError, TypeError):
+            page = 1
+            page_size = 50
+
+        # Validate validation_status parameter if provided
+        if validation_status:
+            valid_statuses = ['valid', 'invalid', 'mixed', 'null']
+            if validation_status.lower() not in valid_statuses:
+                return jsonify({
+                    'success': False,
+                    'error': f'Invalid validation_status. Must be one of: {", ".join(valid_statuses)}'
+                }), 400
+
+        with PositionService() as pos_service:
+            # Build WHERE clause with validation_status filter
+            where_conditions = []
+            params = []
+
+            if account:
+                where_conditions.append("account = ?")
+                params.append(account)
+
+            if instrument:
+                where_conditions.append("instrument = ?")
+                params.append(instrument)
+
+            if status:
+                where_conditions.append("position_status = ?")
+                params.append(status)
+
+            if validation_status:
+                # Convert lowercase to proper case for database query
+                if validation_status.lower() == 'valid':
+                    where_conditions.append("validation_status = 'Valid'")
+                elif validation_status.lower() == 'invalid':
+                    where_conditions.append("validation_status = 'Invalid'")
+                elif validation_status.lower() == 'mixed':
+                    where_conditions.append("validation_status = 'Mixed'")
+                elif validation_status.lower() == 'null':
+                    where_conditions.append("validation_status IS NULL")
+
+            where_clause = " AND ".join(where_conditions)
+            if where_clause:
+                where_clause = "WHERE " + where_clause
+
+            # Get total count
+            count_sql = f"SELECT COUNT(*) FROM positions {where_clause}"
+            pos_service.cursor.execute(count_sql, params)
+            total_count = pos_service.cursor.fetchone()[0]
+
+            # Get positions with pagination
+            offset = (page - 1) * page_size
+            positions_sql = f"""
+                SELECT * FROM positions
+                {where_clause}
+                ORDER BY entry_time DESC
+                LIMIT ? OFFSET ?
+            """
+            pos_service.cursor.execute(positions_sql, params + [page_size, offset])
+            positions = [dict(row) for row in pos_service.cursor.fetchall()]
+
+        return jsonify({
+            'success': True,
+            'positions': positions,
+            'total_count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total_count + page_size - 1) // page_size if total_count > 0 else 0
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting positions with validation filter: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/trades/<int:trade_id>', methods=['PATCH'])
+def api_patch_trade_validation(trade_id):
+    """
+    PATCH /api/trades/:id
+
+    Update a trade's validation status and trigger position rebuild.
+
+    Request Body:
+        {
+            "trade_validation": "Valid" | "Invalid" | null
+        }
+
+    Returns:
+        200 OK: Trade updated successfully
+        400 Bad Request: Invalid validation value
+        404 Not Found: Trade not found
+    """
+    try:
+        # Parse request body
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'Request body required'
+            }), 400
+
+        trade_validation = data.get('trade_validation')
+
+        # Validate trade_validation value
+        if trade_validation is not None and trade_validation not in ['Valid', 'Invalid']:
+            return jsonify({
+                'success': False,
+                'error': 'trade_validation must be "Valid", "Invalid", or null'
+            }), 400
+
+        # Check if trade exists and get account/instrument for rebuild
+        with FuturesDB() as db:
+            db.cursor.execute("SELECT account, instrument FROM trades WHERE id = ?", (trade_id,))
+            trade = db.cursor.fetchone()
+
+            if not trade:
+                return jsonify({
+                    'success': False,
+                    'error': 'Trade not found'
+                }), 404
+
+            account = trade[0]
+            instrument = trade[1]
+
+            # Update trade_validation column
+            db.cursor.execute("""
+                UPDATE trades
+                SET trade_validation = ?
+                WHERE id = ?
+            """, (trade_validation, trade_id))
+
+            db.conn.commit()
+
+        # Trigger position rebuild for affected account/instrument
+        try:
+            with PositionService() as pos_service:
+                result = pos_service.rebuild_positions_for_account_instrument(account, instrument)
+                logger.info(f"Rebuilt positions for {account}/{instrument} after trade {trade_id} validation update")
+        except Exception as rebuild_error:
+            logger.error(f"Error rebuilding positions after trade validation update: {rebuild_error}")
+            # Don't fail the request if rebuild fails
+            result = {'error': str(rebuild_error)}
+
+        return jsonify({
+            'success': True,
+            'trade_id': trade_id,
+            'trade_validation': trade_validation,
+            'rebuild_result': result
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating trade validation: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@positions_bp.route('/api/statistics/by-validation')
+def api_statistics_by_validation():
+    """
+    GET /api/statistics/by-validation
+
+    Get performance metrics grouped by validation status.
+
+    Returns:
+        JSON response with statistics for each validation category:
+        - Valid: Positions marked as valid trades
+        - Invalid: Positions marked as invalid trades
+        - Mixed: Positions with mixed validation
+        - Unreviewed: Positions with no validation data
+
+        Each category includes:
+        - total_trades: Number of positions
+        - win_rate: Percentage of winning positions
+        - avg_pnl: Average P&L per position
+        - total_pnl: Total P&L for all positions
+    """
+    try:
+        with PositionService() as pos_service:
+            # Query positions grouped by validation_status
+            pos_service.cursor.execute("""
+                SELECT
+                    COALESCE(validation_status, 'Unreviewed') as category,
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN total_dollars_pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    AVG(total_dollars_pnl) as avg_pnl,
+                    SUM(total_dollars_pnl) as total_pnl
+                FROM positions
+                GROUP BY validation_status
+            """)
+
+            results = pos_service.cursor.fetchall()
+
+            # Build statistics dictionary
+            statistics = {}
+            for row in results:
+                category = row[0]
+                total_trades = row[1]
+                winning_trades = row[2]
+                avg_pnl = row[3] or 0.0
+                total_pnl = row[4] or 0.0
+
+                # Calculate win rate
+                win_rate = (winning_trades / total_trades * 100.0) if total_trades > 0 else 0.0
+
+                statistics[category] = {
+                    'total_trades': total_trades,
+                    'win_rate': round(win_rate, 2),
+                    'avg_pnl': round(avg_pnl, 2),
+                    'total_pnl': round(total_pnl, 2)
+                }
+
+        return jsonify({
+            'success': True,
+            'statistics': statistics
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting statistics by validation: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

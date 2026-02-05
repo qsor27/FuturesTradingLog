@@ -15,12 +15,12 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .header-buttons {
             display: flex;
             gap: 10px;
         }
-        
+
         .position-status {
             padding: 4px 8px;
             border-radius: 4px;
@@ -71,72 +71,72 @@
             margin-bottom: 20px;
             border: 1px solid #404040;
         }
-        
+
         .management-actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
             margin-top: 15px;
         }
-        
+
         .action-group {
             background: #1f1f1f;
             padding: 15px;
             border-radius: 6px;
             border: 1px solid #404040;
         }
-        
+
         .action-group h4 {
             margin: 0 0 8px 0;
             color: #e5e5e5;
             font-size: 14px;
         }
-        
+
         .action-group p {
             margin: 0 0 12px 0;
             color: #9ca3af;
             font-size: 12px;
         }
-        
+
         @media (max-width: 768px) {
             .management-actions {
                 grid-template-columns: 1fr;
             }
         }
-        
+
         /* Header styling */
         .header {
             background-color: #1f1f1f;
             color: #e5e5e5;
             border-bottom: 1px solid #404040;
         }
-        
+
         /* Table styling */
         .table-container {
             background-color: #1f1f1f;
             border: 1px solid #404040;
             border-radius: 8px;
         }
-        
+
         .data-table {
             background-color: #1f1f1f;
             color: #e5e5e5;
         }
-        
+
         .data-table th {
             background-color: #2a2a2a;
             color: #e5e5e5;
             border-bottom: 1px solid #404040;
         }
-        
+
         .data-table td {
             border-bottom: 1px solid #333333;
         }
-        
+
         .data-table tr:hover {
             background-color: #333333;
         }
-        
+
         /* Filters section */
         .filters-section {
             background-color: #2a2a2a;
@@ -145,46 +145,46 @@
             padding: 10px;
             margin-bottom: 20px;
         }
-        
+
         .compact-filters .filters-row {
             display: flex;
             align-items: end;
             gap: 12px;
             flex-wrap: wrap;
         }
-        
+
         .compact-filters .filter-group {
             display: flex;
             flex-direction: column;
             min-width: 100px;
         }
-        
+
         /* Validation status styling */
         .validation-healthy {
             color: #4ade80 !important;
         }
-        
+
         .validation-warning {
             color: #fbbf24 !important;
         }
-        
+
         .validation-error {
             color: #f87171 !important;
         }
-        
+
         .validation-loading {
             color: #9ca3af !important;
         }
-        
+
         #validation-status-card {
             cursor: pointer;
             transition: background-color 0.2s ease;
         }
-        
+
         #validation-status-card:hover {
             background-color: #3a3a3a;
         }
-        
+
         .validation-modal {
             display: none;
             position: fixed;
@@ -195,7 +195,7 @@
             height: 100%;
             background-color: rgba(0,0,0,0.7);
         }
-        
+
         .validation-modal-content {
             background-color: #2a2a2a;
             margin: 5% auto;
@@ -208,7 +208,7 @@
             overflow-y: auto;
             color: #e5e5e5;
         }
-        
+
         .validation-modal-header {
             display: flex;
             justify-content: space-between;
@@ -217,24 +217,24 @@
             border-bottom: 1px solid #444;
             padding-bottom: 10px;
         }
-        
+
         .validation-close {
             color: #aaa;
             font-size: 28px;
             font-weight: bold;
             cursor: pointer;
         }
-        
+
         .validation-close:hover {
             color: #fff;
         }
-        
+
         .compact-filters .filter-group label {
             font-size: 11px;
             margin-bottom: 3px;
             color: #9ca3af;
         }
-        
+
         .compact-filters select {
             background-color: #1f1f1f;
             color: #e5e5e5;
@@ -244,59 +244,59 @@
             border-radius: 4px;
             min-width: 80px;
         }
-        
+
         .compact-filters .filter-buttons {
             display: flex;
             gap: 6px;
             margin-top: 14px;
         }
-        
+
         .btn-compact {
             padding: 4px 8px;
             font-size: 12px;
             border-radius: 4px;
         }
-        
+
         .filters-form select,
         .filters-form input {
             background-color: #1f1f1f;
             color: #e5e5e5;
             border: 1px solid #404040;
         }
-        
+
         /* Button styling */
         .btn {
             background-color: #404040;
             color: #e5e5e5;
             border: 1px solid #606060;
         }
-        
+
         .btn:hover {
             background-color: #505050;
         }
-        
+
         .btn-secondary {
             background-color: #2a2a2a;
             color: #9ca3af;
         }
-        
+
         .btn-danger {
             background-color: #dc2626;
             color: #ffffff;
             border: 1px solid #b91c1c;
         }
-        
+
         .btn-danger:hover {
             background-color: #b91c1c;
         }
-        
+
         .btn-danger:disabled {
             background-color: #4a1a1a;
             color: #6b7280;
             border: 1px solid #374151;
             cursor: not-allowed;
         }
-        
+
         /* Pagination */
         .pagination {
             background-color: #2a2a2a;
@@ -304,38 +304,38 @@
             padding: 15px;
             border: 1px solid #404040;
         }
-        
+
         .page-info {
             color: #9ca3af;
         }
-        
+
         /* Additional dark mode styling */
         h1, h3 {
             color: #e5e5e5;
         }
-        
+
         p {
             color: #d1d5db;
         }
-        
+
         label {
             color: #d1d5db;
         }
-        
+
         /* Checkbox styling for dark mode */
         input[type="checkbox"] {
             accent-color: #4ade80;
             width: 16px;
             height: 16px;
         }
-        
+
         .bulk-actions {
             background-color: #2a2a2a;
             padding: 15px;
             border-radius: 8px;
             border: 1px solid #404040;
         }
-        
+
         /* Validation notification styling */
         .validation-notification {
             background-color: #2a1a1a;
@@ -346,21 +346,21 @@
             display: none;
             animation: slideDown 0.3s ease-out;
         }
-        
+
         .validation-notification.show {
             display: block;
         }
-        
+
         .validation-notification.warning {
             background-color: #2a2a1a;
             border-left-color: #fbbf24;
         }
-        
+
         .validation-notification.success {
             background-color: #1a2a1a;
             border-left-color: #4ade80;
         }
-        
+
         @keyframes slideDown {
             from {
                 opacity: 0;
@@ -494,6 +494,18 @@
                     </select>
                 </div>
 
+                <!-- Task 9.2: Add validation status filter dropdown -->
+                <div class="filter-group">
+                    <label for="validation_status">Validation:</label>
+                    <select name="validation_status" id="validation_status">
+                        <option value="">All</option>
+                        <option value="valid" {{ 'selected' if selected_validation == 'valid' }}>Valid</option>
+                        <option value="invalid" {{ 'selected' if selected_validation == 'invalid' }}>Invalid</option>
+                        <option value="mixed" {{ 'selected' if selected_validation == 'mixed' }}>Mixed</option>
+                        <option value="null" {{ 'selected' if selected_validation == 'null' or selected_validation == 'unreviewed' }}>Unreviewed</option>
+                    </select>
+                </div>
+
                 <div class="filter-group">
                     <label for="sort_by">Sort:</label>
                     <select name="sort_by" id="sort_by">
@@ -549,6 +561,7 @@
                     <th>Commission</th>
                     <th>Net P&L</th>
                     <th>Executions</th>
+                    <th>Validation</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -588,6 +601,11 @@
                         ${{ "%.2f"|format((position.total_dollars_pnl or 0) - (position.total_commission or 0)) }}
                     </td>
                     <td>{{ position.execution_count }}</td>
+                    <!-- Task 9.4: Add validation badge to positions table rows -->
+                    <td>
+                        {% set validation_status = position.validation_status %}
+                        {% include 'components/validation_badge.html' %}
+                    </td>
                     <td>
                         <a href="{{ url_for('positions.position_detail', position_id=position.id) }}" class="btn btn-small">View Details</a>
                     </td>
@@ -601,16 +619,16 @@
     {% if total_pages > 1 %}
     <div class="pagination">
         {% if current_page > 1 %}
-            <a href="{{ url_for('positions.positions_dashboard', page=current_page-1, page_size=page_size, sort_by=sort_by, sort_order=sort_order, account=selected_account, instrument=selected_instrument, status=selected_status) }}" 
+            <a href="{{ url_for('positions.positions_dashboard', page=current_page-1, page_size=page_size, sort_by=sort_by, sort_order=sort_order, account=selected_account, instrument=selected_instrument, status=selected_status, validation_status=selected_validation) }}"
                class="btn btn-secondary">Previous</a>
         {% endif %}
-        
+
         <span class="page-info">
             Page {{ current_page }} of {{ total_pages }} ({{ total_count }} positions)
         </span>
-        
+
         {% if current_page < total_pages %}
-            <a href="{{ url_for('positions.positions_dashboard', page=current_page+1, page_size=page_size, sort_by=sort_by, sort_order=sort_order, account=selected_account, instrument=selected_instrument, status=selected_status) }}" 
+            <a href="{{ url_for('positions.positions_dashboard', page=current_page+1, page_size=page_size, sort_by=sort_by, sort_order=sort_order, account=selected_account, instrument=selected_instrument, status=selected_status, validation_status=selected_validation) }}"
                class="btn btn-secondary">Next</a>
         {% endif %}
     </div>
@@ -622,11 +640,11 @@
         function toggleSelectAll() {
             const selectAll = document.getElementById('selectAll');
             const checkboxes = document.querySelectorAll('.position-checkbox');
-            
+
             checkboxes.forEach(checkbox => {
                 checkbox.checked = selectAll.checked;
             });
-            
+
             updateDeleteButton();
         }
 
@@ -634,11 +652,11 @@
             const checkboxes = document.querySelectorAll('.position-checkbox:checked');
             const deleteBtn = document.getElementById('deleteSelectedBtn');
             const countSpan = document.getElementById('selectedCount');
-            
+
             const count = checkboxes.length;
             deleteBtn.disabled = count === 0;
             countSpan.textContent = `${count} position${count !== 1 ? 's' : ''} selected`;
-            
+
             // Update select all checkbox state
             const allCheckboxes = document.querySelectorAll('.position-checkbox');
             const selectAll = document.getElementById('selectAll');
@@ -657,22 +675,22 @@
         function deleteSelectedPositions() {
             const checkboxes = document.querySelectorAll('.position-checkbox:checked');
             const positionIds = Array.from(checkboxes).map(cb => cb.value);
-            
+
             if (positionIds.length === 0) {
                 alert('No positions selected for deletion.');
                 return;
             }
-            
+
             const confirmation = confirm(`Are you sure you want to delete ${positionIds.length} position${positionIds.length !== 1 ? 's' : ''}? This action cannot be undone.`);
-            
+
             if (!confirmation) {
                 return;
             }
-            
+
             const deleteBtn = document.getElementById('deleteSelectedBtn');
             deleteBtn.disabled = true;
             deleteBtn.textContent = 'Deleting...';
-            
+
             fetch('{{ url_for("positions.delete_positions") }}', {
                 method: 'POST',
                 headers: {
@@ -699,7 +717,7 @@
                 deleteBtn.textContent = 'Delete Selected Positions';
             });
         }
-        
+
         // Validation Status Management
         class ValidationStatusManager {
             constructor() {
@@ -709,16 +727,16 @@
                 this.modal = null;
                 this.init();
             }
-            
+
             init() {
                 this.createModal();
                 this.loadValidationStatus();
                 this.statusCard.addEventListener('click', () => this.showValidationDetails());
-                
+
                 // Refresh validation status every 60 seconds
                 setInterval(() => this.loadValidationStatus(), 60000);
             }
-            
+
             createModal() {
                 this.modal = document.createElement('div');
                 this.modal.className = 'validation-modal';
@@ -736,19 +754,19 @@
                     </div>
                 `;
                 document.body.appendChild(this.modal);
-                
+
                 // Close modal handlers
                 this.modal.querySelector('.validation-close').addEventListener('click', () => this.hideModal());
                 this.modal.addEventListener('click', (e) => {
                     if (e.target === this.modal) this.hideModal();
                 });
             }
-            
+
             async loadValidationStatus() {
                 try {
                     const response = await fetch('/api/validation/summary');
                     const data = await response.json();
-                    
+
                     if (data.success) {
                         this.updateStatusDisplay(data.summary);
                     } else {
@@ -759,22 +777,22 @@
                     console.error('Validation status error:', error);
                 }
             }
-            
+
             updateStatusDisplay(summary) {
                 const hasIssues = summary.has_issues;
                 const overlaps = summary.overlaps_found || 0;
                 const violations = summary.boundary_violations || 0;
-                
+
                 // Check if status changed from previous check
                 const previousStatus = this.lastStatus;
                 this.lastStatus = { hasIssues, overlaps, violations };
-                
+
                 // Update status icon and color
                 if (!hasIssues) {
                     this.statusValue.innerHTML = '<i class="fas fa-check-circle"></i>';
                     this.statusValue.className = 'stat-value validation-healthy';
                     this.statusDetails.textContent = 'All positions valid';
-                    
+
                     // Show success notification if issues were resolved
                     if (previousStatus && previousStatus.hasIssues && !hasIssues) {
                         this.showNotification('Issues Resolved', 'All position validation issues have been resolved.', 'success');
@@ -783,10 +801,10 @@
                     this.statusValue.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
                     this.statusValue.className = 'stat-value validation-error';
                     this.statusDetails.textContent = `${overlaps + violations} issues found`;
-                    
+
                     // Show error notification if new issues detected
                     if (!previousStatus || (!previousStatus.hasIssues && hasIssues)) {
-                        this.showNotification('Validation Issues Detected', 
+                        this.showNotification('Validation Issues Detected',
                             `Found ${overlaps} overlaps and ${violations} boundary violations. Click the validation card for details.`, 'error');
                     }
                 } else {
@@ -794,32 +812,32 @@
                     this.statusValue.className = 'stat-value validation-warning';
                     this.statusDetails.textContent = 'Minor warnings';
                 }
-                
+
                 // Update tooltip
                 this.statusCard.title = `Click for details - Last checked: ${new Date().toLocaleTimeString()}`;
             }
-            
+
             showNotification(title, message, type = 'error') {
                 const notification = document.getElementById('validation-notification');
                 const titleEl = document.getElementById('notification-title');
                 const messageEl = document.getElementById('notification-message');
-                
+
                 titleEl.textContent = title;
                 messageEl.textContent = message;
-                
+
                 // Reset classes
                 notification.className = 'validation-notification';
-                
+
                 // Add appropriate class
                 if (type === 'warning') {
                     notification.classList.add('warning');
                 } else if (type === 'success') {
                     notification.classList.add('success');
                 }
-                
+
                 // Show notification
                 notification.classList.add('show');
-                
+
                 // Auto-hide after 10 seconds
                 setTimeout(() => {
                     if (notification.classList.contains('show')) {
@@ -827,34 +845,34 @@
                     }
                 }, 10000);
             }
-            
+
             showError(message) {
                 this.statusValue.innerHTML = '<i class="fas fa-times-circle"></i>';
                 this.statusValue.className = 'stat-value validation-error';
                 this.statusDetails.textContent = message;
             }
-            
+
             async showValidationDetails() {
                 this.modal.style.display = 'block';
                 const modalBody = document.getElementById('validation-modal-body');
-                
+
                 // Show loading
                 modalBody.innerHTML = `
                     <div style="text-align: center; color: #999; padding: 20px;">
                         <i class="fas fa-spinner fa-spin"></i> Loading detailed validation report...
                     </div>
                 `;
-                
+
                 try {
                     // Load detailed validation data
                     const [summaryRes, analysisRes] = await Promise.all([
                         fetch('/api/validation/summary'),
                         fetch('/api/validation/current-positions')
                     ]);
-                    
+
                     const summaryData = await summaryRes.json();
                     const analysisData = await analysisRes.json();
-                    
+
                     if (summaryData.success && analysisData.success) {
                         this.renderValidationDetails(summaryData, analysisData);
                     } else {
@@ -865,16 +883,16 @@
                     console.error('Validation details error:', error);
                 }
             }
-            
+
             renderValidationDetails(summaryData, analysisData) {
                 const summary = summaryData.summary;
                 const analysis = analysisData.analysis;
                 const modalBody = document.getElementById('validation-modal-body');
-                
-                const statusIcon = summary.has_issues ? 
+
+                const statusIcon = summary.has_issues ?
                     '<i class="fas fa-exclamation-triangle" style="color: #f87171;"></i>' :
                     '<i class="fas fa-check-circle" style="color: #4ade80;"></i>';
-                
+
                 modalBody.innerHTML = `
                     <div style="margin-bottom: 20px;">
                         <h3>${statusIcon} Validation Summary</h3>
@@ -899,7 +917,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     ${summary.has_issues ? `
                         <div style="margin-bottom: 20px;">
                             <h4 style="color: #f87171;">Issues Detected</h4>
@@ -915,7 +933,7 @@
                             </div>
                         </div>
                     `}
-                    
+
                     <div style="margin-top: 20px; text-align: center;">
                         <button onclick="validationManager.triggerRebuild()" class="btn" style="margin-right: 10px;">
                             <i class="fas fa-sync"></i> Rebuild with Validation
@@ -924,36 +942,36 @@
                             <i class="fas fa-refresh"></i> Refresh Status
                         </button>
                     </div>
-                    
+
                     <div style="margin-top: 15px; text-align: center; color: #999; font-size: 12px;">
                         Last checked: ${new Date(summary.validation_timestamp).toLocaleString()}
                     </div>
                 `;
             }
-            
+
             hideModal() {
                 this.modal.style.display = 'none';
             }
-            
+
             async triggerRebuild() {
                 if (confirm('Rebuild all positions with validation? This may take a few moments.')) {
                     this.hideModal();
                     rebuildPositions(); // Use existing rebuild function
                 }
             }
-            
+
             async refreshValidation() {
                 this.hideModal();
                 this.loadValidationStatus();
             }
         }
-        
+
         // Global function to hide validation notifications
         function hideValidationNotification() {
             const notification = document.getElementById('validation-notification');
             notification.classList.remove('show');
         }
-        
+
         // Initialize validation status manager when page loads
         document.addEventListener('DOMContentLoaded', function() {
             window.validationManager = new ValidationStatusManager();

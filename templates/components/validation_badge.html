@@ -1,0 +1,65 @@
+{#
+    Validation Badge Component (Task 9.3)
+
+    Displays a colored badge for trade validation status.
+
+    Parameters:
+        validation_status (str): The validation status ('Valid', 'Invalid', 'Mixed', or None for Unreviewed)
+
+    Color coding:
+        - Green: Valid
+        - Red: Invalid
+        - Yellow: Mixed
+        - Gray: Unreviewed (None/NULL)
+
+    Usage:
+        {% set validation_status = position.validation_status %}
+        {% include 'components/validation_badge.html' %}
+#}
+
+{% set badge_text = validation_status if validation_status else 'Unreviewed' %}
+{% set badge_class = {
+    'Valid': 'badge-valid',
+    'Invalid': 'badge-invalid',
+    'Mixed': 'badge-mixed',
+    None: 'badge-unreviewed'
+}.get(validation_status, 'badge-unreviewed') %}
+
+<span class="validation-badge {{ badge_class }}">{{ badge_text }}</span>
+
+<style>
+    .validation-badge {
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
+        white-space: nowrap;
+    }
+
+    .badge-valid {
+        background-color: #1a4a1a;
+        color: #80ff80;
+        border: 1px solid #2a5a2a;
+    }
+
+    .badge-invalid {
+        background-color: #4a1a1a;
+        color: #ff8080;
+        border: 1px solid #5a2a2a;
+    }
+
+    .badge-mixed {
+        background-color: #4a4a00;
+        color: #ffff80;
+        border: 1px solid #5a5a00;
+    }
+
+    .badge-unreviewed {
+        background-color: #2a2a2a;
+        color: #9ca3af;
+        border: 1px solid #404040;
+    }
+</style>

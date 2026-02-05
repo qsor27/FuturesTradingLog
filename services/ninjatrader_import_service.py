@@ -23,6 +23,12 @@ Task Group 5: Auto-Start Background Watcher Service
 - Polling loop with configurable interval
 - Graceful shutdown support
 - Service status tracking
+
+Task Group 2 (Trade Feedback): CSV Import Enhancement for TradeValidation
+- Handle optional TradeValidation column in CSV files
+- Map TradeValidation values to trade_validation database field
+- Preserve validation data through deduplication
+- Maintain backward compatibility with CSVs lacking TradeValidation column
 """
 
 import os
@@ -50,6 +56,7 @@ class NinjaTraderImportService:
     """
 
     # Required CSV columns from NinjaTrader ExecutionExporter indicator
+    # Note: TradeValidation is optional for backward compatibility (Task 2.2)
     REQUIRED_COLUMNS = [
         'Instrument', 'Action', 'Quantity', 'Price', 'Time', 'ID',
         'E/X', 'Position', 'Order ID', 'Name', 'Commission', 'Rate',
@@ -265,7 +272,7 @@ class NinjaTraderImportService:
         return False
 
     # ========================================================================
-    # CSV Validation and Parsing (Task 2.4)
+    # CSV Validation and Parsing (Task 2.4, Task Group 2.3)
     # ========================================================================
 
     def _validate_csv(self, file_path: Path) -> bool:
@@ -324,6 +331,11 @@ class NinjaTraderImportService:
         """
         Parse CSV file and return DataFrame.
 
+        Task 2.3: Handle optional TradeValidation column
+        - Check if TradeValidation column exists in DataFrame
+        - Log INFO when TradeValidation column detected
+        - Handle missing column gracefully (no error thrown)
+
         Args:
             file_path: Path to CSV file
 
@@ -336,6 +348,13 @@ class NinjaTraderImportService:
             if df.empty:
                 self.logger.info(f"CSV file {file_path.name} is empty")
                 return None
+
+            # Task 2.3: Check if TradeValidation column exists and log
+            if 'TradeValidation' in df.columns:
+                self.logger.info(
+                    f"CSV file {file_path.name} contains TradeValidation column. "
+                    f"Trade validation data will be imported."
+                )
 
             self.logger.debug(f"Parsed {len(df)} rows from {file_path.name}")
             return df
@@ -1173,7 +1192,7 @@ class NinjaTraderImportService:
             return 'Buy'
 
     # ========================================================================
-    # Execution Insertion into Trades Table (Task 4.3)
+    # Execution Insertion into Trades Table (Task 4.3, Task Group 2.4)
     # ========================================================================
 
     def _insert_execution(
@@ -1187,12 +1206,19 @@ class NinjaTraderImportService:
 
         Task 4.3: Map CSV columns to trades table fields
         Task 4.4: Map CSV Action to MarketSide enum correctly
+        Task Group 2.4: Map TradeValidation to trade_validation
 
         Action mapping:
         - Buy -> MarketSide.BUY (entry_price)
         - Sell -> MarketSide.SELL (exit_price)
         - BuyToCover -> MarketSide.BUY_TO_COVER (exit_price)
         - SellShort -> MarketSide.SELL_SHORT (entry_price)
+
+        TradeValidation mapping:
+        - "Valid" -> 'Valid'
+        - "Invalid" -> 'Invalid'
+        - "" (empty string) -> NULL
+        - Column missing -> NULL
 
         Args:
             row: CSV row data
@@ -1231,6 +1257,19 @@ class NinjaTraderImportService:
             time_str = str(row.get('Time', ''))
             entry_time = self._parse_ninjatrader_timestamp(time_str)
 
+            # Task Group 2.4: Map TradeValidation CSV column to trade_validation field
+            # Handle empty string as NULL, handle missing column as NULL
+            trade_validation = None
+            if 'TradeValidation' in row:
+                validation_value = str(row.get('TradeValidation', '')).strip()
+                if validation_value and not pd.isna(row.get('TradeValidation')):
+                    if validation_value in ('Valid', 'Invalid'):
+                        trade_validation = validation_value
+                        # Task Group 2.4: Log INFO message when validation data imported
+                        self.logger.info(
+                            f"Imported trade validation for execution {row.get('ID', 'unknown')}: {trade_validation}"
+                        )
+
             # Prepare trade data
             trade_data = {
                 'instrument': str(row.get('Instrument', '')),
@@ -1246,7 +1285,8 @@ class NinjaTraderImportService:
                 'points_gain_loss': None,
                 'dollars_gain_loss': None,
                 'source_file': source_file,
-                'import_batch_id': import_batch_id
+                'import_batch_id': import_batch_id,
+                'trade_validation': trade_validation
             }
 
             # Insert into database (use atomic transaction)
@@ -1270,8 +1310,8 @@ class NinjaTraderImportService:
                     instrument, account, side_of_market, quantity,
                     entry_price, exit_price, entry_time, exit_time,
                     entry_execution_id, commission, points_gain_loss, dollars_gain_loss,
-                    source_file, import_batch_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_file, import_batch_id, trade_validation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade_data['instrument'],
                 trade_data['account'],
@@ -1286,7 +1326,8 @@ class NinjaTraderImportService:
                 trade_data['points_gain_loss'],
                 trade_data['dollars_gain_loss'],
                 trade_data['source_file'],
-                trade_data['import_batch_id']
+                trade_data['import_batch_id'],
+                trade_data['trade_validation']
             ))
 
             # Check if insert actually happened (rowcount=0 means duplicate was ignored by UNIQUE constraint)

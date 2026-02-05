@@ -252,6 +252,22 @@
                 <div class="summary-label">Total Executions</div>
                 <div class="summary-value">{{ position.execution_count }}</div>
             </div>
+
+            <!-- Task 9.5: Add validation status to position detail view -->
+            <div class="summary-card">
+                <div class="summary-label">Trade Validation</div>
+                <div class="summary-value" style="font-size: 16px;">
+                    {% set validation_status = position.validation_status %}
+                    {% include 'components/validation_badge.html' %}
+                </div>
+                <div style="font-size: 11px; color: #9ca3af; margin-top: 8px;">
+                    {% if position.validation_status %}
+                        Aggregated from execution-level validation
+                    {% else %}
+                        Not yet reviewed
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         <!-- Additional Metrics for Closed Positions -->
@@ -396,6 +412,8 @@
                         <th>Entry Price</th>
                         <th>Exit Price</th>
                         <th>Commission</th>
+                        <!-- Task 9.6: Show per-execution validation in executions breakdown -->
+                        <th>Validation</th>
                         <th>Execution ID</th>
                     </tr>
                 </thead>
@@ -438,6 +456,11 @@
                             {% endif %}
                         </td>
                         <td>${{ "%.2f"|format(execution.commission or 0) }}</td>
+                        <!-- Task 9.6: Display per-execution validation badge -->
+                        <td>
+                            {% set validation_status = execution.trade_validation %}
+                            {% include 'components/validation_badge.html' %}
+                        </td>
                         <td style="font-family: monospace; font-size: 11px;">{{ execution.entry_execution_id }}</td>
                     </tr>
                     {% endfor %}

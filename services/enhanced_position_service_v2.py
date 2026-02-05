@@ -81,6 +81,7 @@ class EnhancedPositionServiceV2:
                 execution_count INTEGER DEFAULT 0,
                 risk_reward_ratio REAL,
                 max_quantity INTEGER,  -- Peak position size
+                validation_status TEXT CHECK (validation_status IS NULL OR validation_status IN ('Valid', 'Invalid', 'Mixed')),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -93,6 +94,7 @@ class EnhancedPositionServiceV2:
             ("idx_positions_entry_time", "CREATE INDEX IF NOT EXISTS idx_positions_entry_time ON positions(entry_time)"),
             ("idx_positions_status", "CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(position_status)"),
             ("idx_positions_account_instrument", "CREATE INDEX IF NOT EXISTS idx_positions_account_instrument ON positions(account, instrument)"),
+            ("idx_positions_validation_status", "CREATE INDEX IF NOT EXISTS idx_positions_validation_status ON positions(validation_status)"),
         ]
 
         for index_name, create_sql in indexes:
@@ -409,17 +411,67 @@ class EnhancedPositionServiceV2:
 
         return positions_with_trades
 
+    def _aggregate_validation_status(self, executions: List[Dict]) -> Optional[str]:
+        """
+        Aggregate validation status from execution records.
+
+        Logic:
+        - If all executions are 'Valid' -> return 'Valid'
+        - If all executions are 'Invalid' -> return 'Invalid'
+        - If mixed 'Valid' and 'Invalid' -> return 'Mixed'
+        - If all NULL or empty -> return NULL
+
+        Args:
+            executions: List of execution dictionaries with trade_validation field
+
+        Returns:
+            Aggregated validation status: 'Valid', 'Invalid', 'Mixed', or None
+        """
+        if not executions:
+            return None
+
+        # Collect all non-NULL validation values
+        validation_values = set()
+        for execution in executions:
+            validation = execution.get('trade_validation')
+            if validation is not None:
+                validation_values.add(validation)
+
+        # If no validation data exists, return NULL
+        if not validation_values:
+            return None
+
+        # If only one unique value, return it
+        if len(validation_values) == 1:
+            return list(validation_values)[0]
+
+        # If multiple different values, return 'Mixed'
+        return 'Mixed'
+
     def _save_position_to_db(self, position, trade_ids=None) -> Optional[int]:
-        """Save a Position domain object to the database with trade mappings"""
+        """Save a Position domain object to the database with trade mappings and validation status"""
         try:
+            # Query trade validation data for this position's executions
+            validation_status = None
+            if trade_ids:
+                placeholders = ','.join('?' * len(trade_ids))
+                self.cursor.execute(f"""
+                    SELECT trade_validation FROM trades
+                    WHERE id IN ({placeholders})
+                """, trade_ids)
+                executions = [{'trade_validation': row[0]} for row in self.cursor.fetchall()]
+                validation_status = self._aggregate_validation_status(executions)
+                logger.info(f"Calculated validation_status={validation_status} for position with {len(executions)} executions")
+
             # Insert position record
             self.cursor.execute("""
                 INSERT INTO positions (
                     instrument, account, position_type, entry_time, exit_time,
                     total_quantity, average_entry_price, average_exit_price,
                     total_points_pnl, total_dollars_pnl, total_commission,
-                    position_status, execution_count, max_quantity, risk_reward_ratio
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    position_status, execution_count, max_quantity, risk_reward_ratio,
+                    validation_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 position.instrument,
                 position.account,
@@ -435,7 +487,8 @@ class EnhancedPositionServiceV2:
                 position.position_status.value,  # Convert enum to string
                 position.execution_count,
                 position.max_quantity,
-                position.risk_reward_ratio
+                position.risk_reward_ratio,
+                validation_status
             ))
 
             position_id = self.cursor.lastrowid
@@ -494,14 +547,17 @@ class EnhancedPositionServiceV2:
         if dollars_pnl is None:
             dollars_pnl = points_pnl * trade['quantity']
 
+        # Get validation status from trade
+        validation_status = trade.get('trade_validation')
+
         # Insert position record
         self.cursor.execute("""
             INSERT INTO positions (
                 instrument, account, position_type, entry_time, exit_time,
                 total_quantity, average_entry_price, average_exit_price,
                 total_points_pnl, total_dollars_pnl, total_commission,
-                position_status, execution_count, max_quantity
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                position_status, execution_count, max_quantity, validation_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trade['instrument'],
             trade['account'],
@@ -516,7 +572,8 @@ class EnhancedPositionServiceV2:
             trade.get('commission', 0),
             'closed',
             1,  # Single trade = 1 execution
-            trade['quantity']  # Max quantity is same as total for single trades
+            trade['quantity'],  # Max quantity is same as total for single trades
+            validation_status
         ))
 
         position_id = self.cursor.lastrowid
