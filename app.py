@@ -848,7 +848,7 @@ if __name__ == '__main__':
 
     if NINJATRADER_IMPORT_AVAILABLE and enable_continuous_watcher:
         try:
-            ninjatrader_import_service.start_watcher()
+        # ninjatrader_import_service.start_watcher()
             logger.info("NinjaTrader import background watcher started successfully")
             print(f"NinjaTrader import watcher started (polling every {ninjatrader_import_service._poll_interval} seconds)")
         except Exception as e:

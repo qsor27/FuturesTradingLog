@@ -17,9 +17,9 @@
 services:
   web:
     # Build from local Dockerfile for development
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
     # Use the pre-built image from GitHub Container Registry
     image: ghcr.io/qsor27/futurestradinglog:latest
     container_name: futurestradinglog

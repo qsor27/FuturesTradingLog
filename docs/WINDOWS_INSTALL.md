@@ -12,11 +12,12 @@ Complete guide for installing Futures Trading Log directly on Windows without Do
 4. [File Paths & Directory Structure](#file-paths--directory-structure)
 5. [Windows Service Setup](#windows-service-setup)
 6. [Automatic Updates](#automatic-updates)
-7. [Health Monitoring](#health-monitoring)
-8. [Uninstall](#uninstall)
-9. [Running Without Redis](#running-without-redis)
-10. [Troubleshooting](#troubleshooting)
-11. [Quick Reference](#quick-reference)
+7. [Manual Updates](#manual-updates)
+8. [Health Monitoring](#health-monitoring)
+9. [Uninstall](#uninstall)
+10. [Running Without Redis](#running-without-redis)
+11. [Troubleshooting](#troubleshooting)
+12. [Quick Reference](#quick-reference)
 
 ---
 
@@ -542,6 +543,142 @@ taskschd.msc
 
 ---
 
+## Manual Updates
+
+Interactive, user-initiated updates with version checking and rollback capability. Complements the scheduled auto-update with on-demand control.
+
+### Quick Version Check
+
+Check if an update is available without admin rights:
+
+```powershell
+cd C:\Program Files\FuturesTradingLog\scripts
+.\update.ps1 -Check
+```
+
+Output:
+```
+Current Version: 1.0.0
+Latest Version:  1.1.0 (released 2025-01-15)
+
+Update available!
+Run '.\update.ps1' to update interactively.
+```
+
+### Interactive Update
+
+Update with prompts and release notes review (requires admin):
+
+```powershell
+# Run as Administrator
+cd C:\Program Files\FuturesTradingLog\scripts
+.\update.ps1
+```
+
+The script will:
+1. Show current vs latest version
+2. Display release notes/changelog
+3. Ask for confirmation
+4. Create backup before updating
+5. Stop service, apply update, restart service
+6. Verify application health
+
+### Non-Interactive Update
+
+Update without prompts (for scripting):
+
+```powershell
+# Run as Administrator
+.\update.ps1 -Yes
+```
+
+### Update to Specific Version
+
+Update to a particular release:
+
+```powershell
+# Run as Administrator
+.\update.ps1 -Version v1.2.3
+```
+
+### Rollback to Previous Version
+
+If an update causes issues, rollback to a previous version:
+
+```powershell
+# Run as Administrator
+.\update.ps1 -Rollback
+```
+
+The script will:
+1. List available backups with versions and dates
+2. Let you select which backup to restore
+3. Restore files from backup
+4. Checkout corresponding git tag
+5. Restart service and verify health
+
+### View Available Backups
+
+```powershell
+.\update.ps1 -ListBackups
+```
+
+### View Update History
+
+```powershell
+.\update.ps1 -History
+```
+
+Shows recent update attempts with status (Success/Failed/Rollback).
+
+### Manual vs Automatic Updates
+
+| Aspect | Manual (`update.ps1`) | Automatic (`windows-auto-update.ps1`) |
+|--------|----------------------|--------------------------------------|
+| **Trigger** | User-initiated | Scheduled Task (3 AM daily) |
+| **Interaction** | Interactive prompts | None (unattended) |
+| **Release Notes** | Displayed before update | Not shown |
+| **Rollback** | Built-in command | Not supported |
+| **Admin Required** | Yes (for update/rollback) | Yes |
+| **Version Check** | Works without admin | Requires admin |
+
+### Update Features
+
+- **Automatic Backups**: Creates timestamped backup before every update
+- **Health Verification**: Checks application health after update
+- **Version History**: Maintains log of all update attempts
+- **Rollback Support**: Restore from any available backup
+- **Release Notes**: View changelog before applying updates
+- **Safety**: Preserves data directory (database, logs, config)
+
+### Backup Location
+
+Backups are stored at:
+```
+C:\ProgramData\FuturesTradingLog\backups\
+├── v1.0.0_20250119_143022\
+├── v0.9.5_20250110_091500\
+└── ...
+```
+
+By default, the 5 most recent backups are kept. Older backups are automatically removed.
+
+### Update History Log
+
+Update history is logged to:
+```
+C:\ProgramData\FuturesTradingLog\logs\update-history.log
+```
+
+Example log entries:
+```
+2025-01-19 14:30:22 | Success  | v1.0.0 -> v1.1.0
+2025-01-10 09:15:00 | Success  | v0.9.5 -> v1.0.0
+2025-01-01 12:00:00 | Rollback | v1.0.0 -> v0.9.5
+```
+
+---
+
 ## Health Monitoring
 
 Equivalent to Docker's HEALTHCHECK functionality.
@@ -845,8 +982,14 @@ curl http://localhost:5000/health/detailed
 | Service status | `Get-Service FuturesTradingLog` |
 | Health check | `curl http://localhost:5000/health` |
 | View logs | `Get-Content "{DataPath}\logs\app.log" -Tail 50` |
-| Check for updates | `.\scripts\windows-auto-update.ps1 -DryRun` |
-| Apply update | `.\scripts\windows-auto-update.ps1` |
+| **Updates** | |
+| Check for updates (manual) | `.\scripts\update.ps1 -Check` |
+| Update interactively | `.\scripts\update.ps1` |
+| Update to specific version | `.\scripts\update.ps1 -Version v1.2.3` |
+| Rollback to previous version | `.\scripts\update.ps1 -Rollback` |
+| View update history | `.\scripts\update.ps1 -History` |
+| Check for updates (auto) | `.\scripts\windows-auto-update.ps1 -DryRun` |
+| Apply update (auto) | `.\scripts\windows-auto-update.ps1` |
 
 ### URLs
 
@@ -865,7 +1008,8 @@ curl http://localhost:5000/health/detailed
 | `scripts\install-service.ps1` | Install Windows service with NSSM |
 | `scripts\uninstall-service.ps1` | Remove Windows service only |
 | `scripts\uninstall-complete.ps1` | Complete uninstall with data options |
-| `scripts\windows-auto-update.ps1` | Automatic version updates |
+| `scripts\update.ps1` | Interactive manual updates with rollback |
+| `scripts\windows-auto-update.ps1` | Scheduled automatic updates |
 | `scripts\health-check.ps1` | Health monitoring |
 
 ---

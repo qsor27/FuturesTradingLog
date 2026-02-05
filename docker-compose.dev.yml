@@ -26,7 +26,7 @@
 
 services:
   web:
-    # Build locally instead of using pre-built image
+    # Build locally for development
     build:
       context: .
       dockerfile: Dockerfile

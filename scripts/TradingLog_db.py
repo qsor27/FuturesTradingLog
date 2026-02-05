@@ -1579,8 +1579,8 @@ class FuturesDB:
                 INSERT INTO trades (
                     instrument, side_of_market, quantity, entry_price, entry_time,
                     exit_time, exit_price, points_gain_loss, dollars_gain_loss,
-                    commission, account, entry_execution_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    commission, account, entry_execution_id, trade_validation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 str(trade_data.get('instrument', '')),
                 str(trade_data.get('side_of_market', '')),
@@ -1593,7 +1593,8 @@ class FuturesDB:
                 float(trade_data.get('dollars_gain_loss')) if trade_data.get('dollars_gain_loss') is not None else None,
                 float(trade_data.get('commission', 0.0)),
                 str(trade_data.get('account', '')),
-                str(trade_data.get('entry_execution_id', ''))
+                str(trade_data.get('entry_execution_id', '')),
+                trade_data.get('trade_validation', None)  # Add validation field
             ))
             
             self.conn.commit()
