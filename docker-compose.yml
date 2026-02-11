@@ -88,7 +88,7 @@ services:
   celery-worker:
     image: ghcr.io/qsor27/futurestradinglog:latest
     container_name: futurestradinglog-celery-worker
-    command: celery -A celery_app worker --loglevel=info --concurrency=2
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q default,file_processing,gap_filling,position_building,cache_maintenance,validation
     volumes:
       - type: bind
         source: ${DATA_DIR:-./data}
