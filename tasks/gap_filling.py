@@ -490,6 +490,60 @@ def fetch_position_ohlc_data(self, position_id: int, instrument: str,
         raise self.retry(exc=e, countdown=60, max_retries=2)
 
 
+def needs_ohlc_data(instrument: str, start_date, end_date,
+                    timeframe: str = '1m') -> bool:
+    """
+    Check if OHLC data is missing for the given instrument and date range.
+    Checks both the specific contract and continuous contract (root symbol).
+
+    Args:
+        instrument: Trading instrument (e.g., 'MNQ MAR26')
+        start_date: Start of date range (datetime or ISO string)
+        end_date: End of date range (datetime or ISO string)
+        timeframe: Timeframe to check (default '1m')
+
+    Returns:
+        True if data is missing and should be fetched
+    """
+    try:
+        from database_manager import DatabaseManager
+        from utils.instrument_utils import get_root_symbol
+
+        # Parse dates if strings
+        if isinstance(start_date, str):
+            start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        if isinstance(end_date, str):
+            end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+
+        start_ts = int(start_date.timestamp())
+        end_ts = int(end_date.timestamp())
+
+        # Check both specific and continuous contract
+        instruments_to_check = [instrument]
+        root_symbol = get_root_symbol(instrument)
+        if root_symbol != instrument:
+            instruments_to_check.append(root_symbol)
+
+        with DatabaseManager() as db:
+            for inst in instruments_to_check:
+                result = db.cursor.execute(
+                    'SELECT COUNT(*) FROM ohlc_data WHERE instrument = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?',
+                    (inst, timeframe, start_ts, end_ts)
+                ).fetchone()
+
+                if result and result[0] > 0:
+                    logger.debug(f"Found {result[0]} OHLC records for {inst} {timeframe} in range")
+                    return False
+
+        logger.info(f"No OHLC data found for {instrument} (or {root_symbol}) {timeframe} in range {start_date} to {end_date}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error checking OHLC data availability: {e}")
+        # On error, assume data is needed to be safe
+        return True
+
+
 def _detect_gaps_for_range(instrument: str, timeframe: str,
                            start_date: datetime, end_date: datetime) -> List[tuple]:
     """

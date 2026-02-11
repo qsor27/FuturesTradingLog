@@ -1393,3 +1393,28 @@ def get_cache_health_details():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@chart_data_bp.route('/api/positions/<int:position_id>/fetch-ohlc', methods=['POST'])
+def trigger_manual_ohlc_fetch(position_id):
+    """
+    Manual trigger for OHLC data fetch.
+    Allows users to explicitly request data download for a position's chart.
+    """
+    try:
+        from routes.positions import _trigger_position_data_fetch
+
+        logger.info(f"Manual OHLC fetch requested for position {position_id}")
+        _trigger_position_data_fetch([position_id])
+
+        return jsonify({
+            'success': True,
+            'message': 'OHLC data fetch triggered. Refresh page in 30-60 seconds.',
+            'position_id': position_id
+        })
+    except Exception as e:
+        logger.error(f"Manual OHLC fetch failed for position {position_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

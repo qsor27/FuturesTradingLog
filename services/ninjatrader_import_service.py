@@ -1047,8 +1047,10 @@ class NinjaTraderImportService:
                 continue
 
         # Task 4.5: Rebuild positions for affected combinations only
+        all_position_ids = []
         for account, instrument in affected_combinations:
-            self._rebuild_positions_for_account_instrument(account, instrument)
+            result = self._rebuild_positions_for_account_instrument(account, instrument)
+            all_position_ids.extend(result.get('position_ids', []))
 
         self.logger.info(
             f"Processed {file_path.name}: "
@@ -1087,7 +1089,8 @@ class NinjaTraderImportService:
             'file': file_path.name,
             'issues_detected': detected_issues,
             'has_issues': len(detected_issues) > 0,
-            'import_batch_id': import_batch_id
+            'import_batch_id': import_batch_id,
+            'position_ids': all_position_ids
         }
 
     def _detect_execution_issue(self, action: str, prev_qty: int, running_qty: int) -> Optional[str]:
