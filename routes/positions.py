@@ -183,46 +183,10 @@ def calculate_position_chart_date_range(position):
             # Open position: don't add padding to "now"
             chart_end_date = exit_time
 
-        # Fallback logic: Check if we have market data for this date range
-        # If the position is outside available market data (e.g., future dated or data not yet available),
-        # fallback to showing the most recent available data
-        instrument = position.get('instrument')
-        if instrument:
-            try:
-                with FuturesDB() as db:
-                    # Check what OHLC data we actually have for this instrument
-                    db.cursor.execute('''
-                        SELECT MAX(timestamp), MIN(timestamp)
-                        FROM ohlc_data
-                        WHERE instrument = ?
-                    ''', (instrument,))
-
-                    result = db.cursor.fetchone()
-                    if result and result[0]:
-                        latest_data_ts = result[0]
-                        earliest_data_ts = result[1]
-                        latest_data_dt = datetime.fromtimestamp(latest_data_ts, tz=utc_tz)
-                        earliest_data_dt = datetime.fromtimestamp(earliest_data_ts, tz=utc_tz)
-
-                        # If position entry is AFTER latest available data, use fallback
-                        if entry_time > latest_data_dt:
-                            logger.info(f"Position entry ({entry_time}) is after latest market data ({latest_data_dt}). Using fallback range.")
-                            # Show recent available data with smart range based on typical usage
-                            # For minute charts, show last trading day (6.5 hours)
-                            # For hourly/daily, show more context
-                            chart_end_date = latest_data_dt
-                            chart_start_date = max(earliest_data_dt, latest_data_dt - timedelta(hours=8))
-
-                        # If position entry is BEFORE earliest available data, use fallback
-                        elif exit_time < earliest_data_dt:
-                            logger.info(f"Position exit ({exit_time}) is before earliest market data ({earliest_data_dt}). Using fallback range.")
-                            # Show the first 7 days of available data
-                            chart_start_date = earliest_data_dt
-                            chart_end_date = min(datetime.now(utc_tz), earliest_data_dt + timedelta(days=7))
-
-            except Exception as fallback_error:
-                logger.warning(f"Could not check market data availability for fallback: {fallback_error}")
-                # Continue with original date range
+        # NOTE: We no longer fall back to old data ranges when the position's dates
+        # are outside available OHLC data. Instead, we use the position's actual dates
+        # and let the on-demand fetch (in position_detail route) download the missing data.
+        # This ensures the chart always targets the correct date range for the position.
 
         # Return naive UTC datetimes (remove tzinfo for compatibility with existing code)
         return {
