@@ -133,22 +133,34 @@ def rebuild_positions_for_account(self, account: str):
             
             # Save new positions
             positions_created = 0
+            position_ids = []
             for position in positions:
                 if position.account == account:  # Double-check account match
                     position_id = _save_position_to_database(db, position)
                     if position_id:
                         positions_created += 1
+                        position_ids.append(position_id)
                         # Link executions to position
                         _link_executions_to_position(db, position_id, position.executions)
-            
+
             db.commit()
-            
+
             logger.info(f"Position rebuild for {account} completed: {positions_created} positions created")
-            
+
+            # Trigger OHLC data fetch for newly created positions
+            if position_ids:
+                try:
+                    from routes.positions import _trigger_position_data_fetch
+                    _trigger_position_data_fetch(position_ids)
+                    logger.info(f"Triggered OHLC fetch for {len(position_ids)} positions in account {account}")
+                except Exception as e:
+                    logger.warning(f"Failed to trigger OHLC fetch for account {account}: {e}")
+
             return {
                 'status': 'success',
                 'account': account,
                 'positions_created': positions_created,
+                'position_ids': position_ids,
                 'executions_processed': len(raw_executions)
             }
             

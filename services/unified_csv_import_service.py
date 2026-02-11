@@ -941,6 +941,7 @@ class UnifiedCSVImportService:
                     'files_processed': len(processed_files),
                     'trades_imported': len(all_trades),
                     'positions_created': position_result.get('positions_created', 0),
+                    'position_ids': position_result.get('position_ids', []),
                     'message': f'Successfully processed {len(processed_files)} files',
                     'issues_detected': issues_detected,
                     'has_issues': len(issues_detected) > 0
@@ -1079,6 +1080,7 @@ class UnifiedCSVImportService:
                     'success': True,
                     'trades_imported': len(trades),
                     'positions_created': position_result.get('positions_created', 0),
+                    'position_ids': position_result.get('position_ids', []),
                     'message': f'Successfully reprocessed {file_path.name}',
                     'issues_detected': issues_detected,
                     'has_issues': len(issues_detected) > 0

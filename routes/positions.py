@@ -42,19 +42,24 @@ def _trigger_position_data_fetch(position_ids: list):
         with FuturesDB() as db:
             for position_id in position_ids:
                 try:
-                    # Get position info
-                    trade = db.get_trade_by_id(position_id)
-                    if not trade:
+                    # Get position info from positions table
+                    db.cursor.execute(
+                        'SELECT instrument, entry_time, exit_time FROM positions WHERE id = ?',
+                        (position_id,)
+                    )
+                    position = db.cursor.fetchone()
+                    if not position:
+                        logger.warning(f"Position {position_id} not found in positions table")
                         continue
 
-                    instrument = trade.get('instrument')
+                    instrument = position[0]
                     if not instrument:
                         continue
 
                     # Calculate date range with padding
                     # Entry time - 4 hours to exit time + 1 hour
-                    entry_time = trade.get('entry_time')
-                    exit_time = trade.get('exit_time')
+                    entry_time = position[1]
+                    exit_time = position[2]
 
                     if entry_time:
                         if isinstance(entry_time, str):
@@ -426,11 +431,25 @@ def position_detail(position_id):
             logger.error(f"Error getting execution pairs for position {position_id}: {e}")
             execution_pairs = None
 
+    # Check if OHLC data exists for this position's chart, trigger fetch if missing
+    ohlc_fetch_triggered = False
+    if chart_start_date and chart_end_date:
+        try:
+            from tasks.gap_filling import needs_ohlc_data
+            instrument = position.get('instrument')
+            if instrument and needs_ohlc_data(instrument, chart_start_date, chart_end_date):
+                logger.info(f"Position {position_id}: Missing OHLC data for {instrument}, triggering fetch")
+                _trigger_position_data_fetch([position_id])
+                ohlc_fetch_triggered = True
+        except Exception as e:
+            logger.warning(f"Failed to check/trigger OHLC data for position {position_id}: {e}")
+
     return render_template('positions/detail.html',
                          position=position,
                          chart_start_date=chart_start_date,
                          chart_end_date=chart_end_date,
-                         execution_pairs=execution_pairs)
+                         execution_pairs=execution_pairs,
+                         ohlc_fetch_triggered=ohlc_fetch_triggered)
 
 
 @positions_bp.route('/rebuild', methods=['POST'])

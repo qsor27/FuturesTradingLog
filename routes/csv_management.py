@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 csv_management_bp = Blueprint('csv_management', __name__, url_prefix='/api/csv')
 
 
+def _trigger_ohlc_fetch_for_import(result: dict):
+    """Trigger OHLC data fetch for positions created during import."""
+    position_ids = result.get('position_ids', [])
+    if not position_ids:
+        return
+    try:
+        from routes.positions import _trigger_position_data_fetch
+        logger.info(f"Triggering OHLC data fetch for {len(position_ids)} imported positions")
+        _trigger_position_data_fetch(position_ids)
+    except Exception as e:
+        logger.warning(f"Failed to trigger OHLC data fetch for imported positions: {e}")
+
+
 # ========================================================================
 # Task 5.6: Service Status and Health Check Endpoints
 # ========================================================================
@@ -122,6 +135,7 @@ def retry_failed_file(filename: str):
         if data_file.exists():
             logger.info(f"File {filename} found in data folder. Processing...")
             result = ninjatrader_import_service.process_csv_file(data_file)
+            _trigger_ohlc_fetch_for_import(result)
             return jsonify(result)
 
         # Check if file exists in error folder (may have timestamp suffix)
@@ -147,6 +161,7 @@ def retry_failed_file(filename: str):
 
         if result['success']:
             logger.info(f"Successfully reprocessed {filename}: {result.get('executions_imported', 0)} executions imported")
+            _trigger_ohlc_fetch_for_import(result)
         else:
             logger.error(f"Failed to reprocess {filename}: {result.get('error', 'Unknown error')}")
 
@@ -252,6 +267,7 @@ def reprocess_file():
 
         if result['success']:
             logger.info(f"Successfully reprocessed {file_path}")
+            _trigger_ohlc_fetch_for_import(result)
         else:
             logger.error(f"Failed to reprocess {file_path}: {result.get('error')}")
 
@@ -275,6 +291,7 @@ def process_new_files():
 
         if result['success']:
             logger.info(f"Manual processing completed: {result.get('message', 'Success')}")
+            _trigger_ohlc_fetch_for_import(result)
         else:
             logger.error(f"Manual processing failed: {result.get('error')}")
 

@@ -301,7 +301,12 @@
     <div class="chart-section">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h2>Market Context - {{ position.instrument }}</h2>
-            <div class="chart-controls">
+            <div class="chart-controls" style="display: flex; align-items: center; gap: 16px;">
+                <button id="fetch-ohlc-btn" onclick="fetchOhlcData({{ position.id }})"
+                        style="background: #2d5a8e; color: #93c5fd; border: 1px solid #3b82f6; border-radius: 4px; padding: 4px 12px; font-size: 13px; cursor: pointer;"
+                        title="Download market data for this position's chart">
+                    <i class="fas fa-download"></i> Fetch Chart Data
+                </button>
                 <label style="display: flex; align-items: center; color: #e5e5e5; font-size: 14px; cursor: pointer;">
                     <input type="checkbox" id="volumeToggle" style="margin-right: 8px; transform: scale(1.2);">
                     Show Volume
@@ -311,6 +316,15 @@
         <p style="color: #9ca3af; margin-bottom: 20px;">
             OHLC price chart showing market context during position lifecycle
         </p>
+
+        {% if ohlc_fetch_triggered %}
+        <div id="ohlc-fetch-notice" style="background: #1e3a5f; border: 1px solid #2d5a8e; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+            <span style="color: #93c5fd; font-size: 14px;">
+                <i class="fas fa-download"></i> Fetching market data for chart... This may take 30-60 seconds.
+                <a href="javascript:location.reload()" style="color: #60a5fa; margin-left: 8px;">Refresh page</a>
+            </span>
+        </div>
+        {% endif %}
 
         {% set chart_id = 'positionChart' %}
         {% set chart_instrument = position.instrument %}
@@ -566,6 +580,38 @@
                 console.warn('⚠️ Volume toggle element not found');
             }
         });
+
+        // Manual OHLC data fetch
+        window.fetchOhlcData = function(positionId) {
+            const btn = document.getElementById('fetch-ohlc-btn');
+            const origHTML = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+
+            fetch('/api/positions/' + positionId + '/fetch-ohlc', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Fetch started';
+                    btn.style.background = '#1e5631';
+                    btn.style.borderColor = '#22c55e';
+                    // Auto-refresh after 45 seconds
+                    setTimeout(function() { location.reload(); }, 45000);
+                } else {
+                    btn.innerHTML = origHTML;
+                    btn.disabled = false;
+                    alert('Fetch failed: ' + data.error);
+                }
+            })
+            .catch(function(err) {
+                btn.innerHTML = origHTML;
+                btn.disabled = false;
+                alert('Request failed: ' + err);
+            });
+        };
     </script>
 </body>
 </html>
